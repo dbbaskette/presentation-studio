@@ -469,8 +469,10 @@ class ScreenTests(ScriptedPage, PageCase):
         settings.save(replace(settings.load(), brand_repository=ADDRESS))
         keep = upkeep.Upkeep(home_dir=self.base / 'home', root=self.base / 'root',
                              installer=self.base / 'no-installer' / 'install.py')
-        keep.remember_brand(ADDRESS, {'v2026.6.0': {'commit': 'b' * 40},
-                                      'v0.13.1': {'commit': 'c3405eee0aad' + 'a' * 28}})
+        keep.remember_brand(ADDRESS, {
+            'v2026.6.0': {'tag': 'v2026.6.0', 'version': '2026.6.0', 'commit': 'b' * 40},
+            'v0.13.1': {'tag': 'v0.13.1', 'version': '0.13.1',
+                        'commit': 'c3405eee0aad' + 'a' * 28}})
         installed, self.brand = self.brand, None
         try:
             keep.check(repair=False)
