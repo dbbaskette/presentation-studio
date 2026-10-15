@@ -31,7 +31,7 @@ The page stops at each of these and waits for you. Which ones apply depends on h
 1. **Check what you brought** (documents and existing decks). You see the verdict, or the original slides as pictures.
 2. **Research plan and research** (only if you turned research on).
 3. **Outline.** A title, key message and notes for each slide. You can reorder, add and remove slides.
-4. **Look.** One sample slide drawn two or three ways. You pick the one you like.
+4. **Brand.** Your cover, drawn in the brand you chose, so you can see it is the right one. Approve it, or choose another brand or variant and see the cover again. Nothing else is picked here: when the deck is built, each slide is designed on its own from what it says.
 5. **Build.** The whole deck in a slide viewer, plus a contact sheet and notes from the brand check. Redesigns show before and after. Each slide has its own **Ask for changes**.
 6. **Deliver.** A Google Slides deck by default, or a PowerPoint file.
 
@@ -94,7 +94,7 @@ A terminal window opens and the page opens in your browser. It works on this com
 
 **3. Press "New deck"** and choose how you are starting. Fill in the short form. It begins at once.
 
-**4. Decide at each stop.** The page shows what needs you. Approve, or ask for changes in your own words. You can close the page while it works and come back later.
+**4. Decide at each stop.** The page shows what needs you, and what approving does. Approve takes one click. Or ask for changes in your own words. You can close the page while it works and come back later.
 
 **5. Collect your deck.** When it is done, the page shows the Google Slides link or the PowerPoint file. Ask for changes on a finished deck and the sections that draw the slides you name are drawn again (every section when you name none), reviewed, and delivered as a new numbered revision.
 

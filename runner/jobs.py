@@ -46,7 +46,7 @@ LINES = 6               # the last things a worker did that the page is shown
 # The gate each step feeds, so that a step run again for a person's request reads their note.
 FED = {'classify': 'gate:classify', 'inventory': 'gate:classify',
        'research-plan': 'gate:research-plan', 'research': 'gate:research',
-       'extract': 'gate:outline', 'outline': 'gate:outline', 'look': 'gate:look',
+       'extract': 'gate:outline', 'outline': 'gate:outline',
        'patch': 'gate:build', 'build-sections': 'gate:build', 'build-repair': 'gate:build'}
 KEPT = ('Everything kept before this step is still here. Nothing from the tries that failed '
         'was kept.')

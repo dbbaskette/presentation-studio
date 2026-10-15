@@ -44,13 +44,22 @@ class ScratchTests(StudioCase):
         self.decide(root, 'gate:outline')
         self.assertEqual(self.waiting(root), 'gate:look')
         look = self.view(root)['gate']
-        self.assertEqual([option['name'] for option in look['options']],
-                         ['Calm grid', 'Bold rule'])
-        self.assertTrue(self.engine.picture(root, 'look', 1).startswith(b'\x89PNG'))
-        self.assertTrue(self.engine.picture(root, 'look', 'Bold rule').startswith(b'\x89PNG'))
-        self.decide(root, 'gate:look', extra={'choice': 'Bold rule'})
-        self.assertEqual(json.loads((root / 'look.json').read_text())['chosen'], 'Bold rule')
+        self.assertEqual((look['brand'], look['variant'], look['made_in']),
+                         ('example', 'light', 'example (light)'))
+        self.assertEqual(look['picture'], {'kind': 'look', 'ref': 'sample'})
+        self.assertIn('This deck is made in example (light).', look['text'])
+        self.assertTrue(self.engine.picture(root, 'look', 'sample').startswith(b'\x89PNG'))
+        # No assistant drew it, and no look was proposed to choose from.
+        self.assertEqual([seen for seen, job, spec in self.workers.jobs
+                          if seen.startswith('look')], [])
+        self.decide(root, 'gate:look')
+        self.assertFalse((root / 'look.json').exists())
+        kept = json.loads((root / 'outline.json').read_text())
+        self.assertNotIn('direction', kept)
+        self.assertIn('in example (light).', kept['approval'][0])
         self.assertEqual(self.waiting(root), 'gate:build')
+        started = json.loads((root / build.START / 'outline.json').read_text())
+        self.assertEqual(started['direction'], build.DIRECTION)
         shown = self.view(root)['gate']
         self.assertEqual([slide['number'] for slide in shown['slides']],
                          list(range(1, len(OUTLINE['slides']) + 1)))
@@ -70,7 +79,7 @@ class ScratchTests(StudioCase):
         decisions = [line for line in self.log()[before:]
                      if line.startswith('Rolling restarts: approve the ')]
         self.assertEqual(decisions, ['Rolling restarts: approve the outline',
-                                     'Rolling restarts: approve the look',
+                                     'Rolling restarts: approve the brand',
                                      'Rolling restarts: approve the deck'])
         name, data = self.engine.download(root)
         self.assertEqual(name, f'{root.name}.pptx')
@@ -110,18 +119,38 @@ class ScratchTests(StudioCase):
             self.engine.decide(root, 'gate:outline', 'changes', '  ', None)
         self.assertEqual(str(caught.exception), 'Say what should change.')
         with self.assertRaises(WorkspaceError) as caught:
-            self.engine.decide(root, 'gate:look', 'approve', None, {'choice': 'Calm grid'})
+            self.engine.decide(root, 'gate:look', 'approve', None, None)
         self.assertIn('not waiting for a decision', str(caught.exception))
         with self.assertRaises(WorkspaceError):
             self.engine.decide(root, 'gate:classify', 'changes', 'No.', None)
 
-    def test_a_look_is_chosen_to_approve_it(self):
+    def test_another_brand_is_chosen_at_the_brand_and_its_cover_drawn_again(self):
         root = self.start()
         self.to_gate(root, 'gate:look')
-        with self.assertRaises(WorkspaceError) as caught:
-            self.engine.decide(root, 'gate:look', 'approve', None, None)
-        self.assertEqual(str(caught.exception), 'Choose one of the looks first.')
+        exported = json.loads((root / build.CONTRACT).read_text())
+        self.assertEqual(exported['identity']['variant'], 'light')
+        for extra, said in ((None, 'Choose the brand, and its variant'),
+                            ({'brand': 'example', 'variant': 'light'}, 'already'),
+                            ({'brand': 'example', 'variant': 'neon'}, 'neon')):
+            with self.subTest(extra=extra):
+                with self.assertRaises(WorkspaceError) as caught:
+                    self.engine.decide(root, 'gate:look', 'changes', None, extra)
+                self.assertIn(said, str(caught.exception))
+                self.assertEqual(self.record(root)['form']['variant'], 'light')
+        self.engine.decide(root, 'gate:look', 'changes', None,
+                           {'brand': 'example', 'variant': 'dark'})
         self.assertEqual(self.waiting(root), 'gate:look')
+        record, gate = self.record(root), self.view(root)['gate']
+        self.assertEqual(record['form']['variant'], 'dark')
+        self.assertEqual(record['gates']['gate:look']['round'], 2)
+        self.assertEqual(gate['made_in'], 'example (dark)')
+        self.assertEqual(gate['note'], 'Make it in example (dark).')
+        self.assertIn('example (dark)', (root / 'intake.md').read_text())
+        exported = json.loads((root / build.CONTRACT).read_text())
+        self.assertEqual(exported['identity']['variant'], 'dark')
+        self.assertIn('Rolling restarts: make it in example (dark)', self.log())
+        self.decide(root, 'gate:look')
+        self.assertEqual(self.waiting(root), 'gate:build')
 
     def test_an_edited_outline_is_checked_and_kept_with_the_approval(self):
         root = self.start()
@@ -259,13 +288,16 @@ class HaltTests(StudioCase):
         self.engine.answer(root, self.view(root)['question']['id'], 'Yes.')
         self.assertEqual(self.waiting(root), 'gate:outline')
         self.decide(root, 'gate:outline')
+        # The brand's sample is drawn by the runner, not an agent, so nothing is spent on it.
+        self.assertEqual(self.waiting(root), 'gate:look')
+        self.decide(root, 'gate:look')
         view = self.view(root)
         self.assertEqual(view['state'], 'stopped')
         self.assertIn('This deck has spent $1.50', view['sentence'])
         self.assertEqual(view['problem']['action'], 'resume')
-        self.assertEqual(self.workers.of('look'), [])
+        self.assertEqual(self.workers.of('section'), [])
         self.engine.act(root, 'resume')
-        self.assertEqual(self.waiting(root), 'gate:look')
+        self.assertEqual(self.waiting(root), 'gate:build')
 
     def test_undo_takes_back_the_last_step(self):
         root = self.start()
@@ -285,7 +317,7 @@ class BrandTests(StudioCase):
         view = self.view(root)
         self.assertEqual(view['state'], 'stopped')
         self.assertTrue(view['sentence'].startswith('The brand changed since this deck began'))
-        self.assertEqual(self.workers.of('look'), [])
+        self.assertFalse((root / 'work' / 'look' / 'sample.png').exists())
 
     def without_a_brand_skill(self):
         """No brand skill on this computer, as the engine looks at it afresh."""
@@ -486,9 +518,9 @@ class LockTests(StudioCase):
             return real(root, *args, **named)
 
         with mock.patch.object(build, 'render', held):
-            self.decide(slow)                       # the outline; the look waits next
+            self.decide(slow)                       # the outline; the brand waits next
             going = threading.Thread(target=self.decide, args=(slow,))
-            going.start()                           # the look; the build runs to its render
+            going.start()                           # the brand; the build runs to its render
             try:
                 self.assertTrue(entered.wait(60), 'the render was reached')
                 clock = time.monotonic()

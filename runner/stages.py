@@ -46,12 +46,10 @@ PIPELINE: tuple[Step, ...] = (
        'Waiting for you to approve the outline'),
     _s('brand', 'look', 'code', 'Load the brand',
        'Loading the brand rules for your deck'),
-    _s('look', 'look', 'agent', 'Design the look',
-       'Designing how your deck will look'),
-    _s('look-preview', 'look', 'code', 'Preview the look',
-       'Making sample slides to show the look'),
-    _s('gate:look', 'look', 'gate', 'Approve the look',
-       'Waiting for you to approve the look'),
+    _s('look-preview', 'look', 'code', 'Draw a sample in your brand',
+       'Drawing your cover in your brand'),
+    _s('gate:look', 'look', 'gate', 'Check the brand',
+       'Waiting for you to check the brand'),
     _s('patch', 'build', 'agent', 'Fix the chosen slides',
        'Changing only the slides you picked'),
     _s('build-start', 'build', 'code', 'Set up the build',
@@ -105,7 +103,7 @@ def _has(run: dict, name: str) -> bool:
         return existing and level in _EXISTING_EXTRACT
     if name in ('outline', 'gate:outline'):
         return route in ('scratch', 'document') or (existing and level == 'rework')
-    if name in ('look', 'look-preview', 'gate:look'):
+    if name in ('look-preview', 'gate:look'):
         return route in ('scratch', 'document') or (existing and level in ('redesign', 'rework'))
     if name == 'patch':
         return existing and level == 'selected'
@@ -142,12 +140,14 @@ def feeder(run: dict, gate: str) -> str:
         return 'inventory' if route == 'existing' else 'classify'
     if gate == 'gate:outline':
         return 'outline'
+    if gate == 'gate:look':
+        return 'look-preview'
     if gate == 'gate:build':
         if level == 'selected':
             return 'patch'
         named = ((run.get('gates') or {}).get('gate:build') or {}).get('slides')
         return 'build-repair' if named else 'build-sections'
-    return gate.split(':', 1)[1]  # gate:research-plan, gate:research, gate:look
+    return gate.split(':', 1)[1]  # gate:research-plan, gate:research
 
 
 def survey(run: dict) -> Survey:

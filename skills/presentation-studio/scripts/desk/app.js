@@ -63,7 +63,7 @@ const STEP_WORDS = {
   later: ['out', 'Coming later'],
 };
 const STAGES = [['intake', 'Intake'], ['classify', 'Classify'], ['research', 'Research'],
-  ['outline', 'Outline'], ['look', 'Look'], ['build', 'Build'], ['deliver', 'Deliver'],
+  ['outline', 'Outline'], ['look', 'Brand'], ['build', 'Build'], ['deliver', 'Deliver'],
   ['rehearse', 'Rehearse with Yoodli']];
 const STEERED = {
   pause: 'Paused. Nothing more is started until you resume it.',
@@ -245,9 +245,9 @@ const view = {
   // this screen holds: each by what it is of, those still to fetch, and what says when one
   // comes into view.
   slide: 0, viewer: null, pictures: new Map(), wanted: [], fetching: false, watcher: null,
-  // What the person has chosen at the gate of the open deck, before it is sent: the look,
-  // whether the classification is wrong, the outline as edited, and the slides marked for
-  // changes. Each is kept for its deck and its gate's round, so a refresh loses nothing.
+  // What the person has chosen at the gate of the open deck, before it is sent: whether the
+  // classification is wrong, the outline as edited, the slides marked for changes, and
+  // another brand. Each is kept for its deck and its gate's round, so a refresh loses nothing.
   chosen: {},
   // What a team adds: every run and who runs what, what is published, what publishing just
   // answered, and a look for teammates' work and what it brought.
@@ -1237,8 +1237,8 @@ function drawSheet() {
   else if (view.sheet === 'brand') body = brandSheet();
   else if (TEAM_SHEETS.includes(view.sheet)) body = teamSheet(view.sheet);
   else if (FORMS[view.sheet]) body = noteSheet(view.sheet);
-  else if (view.sheet === 'undo') body = undoSheet();
-  else body = approveSheet();
+  else if (view.sheet === 'rebrand') body = rebrandSheet();
+  else body = undoSheet();
   holder.replaceChildren(...body);
 }
 
@@ -2750,7 +2750,7 @@ function asksFor(draft) {
     'the research');
   const level = draft.route === 'existing' ? draft.level : null;
   if (!level || level === 'rework') asks.push('the outline');
-  if (!level || ['redesign', 'rework'].includes(level)) asks.push('the look');
+  if (!level || ['redesign', 'rework'].includes(level)) asks.push('the brand, on your cover');
   asks.push('the deck itself');
   return asks;
 }
@@ -2938,8 +2938,8 @@ async function startDeck(pressed) {
 // round, so that a refresh, or a gate that comes round again, starts from what is true.
 function chosenFor(gate) {
   const key = [view.path, gate ? gate.name : 'deliver', gate ? gate.round : ''].join('\n');
-  if (!view.chosen[key]) view.chosen[key] = { choice: '', wrong: false, work: null,
-    edited: false, marked: [], adding: '' };
+  if (!view.chosen[key]) view.chosen[key] = { wrong: false, work: null, edited: false,
+    marked: [], adding: '', brand: '', variant: '' };
   return view.chosen[key];
 }
 
@@ -3485,51 +3485,20 @@ function outlinePanel(gate, readonly) {
   return add(node, ...gateSaid(gate));
 }
 
-// The look: two or three ways one sample slide could be made, each as a picture. The one the
-// person picks is the look of the whole deck.
+// The brand: the deck's cover drawn in the brand it is made in, so the person can see it is
+// the one they meant. No layout is chosen here: each slide is designed on its own as it is
+// built.
 function lookPanel(gate, readonly) {
-  const node = card('The look');
-  const held = chosenFor(gate);
-  const options = list(gate.options);
-  add(node, make('p', '', readonly ? 'The ways it could look, each drawn on the same slide.'
-    : 'One slide, drawn ' + count(options.length, 'way', 'ways') + '. Choose the one you want '
-      + 'the whole deck to look like.'));
-  const grid = make('div', 'pick-cards looks');
-  grid.setAttribute('role', 'group');
-  grid.setAttribute('aria-label', 'The looks');
-  const says = make('p', 'quiet');
-  says.setAttribute('role', 'status');
-  const tell = () => {
-    says.textContent = held.choice ? 'Chosen: ' + held.choice + '.' : readonly ? ''
-      : 'None chosen yet.';
-  };
-  for (const option of options) {
-    const name = option.name || 'Option ' + option.number;
-    const picture = pictureAt(pictureOf(view.path, option.picture || { kind: 'look',
-      ref: option.number }), 'The look “' + name + '”', gate.round);
-    const body = add(make('div', 'look-option'), picture,
-      make('p', 'row-title', name), option.why ? make('p', 'quiet', option.why) : null);
-    if (readonly) {
-      add(grid, body);
-      continue;
-    }
-    const pick = pickCard('Choose “' + name + '”', '', held.choice === name, () => {
-      held.choice = name;
-      for (const other of grid.querySelectorAll('.pick-card')) {
-        other.setAttribute('aria-pressed', String(other.dataset.key === 'look ' + name));
-      }
-      tell();
-    }, 'look ' + name);
-    add(grid, add(body, pick));
-  }
-  tell();
-  add(node, grid, says);
-  if (String(gate.text || '').trim()) {
-    const why = make('details', 'card-part');
-    why.dataset.key = 'look-why';
-    add(node, add(why, make('summary', '', 'How each was worked out'),
-      documentPart('The looks', gate.text)));
-  }
+  const node = card('The brand');
+  const made = gate.made_in || 'your brand';
+  add(node, make('p', 'lede', 'Made in ' + made + '.'),
+    make('p', '', readonly ? 'Its cover, drawn in that brand.' : 'This is your cover, drawn '
+      + 'in that brand, so you can see it is the one you meant. If it is not, choose another '
+      + 'brand.'),
+    gate.picture ? pictureAt(pictureOf(view.path, gate.picture), 'The cover in ' + made,
+      gate.round) : make('p', 'quiet', 'There is no picture of it on this computer.'),
+    make('p', 'quiet', 'No layout is chosen here. When the deck is built, each slide is '
+      + 'designed on its own from what it says.'));
   return add(node, ...gateSaid(gate));
 }
 
@@ -3648,6 +3617,22 @@ function gatePanel(run) {
   return buildPanel(gate, readonly);
 }
 
+// What approving each gate does, said before Approve is pressed: it acts at once.
+const APPROVING = {
+  'gate:classify': 'Approve, and it carries on from what you gave us. Or ask for changes and '
+    + 'say what should change.',
+  'gate:research-plan': 'Approve, and each question in the plan is researched; the findings '
+    + 'come back to you before anything is written from them. Or ask for changes.',
+  'gate:research': 'Approve, and the outline is drafted from these findings. Or ask for '
+    + 'changes.',
+  'gate:outline': 'Approve, and every slide is designed and built from this outline, with '
+    + 'any edits you made here. Or ask for changes.',
+  'gate:look': 'Approve, and every slide is designed in this brand, each on its own. Or '
+    + 'choose another brand.',
+  'gate:build': 'Approve, and the deck is delivered as it is. Or mark slides and ask for '
+    + 'changes.',
+};
+
 // What waits, in a line above the gate: what is to decide, and how.
 function gateLine(run) {
   const gate = run.gate;
@@ -3657,7 +3642,8 @@ function gateLine(run) {
       + 'until someone takes it.') + ' Here you can read it.'));
   }
   return callout('yours', make('p', '', capital(gate.label) + '.'),
-    make('p', 'quiet', 'Approve it, or ask for changes and say what should change.'));
+    make('p', 'quiet', APPROVING[gate.name] || 'Approve it, or ask for changes and say what '
+      + 'should change.'));
 }
 
 // --- one deck: delivered -------------------------------------------------------------------
@@ -3811,7 +3797,9 @@ function extraFor(gate, decision) {
       && gate.kind === 'document') {
     return { kind: gate.verdict === 'spec' ? 'material' : 'spec' };
   }
-  if (gate.name === 'gate:look' && decision === 'approve') return { choice: held.choice };
+  if (gate.name === 'gate:look' && decision === 'changes') {
+    return { brand: held.brand, variant: held.variant || null };
+  }
   if (gate.name === 'gate:outline' && decision === 'approve' && held.edited) {
     return { edited: held.work };
   }
@@ -3821,38 +3809,38 @@ function extraFor(gate, decision) {
   return null;
 }
 
-function approveSheet() {
+// Another brand, or another variant of it, chosen at the brand's gate. The cover is drawn
+// again in it and comes back here.
+function rebrandSheet() {
   const gate = view.run.gate;
-  const held = chosenFor(gate);
-  const problem = problemLine();
   const cancel = capsule('Cancel', 'quiet', closeSheet, 'cancel');
-  const title = sheetTitle('Approve the ' + gate.words + '?');
-  if (gate.name === 'gate:look' && !held.choice) {
-    return [title, make('p', '', 'Choose one of the looks first: the one you choose is the '
-      + 'look of the whole deck.'), add(make('div', 'bar'), cancel)];
+  const title = sheetTitle('Choose another brand');
+  if (!gate || gate.name !== 'gate:look') {
+    return [title, make('p', '', 'This deck has moved on from its brand.'),
+      add(make('div', 'bar'), cancel)];
   }
-  const says = {
-    'gate:classify': gate.kind === 'deck' ? 'It carries on from your slides as they are.'
-      : held.wrong ? 'It is taken as ' + KINDS[gate.verdict === 'spec' ? 'material' : 'spec']
-        + ', as you said.' : 'It is taken as ' + KINDS[gate.verdict] + '.',
-    'gate:research-plan': 'Each question in the plan is researched. The findings come back '
-      + 'to you before anything is written from them.',
-    'gate:research': 'The outline is drafted from these findings.',
-    'gate:outline': held.edited ? 'Your edits are sent with it, and checked first. If they '
-      + 'cannot be used, nothing is approved and you are told why.'
-      : 'Every slide is designed and built from this outline.',
-    'gate:look': 'The whole deck is built in “' + held.choice + '”.',
-    'gate:build': 'The deck is delivered as it is.',
-  };
-  const serious = gate.name === 'gate:build' ? list(gate.slides).reduce((all, one) => all
-    + list(one.findings).filter((finding) => SERIOUS.includes(finding.severity)).length, 0) : 0;
-  const confirm = capsule('Approve', 'filled', () => decide('approve', '', problem, confirm),
-    'send');
-  return [title, make('p', '', says[gate.name] || ''),
-    serious ? state('late', 'The review still lists ' + count(serious, 'serious finding',
-      'serious findings') + '. Approving takes the deck as it is.') : null,
-    make('p', 'quiet', CLOSE), problem, add(make('div', 'bar'), confirm, cancel)]
-    .filter(Boolean);
+  const held = chosenFor(gate);
+  if (!held.brand) {
+    held.brand = gate.brand || '';
+    held.variant = gate.variant || '';
+  }
+  const form = make('form', 'note');
+  form.noValidate = true;
+  const problem = problemLine();
+  const submit = submitButton('Use this brand', 'send');
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    if (held.brand === (gate.brand || '') && (held.variant || '') === (gate.variant || '')) {
+      say(problem, 'It is made in ' + (gate.made_in || 'this brand') + ' already. Choose '
+        + 'another brand or variant.');
+      return;
+    }
+    decide('changes', '', problem, submit);
+  });
+  add(form, brandFields(held, 'rebrand'), make('p', 'quiet', 'Your cover is drawn again in '
+    + 'the one you choose and comes back here for your decision.'), problem,
+  add(make('div', 'bar'), submit, cancel));
+  return [title, form];
 }
 
 function undoSheet() {
@@ -3882,9 +3870,16 @@ async function decide(decision, note, problem, pressed) {
   try {
     answered = await send('decide', body);
   } catch (failure) {
-    say(problem, failure.message + ' Nothing was decided.');
-    pressed.disabled = false;
     view.busy = false;
+    pressed.disabled = false;
+    if (problem) {
+      say(problem, failure.message + ' Nothing was decided.');
+      return;
+    }
+    // Approve has no sheet: what refused it is said at the head of the deck.
+    if (turn !== view.turn) return;
+    view.steered = failure.message + ' Nothing was decided.';
+    paintDeck(false);
     return;
   }
   // A note that was sent is not offered again, nor what was chosen with it.
@@ -3894,10 +3889,11 @@ async function decide(decision, note, problem, pressed) {
   if (turn !== view.turn) return;
   view.sheet = '';
   view.run = answered;
+  view.steered = '';
   drawSheet();
   view.barred = '';
   paintDeck(false);
-  toast(decision === 'approve' ? 'Approved. It carries on by itself.'
+  toast(decision === 'approve' ? 'Approved. It carries on by itself. ' + CLOSE
     : 'Your changes are noted. Once they are made, it comes back to you.');
   window.scrollTo(0, 0);
   byId('title').focus({ preventScroll: true });
@@ -3949,9 +3945,12 @@ function deckActions(run, lead) {
     actions.push(node);
   };
   if (run.gate && !run.question) {
-    actions.push(capsule('Approve', lead === 'approve' ? 'filled' : '',
-      openSheet('approve', 'approve'), 'approve'),
-    capsule('Ask for changes', '', openSheet('changes', 'changes'), 'changes'));
+    // Approve acts at once: what it does is said beside the gate before it is pressed.
+    const approve = capsule('Approve', lead === 'approve' ? 'filled' : '',
+      () => decide('approve', '', null, approve), 'approve');
+    const brand = run.gate.name === 'gate:look';
+    actions.push(approve, capsule(brand ? 'Choose another brand' : 'Ask for changes', '',
+      openSheet(brand ? 'rebrand' : 'changes', 'changes'), 'changes'));
   }
   const offered = run.problem && run.problem.action;
   if (run.state === 'working') press('Pause', '', 'pause');

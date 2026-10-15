@@ -19,9 +19,10 @@ What a caller needs to know
     answered with no models and `problem`, and listing holds up nothing else).
   - `/api/decks`, every deck in the engine's four lists {"needs", "working", "finished",
     "elsewhere"}; `/api/run?path=` one deck's view (`engine.view`).
-  - `/api/slide?path=&kind=build|look|original&number=` (or `&name=` for a look by its
-    name, or `contact-sheet` for the build's sheet): one picture as image/png, only what
-    `engine.picture` gives. Nothing is ever read from a place the request names.
+  - `/api/slide?path=&kind=build|look|original&number=` (or `&name=sample` for the cover
+    drawn in the deck's brand, or `contact-sheet` for the build's sheet): one picture as
+    image/png, only what `engine.picture` gives. Nothing is ever read from a place the
+    request names.
   - `/api/download?path=`: the rendered deck, only what `engine.download` gives, as an
     attachment named for the deck.
   - `/api/file?path=&name=`: one of a deck's shared files, by name, only from FILES:
@@ -185,8 +186,9 @@ class RunnerPage(server.Page):
         path, kind = self.deck(one('path')), one('kind')
         number, name = given('number'), given('name')
         if kind not in engines.PICTURE_KINDS:
-            raise server.Refusal(HTTPStatus.BAD_REQUEST, 'A picture is of the build, a look or '
-                                 'the original deck: ' + ', '.join(engines.PICTURE_KINDS) + '.')
+            raise server.Refusal(HTTPStatus.BAD_REQUEST, 'A picture is of the build, the brand '
+                                 'or the original deck: ' + ', '.join(engines.PICTURE_KINDS)
+                                 + '.')
         if (number is None) == (name is None):
             raise server.Refusal(HTTPStatus.BAD_REQUEST, 'Name the slide by its number, or by '
                                  'a name, and not both.')
@@ -374,7 +376,8 @@ class RunnerPage(server.Page):
         return self.engine.act(self.deck(path), action)
 
     def decide(self, sent: dict) -> dict:
-        """A person's decision at a gate: approve, or ask for changes with a note."""
+        """A person's decision at a gate: approve, or ask for changes with a note. At the
+        brand's gate the change is another brand, and needs no note."""
         path, gate = server.text(sent, 'path'), server.text(sent, 'gate')
         decision, note = server.text(sent, 'decision'), server.text(sent, 'note', False)
         extra = sent.get('extra')
@@ -387,7 +390,7 @@ class RunnerPage(server.Page):
         if extra is not None and not isinstance(extra, dict):
             raise server.Refusal(HTTPStatus.BAD_REQUEST, 'Send what comes with a decision as '
                                  'one JSON object.')
-        if decision == 'changes' and not (note or '').strip():
+        if decision == 'changes' and gate != 'gate:look' and not (note or '').strip():
             raise server.Refusal(HTTPStatus.BAD_REQUEST, engines.NO_NOTE)
         return self.engine.decide(self.deck(path), gate, decision, note, extra)
 

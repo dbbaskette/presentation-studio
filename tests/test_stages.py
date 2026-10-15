@@ -17,7 +17,7 @@ def names(r):
 
 class SkipMapTests(unittest.TestCase):
     CASES = [
-        (run('scratch'), ['intake-source', 'outline', 'gate:outline', 'brand', 'look',
+        (run('scratch'), ['intake-source', 'outline', 'gate:outline', 'brand',
                           'look-preview', 'gate:look', 'build-start', 'build-sections',
                           'build-whole', 'build-review', 'build-repair', 'build-render',
                           'gate:build', 'deliver', 'rehearse']),
@@ -29,7 +29,7 @@ class SkipMapTests(unittest.TestCase):
                                        'patch', 'build-render', 'gate:build', 'deliver',
                                        'rehearse']),
         (run('existing', 'rework'), ['intake-source', 'inventory', 'gate:classify', 'extract',
-                                     'outline', 'gate:outline', 'brand', 'look', 'look-preview',
+                                     'outline', 'gate:outline', 'brand', 'look-preview',
                                      'gate:look', 'build-start', 'build-sections', 'build-whole',
                                      'build-review', 'build-repair', 'build-render',
                                      'gate:build', 'deliver', 'rehearse']),
@@ -95,6 +95,9 @@ class FeedAndReopenTests(unittest.TestCase):
         self.assertEqual(stages.feeder(r, 'gate:build'), 'build-sections')
         r['gates'] = {'gate:build': {'state': 'changes', 'slides': [3]}}
         self.assertEqual(stages.feeder(r, 'gate:build'), 'build-repair')
+        # Another brand is chosen at the brand's gate: its cover is drawn again, by the runner.
+        self.assertEqual(stages.feeder(r, 'gate:look'), 'look-preview')
+        self.assertEqual(stages.BY_NAME['look-preview'].kind, 'code')
 
     def test_reopen_clears_later_work_and_approvals(self):
         r = run('scratch')

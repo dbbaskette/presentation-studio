@@ -1,6 +1,6 @@
 /* What a deck's screens add to style.css, which is kept exactly as it was vendored: cards to
-   pick from, the looks side by side, a slide's before and after, and the stage that is coming
-   later. Every colour is one of style.css's own. */
+   pick from, a slide's before and after, and the stage that is coming later. Every colour is
+   one of style.css's own. */
 
 /* A card that is a button: one of several to pick from. The tick and its words say it is
    picked, not colour alone. */
@@ -50,10 +50,6 @@
 .pick-says {
   color: var(--quiet);
   font-size: 0.93rem;
-}
-
-.looks .look-option > * + * {
-  margin-top: 0.5rem;
 }
 
 /* What is said of the slide on the stage, under it. */
