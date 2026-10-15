@@ -123,6 +123,7 @@ TIMEOUT = 40            # seconds for one request
 SUBMISSIONS = 6         # times one draft or finding may be handed back
 QUOTE = (20, 900)       # the shortest and longest quote, in characters
 SUMMARY = 1500
+HEADLINE = 25           # words in a finding's headline
 NOTES = 4000
 QUESTION = 1000
 PASSAGES = 20
@@ -1487,7 +1488,7 @@ class WorkerTools:
     # --- findings ---
 
     @tool
-    def submit_finding(self, item, status, summary, limits='', evidence=None):
+    def submit_finding(self, item, status, summary, limits='', evidence=None, headline=None):
         """Hand back the finding for the job's question, with exact quotes."""
         wanted = self.job['finding']
         if not wanted:
@@ -1497,6 +1498,13 @@ class WorkerTools:
         self._allowed('finding', 'This finding')
         passages = self._passages(evidence)
         problems, kept = [], []
+        headline = ' '.join(headline.split()) if isinstance(headline, str) else ''
+        words = len(headline.split())
+        if not words:
+            problems.append('The headline is empty: give the answer in one sentence.')
+        elif words > HEADLINE:
+            problems.append(f'The headline is {words} words. Give the answer in one sentence '
+                            f'of at most {HEADLINE} words.')
         if status not in STATUSES:
             problems.append('status must be one of: ' + ', '.join(STATUSES) + '.')
         if not isinstance(summary, str) or not summary.strip():
@@ -1520,8 +1528,8 @@ class WorkerTools:
         if problems:
             return self._refused(problems, left)
         home.write_json(self.folder / 'accepted' / 'finding.json', {
-            'item': wanted, 'status': status, 'summary': summary.strip(), 'limits': limits,
-            'evidence': kept})
+            'item': wanted, 'status': status, 'summary': summary.strip(),
+            'headline': headline, 'limits': limits, 'evidence': kept})
         return True, (f'Accepted: the finding for {wanted}, with {len(kept)} quoted '
                       'passage(s).')
 
@@ -1654,11 +1662,11 @@ TOOLS = [
                'quote must be copied exactly from a saved source; its place is worked out '
                'for you.',
                {'item': TEXT, 'status': {'type': 'string', 'enum': list(STATUSES)},
-                'summary': TEXT, 'limits': TEXT,
+                'headline': TEXT, 'summary': TEXT, 'limits': TEXT,
                 'evidence': {'type': 'array', 'items': {
                     'type': 'object', 'properties': {'source_id': TEXT, 'quote': TEXT},
                     'required': ['source_id', 'quote']}}},
-               ['item', 'status', 'summary']),
+               ['item', 'status', 'headline', 'summary']),
     _described('ask_person', 'Ask the person one question you cannot work without an '
                'answer to. This ends your job: stop as soon as you have asked.',
                {'question': TEXT}, ['question']),

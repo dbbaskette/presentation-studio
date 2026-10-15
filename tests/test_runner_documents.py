@@ -704,6 +704,7 @@ class SourceTests(Supplied):
                          (False, 'This job cannot fetch pages. Work from what you were given.'))
         self.assertIn(QUOTE, tools.read_source('s2')[1])
         handed = tools.submit_finding('instance-min', 'supported', 'Two or more instances.',
+                                      headline='Two or more instances.',
                                       evidence=[{'source_id': 's1', 'quote': QUOTE},
                                                 {'source_id': 's2', 'quote': QUOTE}])
         self.assertTrue(handed[0], handed[1])

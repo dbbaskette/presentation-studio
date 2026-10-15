@@ -516,6 +516,7 @@ class StandInTests(DeckCase):
         typed = "more than one instance is running. The platform's health check decides"
         accepted = tools.submit_finding(
             'instance-min', 'supported', 'An app keeps capacity with two or more instances.',
+            headline='Two or more instances keep capacity.',
             evidence=[{'source_id': 's1', 'quote': QUOTE}, {'source_id': 's1', 'quote': typed}])
         self.assertTrue(accepted[0], accepted[1])
         handed_back = worker_tools.collect(job)

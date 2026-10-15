@@ -746,6 +746,7 @@ class Workers:
         saved = said.split(' as ', 1)[1].split(':', 1)[0]
         ident = tools.job['finding']
         self._ok(tools.submit_finding(ident, 'supported', f'What the page says about {ident}.',
+                                      headline=f'The page answers {ident}.',
                                       evidence=[{'source_id': saved, 'quote': QUOTE}]))
 
     def outline(self, tools, job):

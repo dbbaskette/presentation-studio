@@ -41,6 +41,7 @@ Call `submit_finding` once, with:
 
 - `item`: the question's ID, as the task gives it.
 - `status`: the verdict.
+- `headline`: the answer in one sentence of at most 25 words, as you would say it to the audience. For `insufficient` or `unavailable`, say what is not known.
 - `summary`: at most 120 words.
 - `limits`: what the sources do not cover, what could not be read, and how dated they are. Write `none` if there is nothing to say.
 - `evidence`: two to six passages, each with the source ID of a saved source and the `quote`. An `insufficient` or `unavailable` finding may have none.

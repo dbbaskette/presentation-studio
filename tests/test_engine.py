@@ -430,6 +430,15 @@ class ResearchTests(StudioCase):
         self.assertEqual(len(asked), 3)
         self.assertEqual(self.waiting(root), 'gate:research')
 
+    def test_each_finding_s_headline_is_kept_with_the_research(self):
+        root = self.start(research=True)
+        self.to_gate(root, 'gate:research')
+        record = json.loads((root / '.harness-research' / 'research.json').read_text())
+        self.assertEqual({ident: result.get('headline')
+                          for ident, result in record['results'].items()},
+                         {'instance-min': 'The page answers instance-min.',
+                          'health-checks': 'The page answers health-checks.'})
+
 
 class DocumentTests(StudioCase):
     def test_a_pasted_document_is_classified_and_a_correction_switches_the_branch(self):
