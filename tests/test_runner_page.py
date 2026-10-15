@@ -510,6 +510,15 @@ class RunTests(PageCase):
                              'extra': {'add': ['What does a restart cost?']}})
         self.assertEqual(self.run_of(path)['gate']['round'], 2)
 
+    def test_slides_named_at_the_deck_still_need_a_note(self):
+        path = self.started()
+        for gate in ('gate:outline', 'gate:look'):
+            self.decided(path, gate)
+        said = self.post('decide', {'path': path, 'gate': 'gate:build', 'decision': 'changes',
+                                    'extra': {'slides': [2]}}, 400)
+        self.assertEqual(said['error'], engines.NO_NOTE)
+        self.assertEqual(self.run_of(path)['gate']['name'], 'gate:build')
+
     def test_changes_are_asked_for_with_a_note_and_the_step_runs_again(self):
         path = self.started()
         shown = self.decided(path, 'gate:outline', 'changes',

@@ -447,6 +447,23 @@ class ResearchTests(StudioCase):
         self.assertEqual(len(asked), 3)
         self.assertEqual(self.waiting(root), 'gate:research')
 
+    def test_marks_at_the_research_are_kept_on_its_stop_and_a_note_alone_clears_them(self):
+        root = self.start(research=True)
+        self.to_gate(root, 'gate:research')
+        self.engine.decide(root, 'gate:research', 'changes', 'Find a second page.',
+                           {'again': {'health-checks': ''}})
+        gate = self.record(root)['gates']['gate:research']
+        self.assertEqual((gate['again'], gate['free']),
+                         ({'health-checks': ''}, 'Find a second page.'))
+        self.assertEqual(gate['note'],
+                         '- Research `health-checks` again.\n\nFind a second page.')
+        self.assertEqual(self.waiting(root), 'gate:research')
+        self.engine.decide(root, 'gate:research', 'changes', 'Look again at health-checks.',
+                           None)
+        gate = self.record(root)['gates']['gate:research']
+        self.assertEqual((gate['again'], gate['free'], gate['note']),
+                         (None, None, 'Look again at health-checks.'))
+
     def test_each_finding_s_headline_is_kept_with_the_research(self):
         root = self.start(research=True)
         self.to_gate(root, 'gate:research')

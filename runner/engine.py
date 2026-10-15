@@ -50,10 +50,11 @@ What a caller needs to know
   brand or variant ({'brand', 'variant'}, with no note needed): the deck's contract is
   exported again for it and its cover drawn again. Asking for changes at gate:build once
   the deck is delivered builds it again (deliver.again).
-- At a stop reviewed item by item (`marks.REVIEWED`) the marks are checked before anything
-  is written. Questions dropped at the plan and findings left out at the research go with
-  either decision, with no worker; any other mark asks for changes, and needs no note: the
-  marks, then the person's own words, are the note the stop's worker reads.
+- At a stop reviewed item by item (`marks.REVIEWED`) the marks are checked, once the stop
+  is waiting, before anything is written. Questions dropped at the plan and findings left
+  out at the research go with either decision, with no worker. A drop, rewording, new
+  question, research-again or slide mark is enough for changes without a note; a leave-out
+  is not. The marks, then the person's own words, are the note the stop's worker reads.
 - The brand is exported once, with the first step that needs it, and checked before every
   step that uses it: the outline, the sample of the brand, the patch, each step of the
   build and its render. A brand that changed since stops the deck with build's sentence.
@@ -1555,9 +1556,6 @@ class Engine(Jobs, Researching):
         rebrand = gate == 'gate:look' and decision == 'changes'
         if rebrand and not (isinstance(extra.get('brand'), str) and extra['brand'].strip()):
             raise WorkspaceError(NO_BRAND_CHOSEN)
-        marked = marks.check(gate, decision, extra, self._marked_ids(root, gate, extra))
-        if decision == 'changes' and not note and not rebrand and not marks.asks(marked):
-            raise WorkspaceError(NO_NOTE)
         brands = self.brands() if rebrand else None
         space, it = self.space(), WORDS[gate]
         by = gitstate.identity(space.repo)
@@ -1567,6 +1565,9 @@ class Engine(Jobs, Researching):
                 and decks.delivered(root) is not None
             if not after and gate_state(record, gate) != 'waiting':
                 raise WorkspaceError(NOT_WAITING.format(it=it))
+            marked = marks.check(gate, decision, extra, self._marked_ids(root, gate, extra))
+            if decision == 'changes' and not note and not rebrand and not marks.asks(marked):
+                raise WorkspaceError(NO_NOTE)
             at = home.now()
             if after:
                 named = self._numbers(extra)
@@ -1653,7 +1654,8 @@ class Engine(Jobs, Researching):
         elif gate == 'gate:research-plan' and marked.get('dropped'):
             self._drop_questions(root, record, marked['dropped'])
         elif gate == 'gate:research' and 'left_out' in marked:
-            record.setdefault('research', {})['left_out'] = marked['left_out']
+            record['research'] = {**(record.get('research') or {}),
+                                  'left_out': marked['left_out']}
             write_atomic(root / REPORT, self._report_text(root, record, self._verdicts(root)))
         elif gate == 'gate:look':
             looks.approve(root, record, note)
@@ -1690,7 +1692,8 @@ class Engine(Jobs, Researching):
             self._drop_questions(root, record, marked['dropped'])
         elif gate == 'gate:research':
             if 'left_out' in marked:
-                record.setdefault('research', {})['left_out'] = marked['left_out']
+                record['research'] = {**(record.get('research') or {}),
+                                      'left_out': marked['left_out']}
             added = self._add_questions(root, record, marked.get('add') or [])
             again = {**(marked.get('again') or {}), **{ident: '' for ident in added}}
             more = {'again': again, 'free': note}
