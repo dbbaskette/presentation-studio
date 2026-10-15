@@ -28,6 +28,14 @@ class FormTests(unittest.TestCase):
         self.assertEqual(checked['route'], 'scratch')
         self.assertEqual(checked['output'], 'google')
 
+    def test_a_brand_with_no_variants_takes_none(self):
+        brands = [{'brand': 'plain', 'variants': []}]
+        for variant in (None, ''):
+            checked = decks.check_form(form(brand='plain', variant=variant), brands)
+            self.assertIsNone(checked['variant'])
+        with self.assertRaisesRegex(WorkspaceError, 'has no "dark" variant'):
+            decks.check_form(form(brand='plain', variant='dark'), brands)
+
     def test_unknown_route(self):
         with self.assertRaises(WorkspaceError):
             decks.check_form(form(route='video'), BRANDS)

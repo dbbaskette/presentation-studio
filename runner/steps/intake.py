@@ -32,6 +32,7 @@ from runner import briefs, decks, documents, stages, worker_tools
 from runner.steps import Work
 
 KINDS = ('spec', 'material')
+CORRECTED = {'spec': 'You said it is a spec.', 'material': 'You said it is material.'}
 NAME = 'classification'
 FILE = 'classify.md'
 GATE = 'gate:classify'
@@ -128,15 +129,6 @@ def _write_note(root, kind: str, reason: str, slides, corrected: bool) -> None:
     write_atomic(Path(root) / FILE, '\n'.join(lines) + '\n')
 
 
-def _reason(root) -> str:
-    try:
-        text = (Path(root) / FILE).read_text(encoding='utf-8')
-    except OSError:
-        return ''
-    return next((line[len('Reason: '):] for line in text.splitlines()
-                 if line.startswith('Reason: ')), '')
-
-
 def keep_classification(root, run: dict, handed) -> dict:
     """Keep the classifier's verdict and put it in front of the person."""
     if isinstance(handed, str):
@@ -167,6 +159,6 @@ def correct(root, run: dict, kind: str) -> dict:
     if feeder in run['steps']:      # the person's word is the verdict: it is not asked again
         run['steps'][feeder] = kept
     run['gates'][GATE] = {**run['gates'].get(GATE, {}), 'state': 'approved'}
-    _write_note(root, kind, _reason(root), None, corrected=True)
+    _write_note(root, kind, CORRECTED[kind], None, corrected=True)
     decks.write_run(root, run)
     return run

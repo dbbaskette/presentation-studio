@@ -112,7 +112,10 @@ def check_form(sent: dict, brands: list | None) -> dict:
         chosen = next((one for one in brands if one.get('brand') == brand), None)
         if chosen is None:
             raise WorkspaceError('That brand is not one your brand skill has.')
-        if variant not in chosen.get('variants', []):
+        listed = chosen.get('variants') or []
+        if not listed and variant in (None, ''):
+            variant = None      # a brand with no variants is drawn as it is
+        elif variant not in listed:
             raise WorkspaceError(f'The {brand} brand has no "{variant}" variant.')
     output = sent.get('output')
     if output not in OUTPUTS:

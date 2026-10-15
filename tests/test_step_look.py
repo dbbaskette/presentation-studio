@@ -177,6 +177,23 @@ class ChooseTests(Case):
                     look.choose(self.root, self.run_, said)
                 self.assertIn('"Option 2"', str(caught.exception))
 
+    def test_a_name_with_spaces_inside_it_is_chosen_whitespace_aside(self):
+        kept = options(3)
+        kept['options'][1]['name'] = 'Bold   rule\n'
+        (self.root / look.KEPT).parent.mkdir(parents=True, exist_ok=True)
+        (self.root / look.KEPT).write_text(json.dumps(kept), encoding='utf-8')
+        look.choose(self.root, self.run_, ' bold rule ')
+        chosen = json.loads((self.root / 'look.json').read_text())
+        self.assertEqual((chosen['chosen'], chosen['direction']), ('Bold rule', DIRECTIONS[1]))
+
+    def test_names_alike_but_for_whitespace_or_an_unnamed_place_are_refused(self):
+        spec = self.spec()
+        for first, second in (('Bold  rule', 'bold rule'), ('Option 2', '')):
+            made = options(2)
+            made['options'][0]['name'], made['options'][1]['name'] = first, second
+            problems, *_ = self.check(made, spec)
+            self.assertIn('Give each option a name of its own.', problems, (first, second))
+
     def test_the_chosen_direction_reaches_the_build(self):
         look.keep_look(self.root, self.run_, json.dumps(options(3)))
         look.choose(self.root, self.run_, 'Quiet ink')

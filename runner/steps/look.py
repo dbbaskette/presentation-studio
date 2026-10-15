@@ -185,7 +185,9 @@ def check_look(text: str, spec: dict, slides, scratch: Path):
     else:
         problems = [problem for number, option in enumerate(options, start=1)
                     for problem in _option(number, option, spec)]
-        names = [str(option.get('name') or '').strip().lower() for option in options
+        # As the page and `choose` call them: whitespace aside, and "Option <n>" for none.
+        names = [(' '.join(str(option.get('name') or '').split()) or f'Option {number}')
+                 .lower() for number, option in enumerate(options, start=1)
                  if isinstance(option, dict)]
         if len(set(names)) != len(names):
             problems.append('Give each option a name of its own.')
@@ -314,7 +316,7 @@ def choose(root, run: dict, name: str, note: str | None = None) -> None:
     options = _options(root)
     # The page calls a look with no name "Option <n>", so that, or the number alone, is the
     # look at that place.
-    called = [str(one.get('name') or '').strip() or f'Option {number}'
+    called = [' '.join(str(one.get('name') or '').split()) or f'Option {number}'
               for number, one in enumerate(options, start=1)]
     wanted = ' '.join(str(name or '').split()).lower()
     numbered = re.fullmatch(r'(?:option )?(\d+)', wanted)

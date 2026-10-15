@@ -19,7 +19,7 @@ what was last found, and asks nothing online. One runner serves on a computer at
 second would undo what the first is doing.
 
 `serve --fake` is for tests and the page's visual check only, and is refused unless
-PRESENTATION_STUDIO_FAKE=1 is set, which also turns it on by itself. It serves the page over
+PRESENTATION_STUDIO_FAKE=1 is set as well: it takes both. It serves the page over
 an engine built from the tests' stand-ins and scripted workers (tests/runner_support.py), in
 a temporary folder of its own with a workspace on this computer: no agent, companion, Google
 or network is ever reached, and nothing of the person's is read or written.
@@ -190,7 +190,7 @@ def parser() -> argparse.ArgumentParser:
 def main(argv: list[str] | None = None) -> int:
     args = parser().parse_args(argv)
     try:
-        if args.command == 'serve' and (args.fake or os.environ.get(FAKE) == '1'):
+        if args.command == 'serve' and args.fake:
             return fake(args)
         return args.handler(args)
     except WorkspaceError as refusal:

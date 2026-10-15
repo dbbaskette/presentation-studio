@@ -77,7 +77,7 @@ Link your checkout so your assistant and the `studio` command use your changes a
 sh installer/install.sh install --link
 ```
 
-Undo it with `sh installer/install.sh uninstall`. Without installing, the runner starts with `python3 runner/studio.py serve --open`; `PRESENTATION_STUDIO_FAKE=1` serves the page over the tests' stand-ins, for looking at it, with nothing of yours read or written.
+Undo it with `sh installer/install.sh uninstall`. Without installing, the runner starts with `python3 runner/studio.py serve --open`; `PRESENTATION_STUDIO_FAKE=1` with `serve --fake` serves the page over the tests' stand-ins, for looking at it, with nothing of yours read or written.
 
 ## Releasing
 

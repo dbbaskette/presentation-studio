@@ -145,8 +145,11 @@ class CorrectionTests(IntakeCase):
         self.assertEqual(run['gates']['gate:outline']['state'], 'absent')
         self.assertEqual(decks.read_run(root), run)
         note = (root / 'classify.md').read_text()
-        self.assertIn('Corrected by you', note)
-        self.assertIn('Notes.', note)
+        self.assertIn('Verdict: spec (Corrected by you)', note)
+        self.assertIn('Reason: You said it is a spec.', note)
+        self.assertNotIn('Notes.', note)
+        intake.correct(root, run, 'material')
+        self.assertIn('Reason: You said it is material.', (root / 'classify.md').read_text())
 
 
 if __name__ == '__main__':

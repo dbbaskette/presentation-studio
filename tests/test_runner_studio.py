@@ -496,6 +496,14 @@ class FakeTests(StudioCase):
                                  (2, {'error': studio.NOT_FAKE}))
         self.assertNotIn('runner_support', studio.__dict__)
 
+    def test_the_environment_alone_does_not_fake_the_page(self):
+        served = []
+        with mock.patch.dict(os.environ, {studio.FAKE: '1'}), \
+                mock.patch.object(studio, 'fake', lambda args: served.append('fake') or 0), \
+                mock.patch.object(studio, 'serve', lambda args: served.append('real') or 0):
+            self.assertEqual(studio.main(['serve']), 0)
+        self.assertEqual(served, ['real'])
+
     @unittest.skipIf(os.name == 'nt', 'signals are delivered differently on Windows')
     def test_the_page_drives_a_deck_with_no_agent_or_companion(self):
         opened = self.base / 'opened.txt'
