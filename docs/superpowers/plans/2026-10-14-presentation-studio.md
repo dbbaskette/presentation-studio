@@ -2,11 +2,11 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build Presentation Studio — a local, approval-gated page that makes Tanzu-branded decks from scratch, from a document, or from an existing deck, using harness-slides, harness-research and tanzu-brand, with every decision shared through the team repository under `presentations/`.
+**Goal:** Build Presentation Studio — a local, approval-gated page that makes decks in the person's own brand from scratch, from a document, or from an existing deck, using harness-slides, harness-research and the person's brand skill, with every decision shared through the team repository under `presentations/`.
 
 **Architecture:** A fork-and-trim of Training Studio (`/Users/dbbaskette/Projects/training-studio`, revision `b19c743673297fa44e245bb76b9e1e36f094223d`). Domain-neutral modules (git workspace, team claims, agents, worker tools, the slides/brand/research wrappers, documents, settings, companions, upkeep, the page server's security base) are copied and renamed. The training domain (levels, blueprints, scenarios, Yoodli, Word copies, the training core's session/gate model) is dropped and replaced by a deck domain: `decks.py` (the deck folder and its run record), `stages.py` (the pipeline as data, with a skip map per route and level), and step modules for intake, research, outline, look, build, existing decks and delivery, driven by a new `engine.py`. The page is a new `app.js` on Training Studio's vendored `style.css` and `markdown.js`, reusing its slide-picture viewer.
 
-**Tech Stack:** Python 3.11+ standard library only; vanilla JS/HTML/CSS (no build step); git; Node 20+ for the companions (harness-slides, harness-research, tanzu-brand); `unittest`.
+**Tech Stack:** Python 3.11+ standard library only; vanilla JS/HTML/CSS (no build step); git; Node 20+ for the companions (harness-slides, harness-research) and the brand skill; `unittest`.
 
 **Spec:** `docs/superpowers/specs/2026-10-14-presentation-studio-design.md`
 
@@ -17,7 +17,7 @@
 - Renames applied to every ported file: `Training Studio` → `Presentation Studio`; `training-studio` → `presentation-studio`; `TRAINING_STUDIO_` env prefix → `PRESENTATION_STUDIO_`; `.training-studio` state dir → `.presentation-studio`; HTTP header `X-Training-Studio-Token` → `X-Presentation-Studio-Token`; "a training"/"trainings" → "a deck"/"decks" in person-facing sentences.
 - Workspace folder in the team repo: `presentations/` with marker `hub.json` = `{"schema": 1, "tool": "presentation-studio"}`. The runner never reads or writes outside that folder.
 - Per-user data folder: `~/.local/share/presentation-studio/` (overridable by `PRESENTATION_STUDIO_DATA`, which every test sets to a temporary directory).
-- Routes: `scratch`, `document`, `existing`. Existing-deck levels: `brand-only`, `polish`, `redesign`, `rework`, `selected`. Outputs: `google` (default), `pptx`. Brands come from tanzu-brand; default brand `tanzu`, variant `light`.
+- Routes: `scratch`, `document`, `existing`. Existing-deck levels: `brand-only`, `polish`, `redesign`, `rework`, `selected`. Outputs: `google` (default), `pptx`. Brands come from the person's brand skill; the default brand and variant are the first it lists unless Settings names one (Task 13b).
 - Agents: the person's own `claude` or `codex` CLI as a subprocess, stripped environment, no built-in tools, only the runner's MCP worker tools (plus web search for research questions), no session persistence. Agents never approve; only a decision on the page approves.
 - All slide work goes through the harness-slides CLI; the studio never edits slide files itself.
 - Never shared (gitignored under `presentations/`): `*/sources/`, `*/work/`, `*.lock`, `**/.presentation-studio/lock`, `**/.harness-research/guidance/`, `**/.harness-slides/guidance/`.
@@ -47,7 +47,7 @@ presentation-studio/
   bootstrap/presentation-studio/SKILL.md    small entrypoint the installer registers
   installer/  install.sh  install.py  "Install Presentation Studio.command"  companions.json
   skills/presentation-studio/
-    SKILL.md                                chat use: routes, how to drive harness-slides + tanzu-brand
+    SKILL.md                                chat use: routes, how to drive harness-slides + the brand skill
     references/{routes,levels,workspace}.md
     scripts/                                the core (put on sys.path by runner/__init__.py)
       home.py hub.py sync_guidance.py computer.py   ported, renamed
@@ -346,13 +346,13 @@ import helpers  # noqa: F401
 from runner import decks, gitstate
 from workspace import WorkspaceError
 
-BRANDS = [{'brand': 'tanzu', 'variants': ['light']},
-          {'brand': 'vmware', 'variants': ['light', 'dark']}]
+BRANDS = [{'brand': 'acme', 'variants': ['light']},
+          {'brand': 'globex', 'variants': ['light', 'dark']}]
 
 
 def form(**over):
-    sent = {'route': 'scratch', 'title': 'Spring AI on Tanzu', 'audience': 'Platform teams',
-            'goal': 'Show the path to production', 'brand': 'tanzu', 'variant': 'light',
+    sent = {'route': 'scratch', 'title': 'Spring AI on Acme', 'audience': 'Platform teams',
+            'goal': 'Show the path to production', 'brand': 'acme', 'variant': 'light',
             'output': 'google', 'research': False}
     sent.update(over)
     return sent
@@ -398,10 +398,10 @@ class CreateTests(unittest.TestCase):
 
     def test_create_writes_intake_run_and_readme(self):
         root = decks.create(self.space, decks.check_form(form(), BRANDS))
-        self.assertEqual(root.name, 'spring-ai-on-tanzu')
+        self.assertEqual(root.name, 'spring-ai-on-acme')
         run = decks.read_run(root)
         self.assertEqual(run['route'], 'scratch')
-        self.assertIn('# Spring AI on Tanzu', (root / 'README.md').read_text())
+        self.assertIn('# Spring AI on Acme', (root / 'README.md').read_text())
         self.assertIn('Platform teams', (root / 'intake.md').read_text())
 
     def test_same_title_twice_gets_a_new_id(self):
@@ -419,7 +419,7 @@ class CreateTests(unittest.TestCase):
     def test_index_lists_decks(self):
         decks.create(self.space, decks.check_form(form(), BRANDS))
         decks.write_index(self.space)
-        self.assertIn('Spring AI on Tanzu', (self.space.root / 'README.md').read_text())
+        self.assertIn('Spring AI on Acme', (self.space.root / 'README.md').read_text())
 ```
 
 - [ ] **Step 2: Run** `cd tests && $PY -m unittest test_decks -v` — FAIL (no module).
@@ -447,7 +447,7 @@ class CreateTests(unittest.TestCase):
     `extract/outline/agent` (existing: verbatim outline from the inventory),
     `outline/outline/agent` (scratch; document material; document spec = parse; existing rework = restructure),
     `gate:outline/outline/gate`,
-    `brand/look/code` (tanzu-brand contract export),
+    `brand/look/code` (the brand skill's contract export),
     `look/look/agent`, `look-preview/look/code`, `gate:look/look/gate`,
     `patch/build/agent` (selected only), `build-start/build/code`, `build-sections/build/agent`, `build-whole/build/code`, `build-review/build/agent`, `build-repair/build/agent`, `build-render/build/code`,
     `gate:build/build/gate`,
@@ -672,7 +672,7 @@ def test_correction_switches_branch_and_keeps_the_document(self):
   - `keep_outline(root, run, handed) -> None` — writes `outline.json`, `outline.md`, sets `gates['gate:outline']` waiting (not for `extract` on brand-only/polish/redesign, which have no outline gate).
   - `apply_edits(root, run, edited: list[dict]) -> None` — the page's editable outline (reorder, add, remove, retitle) saved back into `outline.json` and re-checked with `outline check`; refusals come back as sentences.
 
-- [ ] **Step 1: Write failing tests** — each route picks the right brief; `verbatim_rule` passes copied text and refuses `"Run Tanzu faster"` when the inventory says `"Run Tanzu fast"` (**Review Focus 5**: an outline handed back by the stand-in worker with one changed word is refused by `worker_tools` before it is kept, and the step's second try carries the sentence); `count_rule` refuses a dropped slide for `polish`; `apply_edits` reorders two slides and `outline.md` follows.
+- [ ] **Step 1: Write failing tests** — each route picks the right brief; `verbatim_rule` passes copied text and refuses `"Run Acme faster"` when the inventory says `"Run Acme fast"` (**Review Focus 5**: an outline handed back by the stand-in worker with one changed word is refused by `worker_tools` before it is kept, and the step's second try carries the sentence); `count_rule` refuses a dropped slide for `polish`; `apply_edits` reorders two slides and `outline.md` follows.
 - [ ] **Step 2–4:** FAIL → implement → PASS, whole suite.
 - [ ] **Step 5: Commit** `"Write, extract and restructure outlines, with the verbatim rule for redesigns"`
 
@@ -718,7 +718,7 @@ def test_correction_switches_branch_and_keeps_the_document(self):
   - `look.choose(root, run, name) -> None` — records `look.json` `{chosen, direction, why}`, writes the direction and the person's words into `outline.json` (`direction`, `approval`), approves the gate.
   - `build.start(root, run, slides, brand) -> dict` — `outline start` into `work/build/start/`; for existing levels adds the freedom's house lines (`brand-only`: "Keep each slide's composition as close to the original as the brand's layouts allow. Add no icons.", `polish`: "Keep wording and order; improve spacing, alignment and composition.", `redesign`: "Design each slide again from its content; keep its message and qualifications.").
   - `build.section_work(root, run, section, request, error) -> Work`, `build.whole(root, run, slides, renderer) -> dict` (merge, compile, preview into `work/build/preview/`, contact sheet copied to the shared `contact-sheet.png`), `build.review_work(root, run) -> Work`, `build.keep_review(root, run, handed) -> list[dict]` (findings; drawing findings major/critical → sections to repair, at most 2 rounds), `build.repair_sections(found) -> list[str]`, `build.render(root, run, slides) -> Path` (`work/deck.pptx`; for `selected` the patched deck).
-  - `build.gate_view(root, run) -> dict` — `{'slides': [{'number','title','image','findings'}], 'contactSheet', 'pairs': existing.pairs(...), 'changed': [numbers re-rendered since the last round], 'audit': tanzu-brand presentation audit summary}`; sets `gates['gate:build']` waiting.
+  - `build.gate_view(root, run) -> dict` — `{'slides': [{'number','title','image','findings'}], 'contactSheet', 'pairs': existing.pairs(...), 'changed': [numbers re-rendered since the last round], 'audit': the brand skill's presentation audit summary}`; sets `gates['gate:build']` waiting.
   - `deliver.deliver(root, run, slides) -> dict` — output `google`: `slides.drive_import(deck, title)` → `{'fileId','url'}`; output `pptx` (or Google not reachable → pptx with the sentence "Google isn't connected, so this deck was made as a PowerPoint file."): `deck.pptx` kept under `work/` and offered for download; writes `deliver.json` `{'output','url','fileId','pptx','revision','at'}`, appends to `run['revisions']`, rewrites `README.md` and the index.
   - `deliver.again(root, run, slides, note) -> dict` — "Ask for changes" on a finished deck: reopens `gate:build` with the note; on the next delivery a missing earlier Google file is not an error — a new file is imported and `deliver.json` records the new link (**Review Focus 3**: test with a stand-in whose `drive_import` is called again after the earlier file ID is reported missing).
 
@@ -761,10 +761,11 @@ def test_correction_switches_branch_and_keeps_the_document(self):
 - Produces the HTTP API (all JSON; key in `X-Presentation-Studio-Token`):
   - GET `/api/capabilities`, `/api/setup`, `/api/agents`, `/api/models?agent=`, `/api/decks`, `/api/run?path=`, `/api/slide?path=&kind=build|look|original&number=|name=`, `/api/download?path=` (the `.pptx`, `application/vnd.openxmlformats-officedocument.presentationml.presentation`), `/api/status`, `/api/published`, `/api/delete?path=`, `/api/file?path=&name=` (only `README.md`, `intake.md`, `classify.md`, `outline.md`, `look.md`, `research/plan.md`, `research/report.md`).
   - POST `/api/setup/check`, `/api/setup`, `/api/decks` (start: form + base64 uploads, body limit 120 MB for this address only), `/api/run` (`{path, action}`), `/api/decide` (`{path, gate, decision, note?, extra?}`), `/api/answer`, `/api/share`, `/api/fetch`, `/api/drive`, `/api/publish`, `/api/delete`, `/api/companions`, `/api/upgrade`, `/api/restart`, `/api/versions`.
-  - `setup`: workspace join/local (folder `presentations`), defaults (`agent`, `model`, `name`, `brand`, `variant`, `output`, `renderer`, `share`, `limits`). `upkeep`: Presentation Studio and its three companions (harness-slides, harness-research, tanzu-brand) present and current. `studio serve [--port N] [--open]`, `studio status`.
+  - `setup`: workspace join/local (folder `presentations`), defaults (`agent`, `model`, `name`, `brand`, `variant`, `output`, `renderer`, `share`, `limits`). `upkeep`: Presentation Studio and its two companions (harness-slides, harness-research) present and current, and the brand skill's row (Task 13b). `studio serve [--port N] [--open]`, `studio status`.
 - [ ] **Step 1: Port the security tests first** (Host check, key, POST-only changes, origin, body limit, CSP headers) and run them — FAIL. **Step 2: Port `server.py`** — PASS.
 - [ ] **Step 3: Write page tests** for each address above against an `Engine` with stand-ins (start a scratch deck through `/api/decks`, read `/api/run`, decide through `/api/decide`, fetch a slide picture, download the pptx; a deck driven elsewhere answers 409 to `/api/decide`).
 - [ ] **Step 4: Port `setup`, `upkeep`, `studio`** with their tests renamed; run — PASS, whole suite.
+- [ ] **Step 4b: Shared studios config** (added 2026-10-14 at the user's request; issues dbbaskette/training-studio#67, dbbaskette/blog-studio#94). Create `skills/presentation-studio/scripts/studios_config.py`: `PATH = ~/.config/studios-config.json` (env `STUDIOS_CONFIG` overrides; tests set it to a temp file); `read() -> (dict, problem: str | None)` (missing → `({}, None)`; unreadable/invalid → `({}, sentence)`); `update(changes: dict) -> dict` (merged, atomic, keeps unknown keys, refuses a repository address with credentials). Schema: `{"schema": 1, "team": {"repository", "branch"}, "person": {"name"}, "assistant": {"agent", "model", "effort"}, "brand": {"brand", "variant"}, "output", "share"}`, every key optional. `setup` pre-fills the workspace address, name, agent/model/effort, brand/variant, output, share from it; `POST /api/setup` takes `"for_all_studios": true` to also write the shared values it changed; `GET /api/setup` carries `shared` (the file's values) and `shared_problem`. Tests: no file → defaults unchanged; pre-fill; write only changed keys with unknown keys preserved byte-for-byte; invalid file never blocks setup and its sentence is shown.
 - [ ] **Step 5: Commit** `"Add the server, setup, upkeep and the studio command"`
 
 ---
@@ -789,17 +790,55 @@ def test_correction_switches_branch_and_keeps_the_document(self):
 
 ---
 
+### Task 13b: Any brand — the brand skill is an input (added 2026-10-14 at the user's request)
+
+Presentation Studio is for any brand. The brand skill, and the repository it is installed from, is an input the person gives; nothing in the product names, defaults to or pins a particular brand.
+
+**Files:**
+- Port, the same way in all three studios (Training Studio is the source; Blog Studio is vendoring the same files as `studio_brand/` from `training-studio` at `0881ce7`): from `training-studio` `origin/main` at `0881ce768039ebeb9e1fa39b89cedf792bf5d40e`, the brand-skill-repository feature of its PR #66 (`87981a0`): `runner/brand_source.py` (a brand skill's repository: its releases, fetching one by tag and commit, running its own installer) and `runner/brand.py`'s current form; `brand_repository` / `brand_release` in `runner/settings.py` with `check_repository` / `check_release`; `setup.save_brand`; `upkeep.install_brand` and `upkeep` reporting `versions.brand`; `POST /api/brand` `{repository, release}` and `POST /api/brand/install` `{release}` (409 while a deck is working or anything else is in hand, or when the release is not the one shown) in `runner/page.py`; the Settings and Versions parts of the page that name the repository and release and install/upgrade it; their tests; the docs wording. Record each in `vendor.json` with revision `0881ce7`.
+- Modify: every file that named the brand Presentation Studio was first drafted for (`test_no_brand_named.py` lists them): `runner/settings.py`, `runner/upkeep.py`, `runner/__init__.py`, `vendor.json`, all tests and stand-ins (use a neutral stand-in brand, e.g. `acme` with variants `light`/`dark`), `README.md`, `docs/superpowers/specs/…-design.md` (add a dated "Amendment: any brand" note at the top and neutralise the text), this plan's text, `AGENTS.md`.
+- The brand skill's repository and release are shared values: see Task 13c.
+
+**Rules:**
+- No brand literal in product code. The default brand and variant are the first the installed brand skill lists, unless Settings or the studios config name one.
+- Companions pinned by the installer are harness-slides and harness-research only. The brand skill is installed from the repository and release named in Settings, by its own installer, exactly as Training Studio does; the pinned companions are left alone.
+- Without a brand skill, everything up to the brand step works; the deck stops at `brand` with one sentence saying to name the brand skill's repository in Settings. (The outline already reads the brand's outline contract, so in practice the deck stops at the first step that needs its brand: the outline, or the extract of an existing deck.)
+- Person-facing words say "your brand" / "the brand skill", never a brand's name.
+
+- [ ] **Step 1:** Port `brand_source` + settings + `/api/brand` + setup/upkeep brand-skill parts with their tests — PASS.
+- [ ] **Step 2:** Neutralise every mention of that brand (code, tests, docs); add `test_no_brand_named.py` asserting no tracked text file names it.
+- [ ] **Step 3:** Whole suite — PASS. Commit `"Make Presentation Studio brand-neutral: the brand skill is an input"`.
+
+### Task 13c: The studios config is the single source of truth for shared values (added 2026-10-14 at the user's request)
+
+Issues dbbaskette/training-studio#70 and dbbaskette/blog-studio#96 describe the convention all three studios adopt.
+
+**Rules:**
+- Shared values live only in `~/.config/studios-config.json` (`STUDIOS_CONFIG` overrides): `team.repository`, `team.branch`, `person.name`, `assistant.agent|model|effort`, `brand.repository|release|brand|variant`, `output`, `share`. The runner reads them from that file every time it needs them (a short cache is fine) and keeps no copy in its own settings. There is no "for all studios" flag: saving one of these in setup/Settings writes the shared file (merged, atomic, only changed members, unknown keys and bytes preserved, credentials refused; `brand.repository`/`brand.release` checked with `check_repository`/`check_release`).
+- Per-studio settings (limits, preview renderer, concurrent runs, anything only Presentation Studio uses) stay in its own settings file.
+- An unreadable shared file: the studio works on built-in defaults, says so in one sentence on setup and status, refuses to save a shared value until it is readable, and never overwrites it.
+- Migration: on start, shared values found in this studio's own settings file are written into the shared file where it lacks them, then removed from the own file; values the shared file already has are left as they are and the person is told once.
+- The workspace (team repository and branch) a studio has joined is a clone under its own data folder; which repository and branch to use is the shared value.
+
+**Files:** `skills/presentation-studio/scripts/studios_config.py` (brand repository/release members, schema validation), `runner/settings.py` (shared fields removed from the own settings; accessors that read the shared file), `runner/setup.py` (no `for_all_studios`; save shared values to the shared file; migration), `runner/page.py` (GET/POST `/api/setup` and `/api/brand` contract updated; docstring), the page's setup/Settings screens (no "for all studios" toggle; one sentence saying these are shared by every studio), tests for each, docs (`docs/runner.md` shared-values section; README "Shared settings").
+
+- [ ] **Step 1:** Tests first: shared values read only from the file; saving writes the file and a second Settings read (and a fresh studios_config read) sees it; brand repository/release accepted, checked, preserved; per-studio settings unaffected; unreadable file → defaults, sentence, save refused, file untouched; migration moves own copies without overwriting. Run — FAIL.
+- [ ] **Step 2:** Implement; run — PASS; whole suite — PASS.
+- [ ] **Step 3:** Commit `"Keep shared values only in the studios config, the brand skill's repository and release among them"`.
+
+---
+
 ### Task 14: Installer, companions, chat skill and docs
 
 **Files:**
 - Create (port): `installer/install.sh`, `installer/install.py`, `installer/Install Presentation Studio.command`, `bootstrap/presentation-studio/SKILL.md`
-- Create: `installer/companions.json` pinning harness-research `0.8.0` (`547506e9ba5b0d848267033886624d6cea75c365`, sha256 from Training Studio's pins), harness-slides `0.14.1` (commit `79eaf89f39ae5ba7b11f345a2f018833b53bbc59`, sha256 computed with `install.py`'s `tree_digest` of that revision), tanzu-brand (repository `https://github.com/dbbaskette/tanzu-brand.git`, version from its `package.json`, commit `e25ed10923151e597ab37a11b37561e6048a19ff`, sha256 computed the same way, `installer: scripts/tanzu-brand.mjs install`)
+- Create: `installer/companions.json` pinning harness-research `0.8.0` (`547506e9ba5b0d848267033886624d6cea75c365`, sha256 from Training Studio's pins), harness-slides `0.14.1` (commit `79eaf89f39ae5ba7b11f345a2f018833b53bbc59`, sha256 computed with `install.py`'s `tree_digest` of that revision). No brand skill is pinned: it is installed from the repository the person gives (Task 13b).
 - Create: `skills/presentation-studio/SKILL.md`, `references/routes.md`, `references/levels.md`, `references/workspace.md`, `README.md`, `AGENTS.md` (Presentation Studio's working agreements), `docs/runner.md`, `docs/development.md`, `docs/acceptance.md`
 - Test (port): `tests/test_installer.py`, `tests/test_package.py` (package contents, SKILL.md links resolve, budgets)
 
 **Interfaces:**
-- Produces: `sh installer/install.sh` installs to `~/.local/share/presentation-studio/` with the `studio` launcher and `Open Presentation Studio.command`; registers the bootstrap skill for Claude Code and Codex; brings the three companions at their pins when agreed.
-- [ ] **Step 1: Port installer tests** with the new names; run — FAIL. **Step 2: Port the installer and write `companions.json`** (compute sha256 values by running the ported `tree_digest` on fresh clones at the pinned commits). **Step 3: Write SKILL.md** (chat use: the three routes, the five levels, the folder layout, and that decks are made with harness-slides plus a tanzu-brand contract; links every reference) and the docs. **Step 4: Run** installer and package tests, then the whole suite — PASS.
+- Produces: `sh installer/install.sh` installs to `~/.local/share/presentation-studio/` with the `studio` launcher and `Open Presentation Studio.command`; registers the bootstrap skill for Claude Code and Codex; brings the two companions at their pins when agreed. The brand skill is not brought: it is installed from the repository the person names in Settings.
+- [ ] **Step 1: Port installer tests** with the new names; run — FAIL. **Step 2: Port the installer and write `companions.json`** (compute sha256 values by running the ported `tree_digest` on fresh clones at the pinned commits). **Step 3: Write SKILL.md** (chat use: the three routes, the five levels, the folder layout, and that decks are made with harness-slides plus the brand skill's contract; links every reference) and the docs. **Step 4: Run** installer and package tests, then the whole suite — PASS.
 - [ ] **Step 5: Commit** `"Add the installer, the pinned companions, the chat skill and the docs"`
 
 ---
@@ -812,5 +851,5 @@ def test_correction_switches_branch_and_keeps_the_document(self):
 
 - [ ] **Step 1: Write one end-to-end test per route and per existing level** through the page API with stand-ins and scripted workers: scratch (with and without research), document-spec, document-material (with a classify correction), existing brand-only, polish, redesign, rework, selected. Each asserts the gate sequence matches `stages.steps`, a `deliver.json` with a link exists, `contact-sheet.png` is committed, nothing under `sources/` or `work/` is tracked by git, and the commit log has one commit per decision.
 - [ ] **Step 2: Run** — fix any defects found in the owning modules (not the tests' intent) until PASS; run the whole suite.
-- [ ] **Step 3: Manual acceptance** (recorded in `docs/acceptance.md`): install harness-slides, harness-research and tanzu-brand from the local checkouts into a disposable home (`HOME=$(mktemp -d)`), run `studio serve` against a disposable workspace, and walk a scratch deck and a Brand-only redesign of `tanzu-brand/assets/presentations/tanzu-presentation-template.pptx` as far as this computer allows (LibreOffice/Google may be absent — record exactly where it stopped and the sentence the page showed).
+- [ ] **Step 3: Manual acceptance** (recorded in `docs/acceptance.md`): install harness-slides and harness-research from the local checkouts into a disposable home (`HOME=$(mktemp -d)`), name a brand skill's repository in Settings and install it from the page, run `studio serve` against a disposable workspace, and walk a scratch deck and a Brand-only redesign of the brand skill's own presentation template as far as this computer allows (LibreOffice/Google may be absent — record exactly where it stopped and the sentence the page showed).
 - [ ] **Step 4: Commit** `"Add end-to-end route tests and the acceptance record"`

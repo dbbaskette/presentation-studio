@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <title>Presentation Studio</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="deck.css">
+  <script src="markdown.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to the page</a>
+  <div class="backdrop" aria-hidden="true"></div>
+
+  <div class="window">
+    <nav id="sidebar" class="sidebar glass" aria-label="Screens">
+      <p class="brand">Presentation Studio</p>
+      <button type="button" id="go-home" class="nav-item" aria-current="page"><span class="nav-label">Home</span> <span id="needs-count" class="badge" hidden></span></button>
+      <button type="button" id="go-decks" class="nav-item"><span class="nav-label">Decks</span></button>
+      <button type="button" id="go-status" class="nav-item"><span class="nav-label">Status</span></button>
+      <button type="button" id="go-settings" class="nav-item"><span class="nav-label">Settings</span></button>
+    </nav>
+
+    <div class="content">
+      <div class="toolbar-wrap">
+        <header id="toolbar" class="toolbar glass">
+          <div id="toolbar-lead" class="toolbar-lead"></div>
+          <div class="toolbar-title">
+            <p id="above" class="above" hidden></p>
+            <h1 id="title" class="title" tabindex="-1">Presentation Studio</h1>
+          </div>
+          <div id="actions" class="toolbar-actions"></div>
+        </header>
+        <section id="sheet" class="sheet glass" role="dialog" aria-modal="true" aria-labelledby="sheet-title" tabindex="-1" hidden></section>
+      </div>
+
+      <p id="notice" class="notice" role="alert" hidden></p>
+
+      <main id="main" class="page" tabindex="-1">
+        <noscript>This page needs JavaScript to show your decks. Nothing is loaded from anywhere but this computer.</noscript>
+      </main>
+    </div>
+  </div>
+
+  <div id="toasts" class="toasts" role="status" aria-live="polite"></div>
+</body>
+</html>

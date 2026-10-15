@@ -1,0 +1,456 @@
+{
+  "schema": 1,
+  "source": "https://github.com/dbbaskette/training-studio",
+  "files": [
+    {
+      "path": "skills/presentation-studio/scripts/home.py",
+      "from": "skills/training-studio/scripts/home.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "skills/presentation-studio/scripts/hub.py",
+      "from": "skills/training-studio/scripts/hub.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "skills/presentation-studio/scripts/sync_guidance.py",
+      "from": "skills/training-studio/scripts/sync_guidance.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "skills/presentation-studio/scripts/computer.py",
+      "from": "skills/training-studio/scripts/computer.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "scripts/ci/run_tests.py",
+      "from": "scripts/ci/run_tests.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "runner/__init__.py",
+      "from": "runner/__init__.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "runner/companion.py",
+      "from": "runner/companion.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "runner/settings.py",
+      "from": "runner/settings.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
+      "note": "brand_repository, brand_release, check_repository and check_release follow runner/settings.py at 0881ce768039ebeb9e1fa39b89cedf792bf5d40e (PR #66); brand and variant name no brand; adapted for issue #70 after Training Studio 01ee5f61 (4620afa, e48240e): agent, model, effort, name, brand, variant, output, brand_repository and brand_release read from and saved to the studios config only (SHARED, from_shared, shared_now, seen, changes, save(shown) with the guard and STALE, own, forget_own)"
+    },
+    {
+      "path": "tests/helpers.py",
+      "from": "tests/helpers.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "tests/test_runner_companion.py",
+      "from": "tests/test_runner_companion.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "tests/test_sync.py",
+      "from": "tests/test_sync.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "LICENSE",
+      "from": "LICENSE",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "tests/runner_support.py",
+      "from": "tests/runner_support.py",
+      "note": "the process helpers, the job case, the pretend web and the small slides and brand stand-ins",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "runner/claude-code-models.json",
+      "from": "runner/claude-code-models.json",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "runner/gitstate.py",
+      "from": "runner/gitstate.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
+      "note": "adapted for issue #70 after Training Studio 01ee5f61 (4620afa, e48240e): when to share is read from and written to the studios config, not the workspace record"
+    },
+    {
+      "path": "runner/team.py",
+      "from": "runner/team.py",
+      "note": "tag is <folder>/<deck>/r<N>; copies kept",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "tests/test_runner_gitstate.py",
+      "from": "tests/test_runner_gitstate.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "tests/test_runner_team.py",
+      "from": "tests/test_runner_team.py",
+      "note": "engine-free tests only; rewritten against the workspace",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "runner/agents.py",
+      "from": "runner/agents.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "runner/worker_tools.py",
+      "from": "runner/worker_tools.py",
+      "note": "training validators, design, assets and coverage removed; register() and outline rules added",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "runner/slides.py",
+      "from": "runner/slides.py",
+      "note": "pptx inspect/patch/compare, review --file, drive export and outline draft added",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "runner/brand.py",
+      "from": "runner/brand.py",
+      "revision": "0881ce768039ebeb9e1fa39b89cedf792bf5d40e",
+      "note": "a brand skill's version, from PR #66; without contracts(), which belongs to the move to harness-slides 0.14.1"
+    },
+    {
+      "path": "runner/research.py",
+      "from": "runner/research.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "runner/documents.py",
+      "from": "runner/documents.py",
+      "note": "a deck folder (run.json); add_text and text_of added",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "runner/steps/build.py",
+      "from": "runner/deck.py",
+      "note": "the pure helpers worker_tools needs, without blueprint, objectives or design; with the build loop of runner/pipeline.py (section_work, review_work) and runner/engine.py (_export, _split, _sections, _whole, _review, _keep), the path without a design only",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "skills/presentation-studio/scripts/gdrive.py",
+      "from": "skills/training-studio/scripts/gdocs.py",
+      "note": "GcloudTransport only, as Drive.export_text of plain text",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "tests/stand_ins/__init__.py",
+      "from": "tests/stand_ins/__init__.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "tests/stand_ins/slides.py",
+      "from": "tests/stand_ins/slides.py",
+      "note": "pptx, review --file, drive export and outline draft added",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "tests/stand_ins/brand.py",
+      "from": "tests/stand_ins/brand.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "tests/stand_ins/research.py",
+      "from": "tests/stand_ins/research.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "tests/stand_ins/assets.py",
+      "from": "tests/stand_ins/assets.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "tests/stand_ins/review.py",
+      "from": "tests/stand_ins/review.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "tests/stand_ins/design.py",
+      "from": "tests/stand_ins/design.py",
+      "note": "needed by assets and review",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "tests/fixtures/visual-contract",
+      "from": "tests/fixtures/visual-contract",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "tests/test_runner_agents.py",
+      "from": "tests/test_runner_agents.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "tests/test_runner_worker_tools.py",
+      "from": "tests/test_runner_worker_tools.py",
+      "note": "with the deck tool tests of tests/test_runner_deck.py, without design, assets or coverage",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "tests/test_runner_slides.py",
+      "from": "tests/test_runner_slides.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "tests/test_runner_brand.py",
+      "from": "tests/test_runner_brand.py",
+      "revision": "0881ce768039ebeb9e1fa39b89cedf792bf5d40e",
+      "note": "a brand skill's version, from PR #66; without the contracts() tests"
+    },
+    {
+      "path": "tests/test_runner_research.py",
+      "from": "tests/test_runner_research.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "tests/test_runner_documents.py",
+      "from": "tests/test_runner_documents.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "runner/briefs/__init__.py",
+      "from": "runner/briefs/__init__.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
+      "note": "adapted"
+    },
+    {
+      "path": "runner/briefs/research-plan.md",
+      "from": "runner/briefs/research-plan.md",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
+      "note": "adapted"
+    },
+    {
+      "path": "runner/briefs/research-question.md",
+      "from": "runner/briefs/research-question.md",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
+      "note": "adapted"
+    },
+    {
+      "path": "runner/briefs/section.md",
+      "from": "runner/briefs/deck-section.md",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
+      "note": "adapted"
+    },
+    {
+      "path": "runner/briefs/section-repair.md",
+      "from": "runner/briefs/deck-repair.md",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
+      "note": "adapted"
+    },
+    {
+      "path": "runner/briefs/review.md",
+      "from": "runner/briefs/deck-review.md",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
+      "note": "adapted"
+    },
+    {
+      "path": "runner/engine.py",
+      "from": "runner/engine.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
+      "note": "its machinery (threads, files lock, turns, halting, claims, sharing, fetch on a timer, notifications, publish, delete, bring); the training pipeline replaced by stages and runner/steps"
+    },
+    {
+      "path": "runner/jobs.py",
+      "from": "runner/engine.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
+      "note": "the engine's record helpers, turns, and one job for one worker with its tries, questions and limits, split out of the engine"
+    },
+    {
+      "path": "runner/research_steps.py",
+      "from": "runner/engine.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
+      "note": "the engine's research steps (plan, questions, report), split out of the engine"
+    },
+    {
+      "path": "tests/test_engine.py",
+      "from": "tests/test_runner_engine.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
+      "note": "rewritten for the deck pipeline"
+    },
+    {
+      "path": "tests/test_engine_team.py",
+      "from": "tests/test_runner_team.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
+      "note": "the engine-driven team tests, with the claim and take-over cases of tests/test_runner_engine.py"
+    },
+    {
+      "path": "skills/presentation-studio/scripts/server.py",
+      "from": "skills/training-studio/scripts/desk.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
+      "note": "the security base only (Refusal, as_json, Server, Handler, Page, Desk and /api/computer), with announce, show, port and interrupt from scripts/cmd_desk.py; the training reads removed"
+    },
+    {
+      "path": "runner/page.py",
+      "from": "runner/page.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
+      "note": "rewritten for decks: one view, one decision address, the start form with base64 uploads, slide pictures, the download and whitelisted files; desk lists, gates, documents, copies, outline, assets and adopt removed; /api/brand and /api/brand/install follow runner/page.py at 0881ce768039ebeb9e1fa39b89cedf792bf5d40e (PR #66); adapted for issue #70 after Training Studio 01ee5f61 (4620afa, e48240e): POST /api/shared"
+    },
+    {
+      "path": "runner/setup.py",
+      "from": "runner/setup.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
+      "note": "with defaults for a deck (person, brand, variant, output); the brand skill's repository (save_brand) and the studios config part follow runner/setup.py at 0881ce768039ebeb9e1fa39b89cedf792bf5d40e; adapted for issue #70 after Training Studio 01ee5f61 (4620afa, e48240e): no for_all_studios, share_all or base; team_moved, shared_notice, notice_read, shared_seen and migrate; name, brand, variant and output shared too"
+    },
+    {
+      "path": "runner/upkeep.py",
+      "from": "runner/upkeep.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
+      "note": "companions looked at here (harness-slides, harness-research) against installer/companions.json; a missing pins file is no pins yet; the brand skill's row and install follow runner/upkeep.py at 0881ce768039ebeb9e1fa39b89cedf792bf5d40e (PR #66), reading each assistant's companions itself"
+    },
+    {
+      "path": "runner/studio.py",
+      "from": "runner/studio.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
+      "note": "with the test-only serve --fake; adapted for issue #70 after Training Studio 01ee5f61 (4620afa, e48240e): setup.migrate() on start"
+    },
+    {
+      "path": "skills/presentation-studio/scripts/studios_config.py",
+      "from": "runner/studios_config.py",
+      "revision": "01ee5f61c3c460013fd6a3226f112d6c80ec0ee9",
+      "note": "identical to runner/studios_config.py at that revision but for the product name and the runner import (it sits in the core): the lock beside the file, guard, writable"
+    },
+    {
+      "path": "tests/test_studios_config.py",
+      "from": "tests/test_runner_studios_config.py",
+      "revision": "01ee5f61c3c460013fd6a3226f112d6c80ec0ee9",
+      "note": "identical but for the product name, the import and a brand named acme"
+    },
+    {
+      "path": "tests/test_server_security.py",
+      "from": "tests/test_desk.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
+      "note": "the security cases (RefusalTests, PageTests, WriteRuleTests, WireTests, AnnounceTests) against a small page of their own"
+    },
+    {
+      "path": "tests/test_runner_page.py",
+      "from": "tests/test_runner_page.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
+      "note": "rewritten for decks, with the page-driven team tests deferred from tests/test_runner_team.py; the brand skill's page tests follow tests/test_runner_page.py at 0881ce768039ebeb9e1fa39b89cedf792bf5d40e (PR #66)"
+    },
+    {
+      "path": "tests/test_runner_setup.py",
+      "from": "tests/test_runner_page.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
+      "note": "its SetUpTests and CheckTests, with the studios config tests"
+    },
+    {
+      "path": "tests/test_runner_upkeep.py",
+      "from": "tests/test_runner_upkeep.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
+      "note": "without the installer-driven link and upgrade tests, which come with the installer"
+    },
+    {
+      "path": "tests/test_runner_studio.py",
+      "from": "tests/test_runner_studio.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
+      "note": "with FakeTests"
+    },
+    {
+      "path": "skills/presentation-studio/scripts/desk/style.css",
+      "from": "skills/training-studio/scripts/desk/style.css",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "skills/presentation-studio/scripts/desk/markdown.js",
+      "from": "skills/training-studio/scripts/desk/markdown.js",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "skills/presentation-studio/scripts/desk/index.html",
+      "from": "skills/training-studio/scripts/desk/index.html",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "skills/presentation-studio/scripts/desk/app.js",
+      "from": "skills/training-studio/scripts/desk/app.js",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
+      "note": "the brand skill's Settings card, sheet and Versions parts follow skills/training-studio/scripts/desk/app.js at 0881ce768039ebeb9e1fa39b89cedf792bf5d40e (PR #66); adapted for issue #70 after Training Studio 01ee5f61 (4620afa, e48240e): the \"Your other studios\" card on Status and Settings, with Join it and Got it"
+    },
+    {
+      "path": "tests/page_harness.js",
+      "from": "tests/page_harness.js",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "tests/test_desk.py",
+      "from": "tests/test_desk.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
+      "note": "with the brand skill's screen tests of tests/test_desk.py at 0881ce768039ebeb9e1fa39b89cedf792bf5d40e (PR #66)"
+    },
+    {
+      "path": "runner/brand_source.py",
+      "from": "runner/brand_source.py",
+      "revision": "0881ce768039ebeb9e1fa39b89cedf792bf5d40e"
+    },
+    {
+      "path": "tests/test_runner_brand_source.py",
+      "from": "tests/test_runner_brand_source.py",
+      "revision": "0881ce768039ebeb9e1fa39b89cedf792bf5d40e",
+      "note": "on this runner's upkeep tests: no installer is staged, the companions are laid out for each assistant, and the pins are Presentation Studio's"
+    },
+    {
+      "path": "docs/shared-studios.md",
+      "from": "docs/shared-studios.md",
+      "revision": "01ee5f61c3c460013fd6a3226f112d6c80ec0ee9",
+      "note": "identical"
+    },
+    {
+      "path": "installer/install.py",
+      "from": "installer/install.py",
+      "revision": "01ee5f61c3c460013fd6a3226f112d6c80ec0ee9",
+      "note": "renamed; the helper's command is `presentation`, which runs the runner's studio.py, or guidance sync after `guidance`; the installed copy is checked with sync_guidance --help in place of training.py status; no pandoc or Word-copy note; the brand note says to install it from Settings"
+    },
+    {
+      "path": "installer/install.sh",
+      "from": "installer/install.sh",
+      "revision": "01ee5f61c3c460013fd6a3226f112d6c80ec0ee9",
+      "note": "renamed"
+    },
+    {
+      "path": "installer/Install Presentation Studio.command",
+      "from": "installer/Install Training Studio.command",
+      "revision": "01ee5f61c3c460013fd6a3226f112d6c80ec0ee9",
+      "note": "renamed"
+    },
+    {
+      "path": "installer/companions.json",
+      "from": "installer/companions.json",
+      "revision": "01ee5f61c3c460013fd6a3226f112d6c80ec0ee9",
+      "note": "identical: harness-research 0.8.0 and harness-slides 0.14.1 at the same commits and digests"
+    },
+    {
+      "path": "bootstrap/presentation-studio/SKILL.md",
+      "from": "bootstrap/training-studio/SKILL.md",
+      "revision": "01ee5f61c3c460013fd6a3226f112d6c80ec0ee9",
+      "note": "renamed; the description is the chat skill's"
+    },
+    {
+      "path": "skills/presentation-studio/scripts/validate_package.py",
+      "from": "skills/training-studio/scripts/validate_package.py",
+      "revision": "01ee5f61c3c460013fd6a3226f112d6c80ec0ee9",
+      "note": "the required files and loading sets are Presentation Studio's; the rules and budgets are unchanged"
+    },
+    {
+      "path": "tests/test_installer.py",
+      "from": "tests/test_installer.py",
+      "revision": "01ee5f61c3c460013fd6a3226f112d6c80ec0ee9",
+      "note": "renamed; the helper's tests run the runner and guidance sync; training-only checks (training.py, Yoodli profile, pandoc) are replaced or removed"
+    },
+    {
+      "path": "tests/test_package.py",
+      "from": "tests/test_package.py",
+      "revision": "01ee5f61c3c460013fd6a3226f112d6c80ec0ee9",
+      "note": "on Presentation Studio's required files and loading sets"
+    }
+  ]
+}
