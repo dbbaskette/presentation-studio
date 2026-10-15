@@ -36,6 +36,13 @@ What a caller needs to know
   the template layout for each lead slide, the house rules and the person's words of
   approval. An existing deck at brand-only, polish or redesign has one line more in its
   house rules, FREEDOM[level], which says how far its slides may move.
+- At brand-only and polish, a slide whose original shows no words (`outline.wordless`) is
+  set by the runner, not its composer, on a template layout that shows no title
+  (`bare_layout`, from `compose layouts`), with the original's picture in the layout's
+  slot where one can be carried (`existing.original_picture`). The start records them as
+  'wordless'; the composer hands each in as given, and `kept` refuses any other layout,
+  picture or drawing on it. A template with no such layout stops the deck before anything
+  is split: NoBareLayout, with the sentence NO_BARE_LAYOUT.
 - `to_draw` is every section not yet drawn, and every section a review or the person sent
   back that was not drawn again since the last round. A review sends back each section with
   a major or critical finding about how one of its slides is drawn, for at most REPAIRS
@@ -115,17 +122,23 @@ def slides_of(outline) -> list[dict]:
 
 
 def fixed(whole: dict, ids: list[str], number: int, strict: bool = False,
-          bare=()) -> dict:
+          bare=(), placed=None) -> dict:
     """What the composer of one section may not change: the deck's title and direction,
     and for each of its slides the title, the subtitle and detail, the sources, the points,
     the caveat, the source line and the notes that were approved. With `strict` (brand only
     and polish) the slide draws no words but those, and a slide in `bare`, whose original
-    shows no words, draws none: its title is only a label."""
+    shows no words, draws none: its title is only a label. Such a slide that `placed` sets
+    on a template layout ({id: {'layout', 'picture'?}}, from `start`) keeps that layout and
+    picture, which show no title."""
     by_id = {slide.get('id'): slide for slide in slides_of(whole)}
+    placed = (placed or {}) if strict else {}
     return {'title': whole.get('title'), 'direction': whole.get('direction') or DIRECTION,
             'prefix': f's{number}_', 'strict': bool(strict),
             'slides': [{'id': ident, 'title': by_id[ident].get('title'),
                         'bare': bool(strict) and ident in bare,
+                        **({key: value for key, value in placed[ident].items()
+                            if key in ('layout', 'picture')}
+                           if ident in bare and ident in placed else {}),
                         'subtitle': by_id[ident].get('subtitle'),
                         'detail': by_id[ident].get('detail'),
                         'focal': by_id[ident].get('focal'),
@@ -183,6 +196,25 @@ def _only(text: str, approved: list[str]) -> bool:
     return not left or any(f' {left} ' in f' {one} ' for one in approved)
 
 
+def _set_on_layout(mine: dict, theirs: dict) -> list[str]:
+    """What is wrong with a slide the runner set on a template layout that shows no title:
+    it keeps that layout and its picture, and draws nothing."""
+    ident, problems = theirs['id'], []
+    if mine.get('layout') != theirs['layout']:
+        problems.append(f"{ident}: `layout` is fixed: {json.dumps(theirs['layout'])}. It "
+                        'shows no title, because the slide had no words of its own.')
+    if mine.get('picture') != theirs.get('picture'):
+        problems.append(f"{ident}: `picture` is fixed: {json.dumps(theirs['picture'])}"
+                        if theirs.get('picture') else f'{ident}: the slide has no picture.')
+    drawn = [key for key in ('canvas', 'connect', 'subtitle', 'detail', 'caveat', 'source')
+             if key in mine]
+    if drawn:
+        problems.append(f'{ident}: draw nothing on this slide, and write no text on it: it '
+                        'had no words of its own. Leave out ' + ', '.join(
+                            f'`{key}`' for key in drawn) + '.')
+    return problems
+
+
 def kept(section, spec: dict) -> list[str]:
     """What the runner refuses in a section: anything that was fixed before its composer
     started and is not as it was, and any approved word that is gone."""
@@ -205,7 +237,9 @@ def kept(section, spec: dict) -> list[str]:
             problems.append(f"{ident}: the title is fixed: {json.dumps(theirs['title'])}")
         if mine.get('sources') != theirs['sources']:
             problems.append(f"{ident}: `sources` is fixed: {json.dumps(theirs['sources'])}")
-        if 'layout' in mine:
+        if theirs.get('layout'):
+            problems += _set_on_layout(mine, theirs)
+        elif 'layout' in mine:
             problems.append(f'{ident}: a slide you draw names no template layout.')
         texts, ids = [], []
         _drawn([mine.get('canvas'), mine.get('connect')], texts, ids)
@@ -525,24 +559,101 @@ def _approval(root: Path, run: dict, outline: dict) -> list[str]:
             *([gate['note']] if gate.get('note') else [])]
 
 
+LEVEL_NAMES = {'brand-only': 'Brand only', 'polish': 'Polish'}
+NO_BARE_LAYOUT = ("This brand's template has no layout without a title, so {slides}, which "
+                  "had no words of {its} own, cannot be kept without words at {level}: "
+                  'start the deck again at Redesign to have {them} drawn afresh.')
+
+
+class NoBareLayout(WorkspaceError):
+    """The brand's template has no layout that shows no title, for a slide that had no
+    words at brand only or polish."""
+
+
+def bare_layout(listed, pictured: bool) -> str | None:
+    """The template layout for a slide that had no words: one that shows no title and has
+    no canvas; with a picture to carry, one with a slot for it, and without, one with no
+    empty slot; then the one with the fewest subtitle lines. None when there is none."""
+    fits = [layout for layout in listed or () if isinstance(layout, dict)
+            and isinstance(layout.get('name'), str) and not layout.get('title')
+            and not layout.get('canvas')]
+    if not fits:
+        return None
+    best = min(fits, key=lambda layout: (bool(layout.get('pictures')) != pictured,
+                                         layout.get('subtitles') or 0))
+    return best['name']
+
+
+def _numbers(names: list[str]) -> str:
+    return names[0] if len(names) == 1 else ', '.join(names[:-1]) + f' and {names[-1]}'
+
+
+def wordless_slides(root, run: dict, outline: dict) -> list[str]:
+    """The slides of an outline that, at brand only and polish, had no words of their own."""
+    if run.get('route') != 'existing' or _level(run) not in STRICT:
+        return []
+    from runner.steps import outline as outlines   # it reaches build through worker_tools
+    return outlines.wordless(outline, outlines.inventory_of(root), _level(run))
+
+
+def _place_bare(root: Path, run: dict, outline: dict, bare: list[str], listed,
+                folder: Path) -> dict:
+    """Each slide in `bare` set on a template layout that shows no title, with the picture
+    of its original where one can be carried: {id: {'layout', 'picture'?: {src, alt}}}."""
+    placed, order = {}, [slide.get('id') for slide in slides_of(outline)]
+    for ident in bare:
+        number = order.index(ident) + 1
+        picture = _existing().original_picture(root, number, folder)
+        layout = bare_layout(listed, picture is not None)
+        chosen = next((one for one in listed if one.get('name') == layout), {})
+        if picture and chosen.get('pictures'):
+            title = next(slide.get('title') for slide in slides_of(outline)
+                         if slide.get('id') == ident)
+            placed[ident] = {'layout': layout,
+                             'picture': {'src': picture['src'],
+                                         'alt': picture['alt'] or title}}
+        else:
+            placed[ident] = {'layout': layout}
+    return placed
+
+
 def start(root, run: dict, slides, brand) -> dict:
     """Start the deck from its approved outline: add the direction, the layouts for its
     lead slides and the house rules, have the slides tool split it into sections in
-    work/build/start/, put the lead slides right, and rewrite each section's brief for a
-    worker with tools and no files. Whatever an earlier start built is cleared."""
+    work/build/start/, put the lead slides right, set each slide that had no words (at
+    brand only and polish) on a template layout that shows no title, and rewrite each
+    section's brief for a worker with tools and no files. Whatever an earlier start built
+    is cleared. A template with no such layout stops the deck with NO_BARE_LAYOUT."""
     root, brand = Path(root), Path(brand)
     try:
         outline = json.loads(_outline_path(root).read_text(encoding='utf-8'))
     except (OSError, ValueError):
         raise WorkspaceError('There is no approved outline to build the deck from.') from None
+    bare = wordless_slides(root, run, outline)
+    listed = None
+    if bare:
+        try:
+            listed = [layout for layout in slides.layouts(brand).get('layouts') or ()
+                      if isinstance(layout, dict)]
+        except WorkspaceError as refusal:
+            raise WorkspaceError(f'The deck could not be split into sections. {refusal}') \
+                from None
+        if bare_layout(listed, False) is None:
+            order = [slide.get('id') for slide in slides_of(outline)]
+            names = [f'slide {order.index(ident) + 1}' for ident in bare]
+            raise NoBareLayout(NO_BARE_LAYOUT.format(
+                slides=_numbers(names), its='its' if len(names) == 1 else 'their',
+                them='it' if len(names) == 1 else 'them',
+                level=LEVEL_NAMES[_level(run)]))
     work, folder = root / BUILD, root / START
     for old in (folder, root / TOLD, root / DRAWN, shots(root), *work.glob('whole-*')):
         shutil.rmtree(old, ignore_errors=True)
     work.mkdir(parents=True, exist_ok=True)
     source = work / f'outline-{secrets.token_hex(3)}.json'
     try:
-        whole = complete(outline, slides.layouts(brand).get('layouts'),
-                         _approval(root, run, outline), house(run))
+        if listed is None:
+            listed = slides.layouts(brand).get('layouts')
+        whole = complete(outline, listed, _approval(root, run, outline), house(run))
         home.write_json(source, whole)
         slides.outline_start(source, brand, folder)
         sections = []
@@ -562,6 +673,7 @@ def start(root, run: dict, slides, brand) -> dict:
             sections.append({'id': ident, 'file': part, 'slides': ids})
         if not sections:
             raise WorkspaceError('The slides tool split the deck into no sections.')
+        placed = _place_bare(root, run, outline, bare, listed, folder / 'pictures')
         home.write_json(folder / 'given' / 'outline.json', whole)
         told = root / TOLD
         write_atomic(told / 'compose-contract.txt', slides.compose_contract(brand))
@@ -574,7 +686,7 @@ def start(root, run: dict, slides, brand) -> dict:
     finally:
         source.unlink(missing_ok=True)
     began = {'folder': START.as_posix(), 'brand': str(brand), 'sections': sections,
-             'at': home.now()}
+             'wordless': placed, 'at': home.now()}
     write_state(root, {**EMPTY, 'start': began})
     return began
 
@@ -667,14 +779,24 @@ def section_work(root, run: dict, section: str, request: dict | None, error: str
         lines.append(f'An earlier try at this job did not work: {error}\n'
                      'Take care not to end the same way.')
     strict = run.get('route') == 'existing' and _level(run) in STRICT
-    from runner.steps import outline as outlines   # it reaches build through worker_tools
-    bare = outlines.wordless(whole, outlines.inventory_of(root), _level(run)) if strict else []
-    if any(ident in bare for ident in ids):
+    bare = wordless_slides(root, run, whole)
+    placed = began.get('wordless') or {}
+    drawn_bare = [ident for ident in ids if ident in bare and ident not in placed]
+    if drawn_bare:
         lines.append('These slides show no words in the deck you were given, so draw no '
-                     'text on them: ' + ', '.join(ident for ident in ids if ident in bare)
-                     + '.')
-    spec = {'kind': 'section', 'brand': began['brand'],
-            **fixed(whole, ids, number, strict, bare),
+                     'text on them: ' + ', '.join(drawn_bare) + '.')
+    fixed_spec = fixed(whole, ids, number, strict, bare, placed)
+    set_bare = [slide for slide in fixed_spec['slides'] if slide.get('layout')]
+    if set_bare:
+        lines.append(
+            'These slides show no words in the deck you were given, so each is set on a '
+            'template layout that shows no title, and you draw nothing on them. Hand each in '
+            'exactly as it is here, in its place among your slides, with no canvas, '
+            'subtitle, caveat or source:\n\n' + '\n'.join(json.dumps(
+                {key: slide[key] for key in ('id', 'title', 'sources', 'layout', 'picture',
+                                             'notes') if slide.get(key)},
+                ensure_ascii=False) for slide in set_bare))
+    spec = {'kind': 'section', 'brand': began['brand'], **fixed_spec,
             'previews': PREVIEWS, **how(root, run, renderer)}
     return Work(guidance=briefs.guidance('section', repair=bool(found)),
                 task='\n\n'.join(lines), profile='write', name='section',

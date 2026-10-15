@@ -1322,7 +1322,11 @@ class Engine(Jobs, Researching):
     def _build_start(self, root: Path, run: _Run, step: stages.Step) -> None:
         contract = self._contract(root)
         clock = time.monotonic()
-        began = build.start(root, self._load(root), self.slides(), contract)  # work/ only
+        try:
+            began = build.start(root, self._load(root), self.slides(), contract)  # work/ only
+        except build.NoBareLayout as refusal:
+            self._problem(root, step.name, 'stopped', str(refusal), KEPT_SO_FAR, action=None)
+            raise _Halted() from None
         count = len(began['sections'])
         with self.files:
             self._done(root, step, clock, f"split the deck into {count} section"

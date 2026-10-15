@@ -631,6 +631,11 @@ class _Compiler:
                     fail(sid, f'provide {key} text or omit it')
             if 'detail' in s and 'subtitle' not in s:
                 fail(sid, 'detail needs a subtitle before it')
+            picture = s.get('picture')
+            if 'picture' in s and not (isinstance(picture, dict) and set(picture) ==
+                                       {'src', 'alt'} and all(map(_str, picture.values()))):
+                fail(sid, "picture is {src,alt}: the image for the layout's picture slot and "
+                     'what it shows')
             if 'brief' in s and not (isinstance(brief, dict) and set(brief) == {'rhythm'}
                                      and brief['rhythm'] in RHYTHMS):
                 fail(sid, 'a template layout slide takes only brief.rhythm '
@@ -1396,7 +1401,9 @@ class StandIn:
       overrides, or ink on a fill.
     - Text is measured by the tool's own estimate, not with the brand's font, so a line
       holds a little less than it really does.
-    - Its template is one invented set of layouts, and its two contracts are a few lines.
+    - Its template is one invented set of layouts, `layouts`, which a test may replace, and
+      its two contracts are a few lines. A slide on a layout that shows no title has none
+      written in its deck.
     - A slide's picture is 320 pixels wide and shows blocks and bars, not letters.
     - Its deck is an archive that starts as a PowerPoint file does and that no presentation
       program opens. The brand stand-in's audit reads it.
@@ -1442,6 +1449,7 @@ class StandIn:
         # image provider's key is looked for, and `made` stands in for the provider.
         self.assets, self.env, self.made = False, {}, None
         self.composed = None    # the composition last compiled, to sort its problems by slide
+        self.layouts = LAYOUTS  # the template's layouts: name, title, subtitles, pictures
         self.gone: set[str] = set()   # Drive file IDs that cannot be found
         self._busy, self._renders, self._guard = 0, 0, threading.Lock()
 
@@ -1573,13 +1581,12 @@ class StandIn:
                             'resolve a fresh contract')
         return contract
 
-    @staticmethod
-    def _layouts(contract: dict) -> list[dict]:
+    def _layouts(self, contract: dict) -> list[dict]:
         if not contract['design'].get('nativeTemplate'):
             raise _Said('This brand contract has no native template, so there are no '
                         'template layouts to choose')
         return [{'name': name, 'title': title, 'subtitles': subtitles, 'pictures': pictures,
-                 'canvas': name == DEFAULT} for name, title, subtitles, pictures in LAYOUTS]
+                 'canvas': name == DEFAULT} for name, title, subtitles, pictures in self.layouts]
 
     # --- the outline ---
 
@@ -1947,8 +1954,13 @@ class StandIn:
         self.contract(folder / 'brand-contract.json')
         return scene, structure
 
-    def _deck(self, path: Path, scene: dict) -> str:
-        """Write the deck: an archive with a part for each slide. Returns its hash."""
+    def _deck(self, path: Path, scene: dict, structure: dict | None = None) -> str:
+        """Write the deck: an archive with a part for each slide. Returns its hash. A slide
+        on a template layout that shows no title has no title written, as the native emitter
+        does."""
+        bare = {name for name, title, _, _ in self.layouts if not title}
+        untitled = {entry['slide'] for entry in (structure or {}).get('layouts') or ()
+                    if ' '.join(str(entry.get('layout')).split()) in bare}
         with self._guard:
             self._renders += 1
             stamp = time.gmtime(1767225600 + self._renders * 2)[:6]   # no two alike
@@ -1964,7 +1976,8 @@ class StandIn:
                     runs = ''.join(
                         f"<a:r><a:rPr sz=\"{round(e.get('fontSize', 18) * 100)}\"/><a:t>"
                         f"{escape(e['text'])}</a:t></a:r>" for e in slide['elements']
-                        if e.get('text'))
+                        if e.get('text') and not (slide['id'] in untitled
+                                                  and e.get('role') == 'title'))
                     part(f'ppt/slides/slide{number}.xml', f'<p:sld>{runs}</p:sld>')
         except FileExistsError:
             raise _Said(f"EEXIST: file already exists, open '{path}'")
@@ -1973,13 +1986,13 @@ class StandIn:
     def _compose_render(self, options: dict) -> dict:
         if not options.get('file') or not options.get('output'):
             raise _Said('Provide --file COMPILED_DIR and a new --output deck.pptx')
-        scene, _ = self._compiled(options['file'])
+        scene, structure = self._compiled(options['file'])
         if self.assets:   # each asset copied into the build is still what was compiled
             manifest.verify(options['file'])
         output = Path(options['output']).resolve()
         if output.exists():
             raise _Said(f'{output} already exists; choose a new output file')
-        digest = self._deck(output, scene)
+        digest = self._deck(output, scene, structure)
         if 'compose render' in self.fails:
             raise _Said(self.fails['compose render'])   # and the file stays, as it did
         return {'output': str(output), 'slides': len(scene['slides']), 'sha256': digest,
@@ -2026,7 +2039,7 @@ class StandIn:
     def _previewed(self, output: Path, scene: dict, structure: dict, renderer: str,
                    wanted: str | None, file_id: str | None) -> dict:
         deck = output / 'deck.pptx'
-        digest, remote = self._deck(deck, scene), {}
+        digest, remote = self._deck(deck, scene, structure), {}
         if renderer == 'local' and not self.local:
             raise _Said('LibreOffice (soffice) is not installed. Use --renderer google, or '
                         'install LibreOffice for offline previews.')

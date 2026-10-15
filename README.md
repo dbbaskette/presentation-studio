@@ -18,6 +18,8 @@ Redesigns come in five levels:
 
 - **Brand only**: same slides, your brand's look.
 - **Polish**: brand plus tidier layouts and spacing. The words stay.
+
+At Brand only and Polish a slide with no words of its own, such as a picture alone, gains none: it is set on one of your brand template's layouts that shows no title, with its picture carried across where it is a PNG or JPEG. If your brand's template has no layout without a title, the deck stops at the build and says so; Redesign draws such a slide afresh, with a title.
 - **Redesign, keep content**: rebuilt with your brand's layouts, icons and diagrams. Same message on each slide.
 - **Full rework**: may tighten, split, merge or reorder the content, then redesign it.
 - **Selected changes**: you say which slides and what to fix.

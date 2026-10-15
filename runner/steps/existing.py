@@ -23,6 +23,9 @@ What a caller needs to know
   as a table. Pictures of the original go to work/original/, with a shots.json, taken as
   the build's previews are: one at a time on this computer, and through the deck's one
   preview file in Drive.
+- `original_picture(root, number, folder)` copies the largest PNG or JPEG picture of one
+  slide of sources/original.pptx into `folder`, with its alt text from the inventory, for
+  a slide that had no words at brand only and polish (`build.start`).
 - The patch is handed back as `patch`, a kind checked by `check_patch` and registered
   here: {"sourceSha256", "operations": [{"slide": number, "object", "expectedHash", and one
   of "text", "runs", "alt", "title"}]}. A slide the person did not name, an unknown object,
@@ -37,10 +40,13 @@ from __future__ import annotations
 
 import json
 import os
+import posixpath
 import re
 import secrets
 import shutil
+import zipfile
 from pathlib import Path
+from xml.etree import ElementTree
 
 import runner  # noqa: F401  puts the core on the import path
 import gdrive
@@ -212,6 +218,96 @@ def inventory(root, run: dict, slides, renderer) -> dict:
     shared = read_deck(root, slides)
     draw_original(root, run, slides, renderer)
     return keep_inventory(root, run, shared)
+
+
+# --- a picture of the original ---------------------------------------------------------------
+
+NS = {'p': 'http://schemas.openxmlformats.org/presentationml/2006/main',
+      'a': 'http://schemas.openxmlformats.org/drawingml/2006/main',
+      'r': 'http://schemas.openxmlformats.org/officeDocument/2006/relationships',
+      'rel': 'http://schemas.openxmlformats.org/package/2006/relationships'}
+PICTURE_TYPES = {'.png': b'\x89PNG\r\n\x1a\n', '.jpg': b'\xff\xd8\xff', '.jpeg': b'\xff\xd8\xff'}
+PICTURE_MOST = 20 * 1024 * 1024    # bytes: the largest picture the slides tool takes
+PART_MOST = 8 * 1024 * 1024        # bytes: the largest XML part read to find one
+
+
+def _part(deck: zipfile.ZipFile, name: str):
+    info = deck.getinfo(name)
+    if info.file_size > PART_MOST:
+        raise ValueError(f'{name} is too large to read')
+    return ElementTree.fromstring(deck.read(info))
+
+
+def _targets(deck: zipfile.ZipFile, part: str) -> dict:
+    """The relationships of one part, by ID, each as the part it points to."""
+    folder, name = posixpath.split(part)
+    rels = posixpath.join(folder, '_rels', name + '.rels')
+    if rels not in deck.namelist():
+        return {}
+    return {one.get('Id'): posixpath.normpath(posixpath.join(folder, one.get('Target') or ''))
+            for one in _part(deck, rels).findall('rel:Relationship', NS)
+            if one.get('TargetMode') != 'External'}
+
+
+def original_picture(root, number: int, folder) -> dict | None:
+    """The largest picture on slide `number` of the original deck, copied into `folder`, as
+    {'src': its path, 'alt': what the inventory says it shows, or None}. None when the slide
+    has no picture the slides tool can place (a PNG or JPEG of at most 20 MB), or the deck
+    cannot be read. The deck is read with the standard library: the slides tool has no
+    command that hands a picture out."""
+    root, folder = Path(root), Path(folder)
+    try:
+        with zipfile.ZipFile(root / SOURCE) as deck:
+            listed = _part(deck, 'ppt/presentation.xml').findall('p:sldIdLst/p:sldId', NS)
+            if not 1 <= number <= len(listed):
+                return None
+            slide = _targets(deck, 'ppt/presentation.xml').get(
+                listed[number - 1].get(f"{{{NS['r']}}}id"))
+            if not slide:
+                return None
+            media, found = _targets(deck, slide), []
+            for picture in _part(deck, slide).iter(f"{{{NS['p']}}}pic"):
+                blip = picture.find('.//a:blip', NS)
+                target = media.get(blip.get(f"{{{NS['r']}}}embed")) if blip is not None \
+                    else None
+                extent = picture.find('p:spPr/a:xfrm/a:ext', NS)
+                area = int(extent.get('cx', 0)) * int(extent.get('cy', 0)) \
+                    if extent is not None else 0
+                kind = posixpath.splitext(target or '')[1].lower()
+                if target in deck.namelist() and kind in PICTURE_TYPES:
+                    found.append((area, picture.find('.//p:cNvPr', NS), target, kind))
+            if not found:
+                return None
+            _, props, target, kind = max(found, key=lambda one: one[0])
+            info = deck.getinfo(target)
+            if info.file_size > PICTURE_MOST:
+                return None
+            data = deck.read(info)
+    except (OSError, KeyError, ValueError, zipfile.BadZipFile, ElementTree.ParseError):
+        return None
+    if not data.startswith(PICTURE_TYPES[kind]):
+        return None
+    ident = props.get('id') if props is not None else None
+    said = next((item.get('alt') for slide in (inventory_of(root) or {}).get('slides') or ()
+                 if isinstance(slide, dict) and slide.get('number') == number
+                 for item in slide.get('objects') or ()
+                 if isinstance(item, dict) and item.get('id') == ident), None)
+    if not (isinstance(said, str) and said.strip()) and props is not None:
+        said = props.get('descr')
+    folder.mkdir(parents=True, exist_ok=True)
+    path = folder / f'slide-{number}{kind}'
+    path.write_bytes(data)
+    return {'src': str(path.resolve()),
+            'alt': ' '.join(said.split()) if isinstance(said, str) and said.strip() else None}
+
+
+def inventory_of(root) -> dict | None:
+    """classify.json, or None when there is none."""
+    try:
+        found = json.loads((Path(root) / INVENTORY).read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return None
+    return found if isinstance(found, dict) else None
 
 
 def _inventory(root: Path) -> dict:
