@@ -249,7 +249,12 @@ def named_slides(selected) -> list[int]:
 
 
 def _named_for(run: dict, inventory: dict) -> list[int]:
+    """The slides the person named at intake, then any more they asked for changes to at
+    the deck's gate."""
     wanted = named_slides((run.get('form') or {}).get('selected'))
+    asked = ((run.get('gates') or {}).get('gate:build') or {}).get('slides') or ()
+    wanted += [number for number in asked
+               if type(number) is int and number not in wanted] if wanted else []
     if not wanted:
         raise WorkspaceError('Say which slides to change by their numbers, for example '
                              '"slide 3" or "slides 4 and 7", and what to change on them.')

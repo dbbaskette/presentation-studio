@@ -1078,7 +1078,7 @@ class OutlineToolTests(ToolCase):
         slides = [dict(slide) for slide in OUTLINE['slides']]
         slides[2].pop('notes')
         slides[3]['title'] = 'Rolling is never faster'
-        bad = {**OUTLINE, 'slides': slides}
+        bad = {**OUTLINE, 'delivery': 'live', 'slides': slides}
         said = self.ok(tools.check_outline(bad))
         self.assertIn('- when-capacity-holds: It has no notes.', said)
         self.assertIn('- the-objection: the title says faster.', said)

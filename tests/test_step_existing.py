@@ -174,6 +174,21 @@ class PatchTests(Case):
             existing.patch_work(self.root, self.run_, None, None)
         self.assertIn('slides', str(caught.exception))
 
+    def test_slides_asked_for_at_the_deck_gate_may_change_too(self):
+        self.run_['form']['selected'] = 'slide 2'
+        self.run_['gates']['gate:build'] = {'state': 'changes', 'note': 'Fix slide 1 too.',
+                                            'slides': [1, 2]}
+        work = existing.patch_work(self.root, self.run_, None, None)
+        spec = work.prepared['artifacts']['patch']
+        self.assertEqual(spec['named'], [2, 1])
+        self.assertIn('1:2', spec['objects'])
+        self.assertIn('Slide 1', work.prepared['inputs']['Inventory'])
+        first = self.inv['slides'][0]['objects'][0]
+        op = {'slide': 1, 'object': first['id'], 'expectedHash': first['contentHash'],
+              'text': 'Run Acme faster'}
+        problems, *_ = existing.check_patch(self.plan(op), spec)
+        self.assertEqual(problems, [])
+
     def test_apply_patch_makes_the_copy(self):
         existing.keep_patch(self.root, self.plan(self.op))
         path = existing.apply_patch(self.root, self.run_, self.slides)

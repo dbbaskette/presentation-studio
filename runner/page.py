@@ -98,7 +98,8 @@ READS = ('/api/capabilities', '/api/setup', '/api/agents', '/api/models', '/api/
 WRITES = ('/api/setup/check', '/api/setup', '/api/decks', '/api/run', '/api/decide',
           '/api/answer', '/api/share', '/api/fetch', '/api/drive', '/api/publish',
           '/api/delete', '/api/bring', '/api/companions', '/api/upgrade', '/api/restart',
-          '/api/versions', '/api/brand', '/api/brand/install', '/api/shared')
+          '/api/versions', '/api/brand', '/api/brand/install', '/api/shared',
+          '/api/deliver')
 PNG = 'image/png'
 PPTX = 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
 DECKS = '/api/decks'
@@ -293,6 +294,9 @@ class RunnerPage(server.Page):
             return server.as_json(HTTPStatus.OK, self.engine.fetch())
         if path == '/api/drive':
             return server.as_json(HTTPStatus.OK, self.drive(sent))
+        if path == '/api/deliver':
+            return server.as_json(HTTPStatus.OK, self.engine.deliver_again(
+                self.deck(server.text(sent, 'path'))))
         if path == '/api/publish':
             return server.as_json(HTTPStatus.OK, self.engine.publish(
                 self.deck(server.text(sent, 'path'))))

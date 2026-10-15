@@ -32,6 +32,7 @@ import computer
 import home
 import server
 from runner import agents, engine as engines, page, settings
+from runner.steps import deliver
 from workspace import WorkspaceError
 
 VERSION = (helpers.SKILL / 'VERSION').read_text().strip()
@@ -42,7 +43,7 @@ POSTS = ('/api/setup/check', '/api/setup', '/api/decks', '/api/run', '/api/decid
          '/api/answer', '/api/share', '/api/fetch', '/api/drive', '/api/publish',
          '/api/delete', '/api/bring', '/api/companions', '/api/upgrade', '/api/restart',
          '/api/versions', '/api/computer', '/api/brand', '/api/brand/install',
-         '/api/shared')
+         '/api/shared', '/api/deliver')
 BOTH = ('/api/setup', '/api/decks', '/api/run', '/api/delete', '/api/computer')
 LISTED = [{'name': 'gpt-6-sol', 'label': 'GPT-6-Sol (gpt-6-sol)', 'family': None,
            'about': 'Previous generation workhorse model.', 'default_level': 'medium',
@@ -177,6 +178,7 @@ class RuleTests(PageCase):
             '/api/answer': {'path': self.path, 'id': 'x', 'answer': 'Yes.'},
             '/api/drive': {'path': self.path, 'action': 'take'},
             '/api/publish': {'path': self.path},
+            '/api/deliver': {'path': self.path},
             '/api/delete': {'path': self.path, 'title': 'Rolling restarts'},
             '/api/bring': {'path': self.path},
             '/api/upgrade': {'version': '99.0.0'},
@@ -402,6 +404,37 @@ class RunTests(PageCase):
             status, reply, _ = self.answer('GET', '/api/slide?' + urlencode(
                 {'path': elsewhere, 'kind': 'build', 'number': '1'}))
             self.assertEqual((status, reply['error']), (404, page.NO_DECK))
+
+    def test_a_deck_made_as_powerpoint_without_google_is_delivered_to_it_later(self):
+        path = self.started()
+        self.slides.run.drive = False
+        for gate in ('gate:outline', 'gate:look', 'gate:build'):
+            self.decided(path, gate)
+        first = self.run_of(path)['deliver']
+        self.assertEqual((first['output'], first['notice'], first['to_google']),
+                         ('pptx', deliver.NOT_CONNECTED, True))
+        before, commits = self.on_disk(), len(self.log())
+        said = self.post('deliver', {'path': path}, 409)['error']
+        self.assertEqual(said, engines.STILL_NOT_CONNECTED)
+        self.assertEqual((self.on_disk(), len(self.log())), (before, commits))
+        self.slides.run.drive = True
+        shown = self.post('deliver', {'path': path})
+        again = shown['deliver']
+        self.assertEqual((again['output'], again['revision'], again['to_google']),
+                         ('google', 2, False))
+        self.assertTrue(again['url'].startswith('https://'))
+        self.assertNotIn('notice', again)
+        self.assertEqual(shown['state'], 'finished')
+        self.assertEqual([one.get('url') is not None for one in again['revisions']],
+                         [False, True])
+        self.assertEqual(self.log()[-1], 'Rolling restarts: deliver revision 2 to Google Slides: '
+                         + again['url'])
+        # Once it is there, there is nothing more to send.
+        self.assertIn('already', self.post('deliver', {'path': path}, 409)['error'])
+
+    def test_a_deck_not_delivered_is_not_sent_to_google(self):
+        path = self.started()
+        self.assertIn('not been delivered', self.post('deliver', {'path': path}, 409)['error'])
 
     def test_a_deck_not_delivered_has_nothing_to_download(self):
         path = self.started()

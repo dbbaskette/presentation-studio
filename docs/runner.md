@@ -52,7 +52,7 @@ Nothing is changed until you save, and anything can be changed later in Settings
 
 At each stop the page shows what was made: the text, or the real slides in a slide viewer with the contact sheet, the brand's own check and the review's notes. A redesign shows each slide before and after. **Approve**, or **Ask for changes** in your own words; the runner makes them and brings the new version back. At the deck, each slide has its own "Ask for changes".
 
-The deck is delivered as Google Slides, or as a PowerPoint file to download. An existing deck is never changed: you always get a new copy. Asking for changes to a delivered deck rebuilds only the slides that changed and delivers a new numbered revision.
+The deck is delivered as Google Slides, or as a PowerPoint file to download. An existing deck is never changed: you always get a new copy. Asking for changes to a delivered deck draws again the sections that hold the slides you name (every section when you name none), reviews the deck again and delivers a new numbered revision. A deck made as a PowerPoint file because Google was not connected can be sent to Google Slides later, unchanged, with **Deliver to Google Slides** on its screen.
 
 **Watching a run.** A deck's run shows every step, how long each took and what it cost.
 - **Pause**: the step in hand finishes and nothing new starts until you resume. **Stop**: the work in hand is ended; everything already kept stays.

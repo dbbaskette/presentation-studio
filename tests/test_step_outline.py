@@ -233,12 +233,19 @@ class EditTests(Case):
 
     def test_a_refusal_comes_back_as_a_sentence_and_nothing_is_written(self):
         root, run = self.deck('scratch')
-        outline.keep_outline(root, run, extracted())
+        outline.keep_outline(root, run, {**extracted(), 'delivery': 'live'})
         before = (root / 'outline.json').read_text()
         edited = copy.deepcopy(extracted()['slides'])
         del edited[0]['notes']
         with self.assertRaisesRegex(WorkspaceError, 'first-slide: It has no notes'):
             outline.apply_edits(root, run, edited, self.slides, self.brand)
+        dense = copy.deepcopy(extracted()['slides'])
+        dense.append({**dense[1], 'id': 'fourth-slide', 'title': 'More'})
+        with self.assertRaisesRegex(WorkspaceError, 'fourth-slide: 4 dense slides in a row'):
+            outline.apply_edits(root, run, dense, self.slides, self.brand)
+        dense[-1]['rhythm'] = 'breathing'
+        outline.apply_edits(root, run, dense, self.slides, self.brand)
+        outline.keep_outline(root, run, {**extracted(), 'delivery': 'live'})
         self.slides.refuse['outline_check'] = ['Use outline version 1.']
         with self.assertRaisesRegex(WorkspaceError, 'version 1'):
             outline.apply_edits(root, run, extracted()['slides'], self.slides, self.brand)

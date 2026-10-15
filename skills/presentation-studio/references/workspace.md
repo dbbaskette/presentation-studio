@@ -12,15 +12,16 @@ run.json           the run record; what marks the folder as a deck
 intake.md          the form, in words
 classify.md        a document's kind, or an existing deck's inventory
 research/plan.md   research/report.md
+outline.json       the outline as harness-slides reads it
 outline.md         each slide's title, key message and notes
-look.json          the chosen look
-plan/              harness-slides' outline, composition and plan files
+look.json look.md  the looks proposed and the one chosen
 brand/             brand-contract.json, DESIGN.md, VOICE.md
-reviews/<step>-<n>.md   each request for changes and what was done
+reviews/build-<n>.md    what the review of each round of the build found
 deliver.json       the Google Slides link or the .pptx name, and the revision
 contact-sheet.png  one small picture of the deck
 sources/           never shared: documents and the original deck
-work/              never shared: harness-slides' workspace, previews and renders
+work/              never shared: harness-slides' workspace, the build plan and what
+                   each section drew (work/build/), previews and renders
 ```
 
 ## run.json

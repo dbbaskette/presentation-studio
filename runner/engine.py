@@ -208,6 +208,8 @@ AGAIN_HERE = ('carry on here: {steps} again, as what was made for them is kept o
               'computer that made it')
 NOT_WAITING = 'The {it} is not waiting for a decision now.'
 NO_NOTE = 'Say what should change.'
+STILL_NOT_CONNECTED = ("Google still isn't connected on this computer. Sign in with gcloud, "
+                       'then deliver it again.')
 UNDO_NOT = ('The last step cannot be undone: only the last thing done, when it was this '
             "deck's and is not shared yet, can be.")
 NO_PICTURE = 'There is no picture of that slide on this computer.'
@@ -323,16 +325,20 @@ class Engine(Jobs, Researching):
     def driven(self, path) -> Path | None:
         """A deck's folder when it is a deck of this workspace, else None."""
         space, root = self.workspace, Path(path)
-        if space is None or root.parent != space.root or not (root / decks.RUN).is_file():
+        if space is None or root.parent != space.root or root.name in ('', '.', '..') \
+                or root.is_symlink() or root.resolve().parent != space.root.resolve() \
+                or not (root / decks.RUN).is_file():
             return None
         return root
 
     def every(self) -> list[Path]:
-        """Every deck in the workspace."""
+        """Every deck in the workspace. A folder that is a link to somewhere else is not
+        one."""
         space = self.workspace
         if space is None or not space.root.is_dir():
             return []
-        return [path.parent for path in sorted(space.root.glob(f'*/{decks.RUN}'))]
+        return [path.parent for path in sorted(space.root.glob(f'*/{decks.RUN}'))
+                if self.driven(path.parent) is not None]
 
     def adapter(self, name: str):
         found = self.adapters.get(name)
@@ -2061,7 +2067,9 @@ class Engine(Jobs, Researching):
     def _show_outline(self, root: Path, record: dict) -> dict:
         found = home.read_json(root / outlines.OUTLINE, None)
         return {'text': text_of(root / outlines.OUTLINE_MD) or '',
-                'slides': build.slides_of(found) if isinstance(found, dict) else []}
+                'slides': build.slides_of(found) if isinstance(found, dict) else [],
+                'delivery': (found.get('delivery') if isinstance(found, dict) else None)
+                or build.DELIVERY}
 
     def _show_look(self, root: Path, record: dict) -> dict:
         return {'text': text_of(root / looks.LOOK_MD) or '', 'options': [
@@ -2114,7 +2122,10 @@ class Engine(Jobs, Researching):
             'problem': ({key: halted.get(key) for key in ('state', 'why', 'kept', 'action')}
                         if halted else None),
             'deliver': ({**said, 'revisions': list(record.get('revisions') or []),
-                         'download': self._rendered(root, record)}
+                         'download': self._rendered(root, record),
+                         'to_google': said.get('notice') == delivering.NOT_CONNECTED
+                         and ((record.get('form') or {}).get('output') or 'google')
+                         == 'google'}
                         if said else None),
             'contactSheet': (root / build.SHEET).is_file()}
 
@@ -2310,6 +2321,42 @@ class Engine(Jobs, Researching):
                         'shared.')
         return {'revision': made['revision'], 'ready': ready, 'shared': made['shared'],
                 'notice': ' '.join(said) or None}
+
+    def deliver_again(self, path) -> dict:
+        """Send a deck that was made as a PowerPoint file, because Google was not
+        connected, to Google Slides as its form asked. Nothing about the deck changes: the
+        deck that was delivered goes to Google as the next revision. Returns its view."""
+        root = self.driven(path)
+        if root is None:
+            raise WorkspaceError('There is no deck there.')
+        space, slides = self.space(), self.slides()
+        with self.files:
+            record = self._load(root)
+            who = team.driver(space, record)
+            if who is not None and not who['here']:
+                raise Elsewhere(team.elsewhere(space, record))
+            said = decks.delivered(root)
+            if said is None:
+                raise WorkspaceError('This deck has not been delivered yet.')
+            if said.get('notice') != delivering.NOT_CONNECTED \
+                    or ((record.get('form') or {}).get('output') or 'google') != 'google':
+                raise WorkspaceError('This deck is already delivered as you asked, so there '
+                                     'is nothing to send to Google Slides.')
+        if not slides.drive_check():
+            raise WorkspaceError(STILL_NOT_CONNECTED)
+        made = delivering.upload(root, record, slides)
+        if made.get('output') != 'google' or not made.get('url'):
+            raise WorkspaceError(STILL_NOT_CONNECTED)
+        with self.files:
+            record = self._load(root)
+            if decks.delivered(root) != said:
+                raise WorkspaceError('The deck changed while it was being sent. Look at it '
+                                     'again before you deliver it.')
+            made = delivering.record(root, record, made, space)
+            self._commit(root, f"deliver revision {made['revision']} to Google Slides: "
+                         f"{made['url']}", self._listed(space))
+        self._last()
+        return self.view(root)
 
     def published(self) -> list[dict]:
         space = self.workspace

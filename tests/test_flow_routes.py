@@ -204,6 +204,32 @@ class ExistingRouteTests(RouteCase):
                      selected='Shorten the words on slide 2')
         self.assertEqual(len(self.workers.of('patch')), 1)
 
+    def test_selected_with_a_slide_asked_for_at_the_deck(self):
+        def patch(number):
+            def act(tools, job):
+                spec = tools.job['artifacts']['patch']
+                key, digest = next((key, digest) for key, digest in spec['objects'].items()
+                                   if key.startswith(f'{number}:') and key != f'{number}:2')
+                plan = {'sourceSha256': spec['sha256'], 'operations': [
+                    {'slide': number, 'object': key.partition(':')[2], 'expectedHash': digest,
+                     'runs': [{'index': 0, 'text': 'Shorter.'}]}]}
+                self.workers._ok(tools.submit_artifact('patch', json.dumps(plan)))
+            return act
+
+        self.workers.then('patch', patch(2), patch(1))
+        path = self.existing('selected', selected='Shorten the words on slide 2')
+        self.decided(path, 'gate:classify')
+        view = self.run_of(path)
+        self.assertEqual((view['gate'] or {}).get('name'), 'gate:build', view['sentence'])
+        self.decided(path, 'gate:build', 'changes', note='Shorten slide 1 as well.',
+                     extra={'slides': [1]})
+        view = self.run_of(path)
+        self.assertEqual((view['gate'] or {}).get('name'), 'gate:build', view['sentence'])
+        patches = [spec['artifacts']['patch'] for kind, job, spec in self.workers.jobs
+                   if kind == 'patch']
+        self.assertEqual([spec['named'] for spec in patches], [[2], [2, 1]])
+        self.assertEqual(self.walk(path, 'Old deck'), ['gate:build'])
+        self.delivered(path, ['gate:classify', 'gate:build'], sheet=False)
 
 if __name__ == '__main__':
     unittest.main()

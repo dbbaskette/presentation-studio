@@ -492,5 +492,22 @@ class ListTests(StudioCase):
         self.assertEqual(listed['elsewhere'], [])
 
 
+class DrivenTests(StudioCase):
+    def test_a_deck_folder_reached_through_a_link_or_dots_is_not_driven(self):
+        root = self.start()
+        space = self.engine.space().root
+        self.assertEqual(self.engine.driven(root), root)
+        self.assertEqual(self.engine.every(), [root])
+        outside = self.base / 'elsewhere' / 'outside'
+        outside.mkdir(parents=True)
+        decks.write_run(outside, {'schema': 1, 'id': 'outside'})
+        linked = space / 'linked'
+        linked.symlink_to(outside, target_is_directory=True)
+        self.assertIsNone(self.engine.driven(linked))
+        self.assertIsNone(self.engine.driven(space / '..' / space.name / root.name))
+        self.assertIsNone(self.engine.driven(space / 'linked' / '..' / root.name))
+        self.assertEqual(self.engine.every(), [root])
+
+
 if __name__ == '__main__':
     unittest.main()

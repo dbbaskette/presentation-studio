@@ -328,9 +328,21 @@ class Slides:
         given = self._read(outline)
         if not isinstance(given, dict):
             raise tool.Refused(['The outline must be a JSON object.'])
-        slides = given['slides']
+        slides, delivery = given['slides'], given.get('delivery') or 'reading'
+        # As the tool does: notes only for a content slide presented live, and a run of four
+        # or more dense content slides in a row.
         found = [{'slide': slide['id'], 'code': 'no-notes', 'detail': 'It has no notes.'}
-                 for slide in slides if not slide.get('notes')]
+                 for slide in slides if delivery == 'live' and slide.get('kind') == 'content'
+                 and not slide.get('notes')]
+        run = []
+        for slide in [*slides, {'kind': 'end'}]:
+            if slide.get('kind') == 'content' and slide.get('rhythm', 'dense') == 'dense':
+                run.append(slide['id'])
+                continue
+            if len(run) >= 4:
+                found.append({'slide': run[3], 'code': 'dense-run',
+                              'detail': f'{len(run)} dense slides in a row from {run[0]}.'})
+            run = []
         words = {slide['id']: sum(len(f"{point['label']} {point['text']}".split())
                                   for point in slide.get('points') or ())
                  for slide in slides}
@@ -338,7 +350,7 @@ class Slides:
                    'detail': f'{count} words against {self.budget}.'}
                   for ident, count in words.items() if count > self.budget]
         return {'status': 'findings' if found else 'ok', 'slides': len(slides),
-                'delivery': 'reading', 'wordBudget': self.budget, 'words': words,
+                'delivery': delivery, 'wordBudget': self.budget, 'words': words,
                 'findings': found}
 
     def outline_start(self, outline, brand, folder) -> dict:

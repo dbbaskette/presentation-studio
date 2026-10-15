@@ -94,7 +94,7 @@ A terminal window opens and the page opens in your browser. It works on this com
 
 **4. Decide at each stop.** The page shows what needs you. Approve, or ask for changes in your own words. You can close the page while it works and come back later.
 
-**5. Collect your deck.** When it is done, the page shows the Google Slides link or the PowerPoint file. Ask for changes on a finished deck and only the slides that changed are rebuilt, delivered as a new numbered revision.
+**5. Collect your deck.** When it is done, the page shows the Google Slides link or the PowerPoint file. Ask for changes on a finished deck and the sections that draw the slides you name are drawn again (every section when you name none), reviewed, and delivered as a new numbered revision.
 
 ### In a conversation instead
 
@@ -122,7 +122,7 @@ If the file cannot be read, Presentation Studio works on its built-in defaults, 
 | What you see | What it means |
 | --- | --- |
 | The page says it needs LibreOffice or Poppler | Slides cannot be drawn on this computer. Install them, or sign in to Google and use Drive previews |
-| You get a PowerPoint file, not Google Slides | You are not signed in to Google. Sign in with gcloud and deliver again |
+| You get a PowerPoint file, not Google Slides | You are not signed in to Google. Sign in with gcloud, then press **Deliver to Google Slides** on the deck's screen: the same deck goes to Google Slides as the next revision |
 | A step failed | The page says why in one sentence. Choose Try again, or Carry on if offered |
 | Your team repository cannot be reached | Your work is kept and marked "not shared yet". It goes up with the next share |
 | A deck cannot be read | The page gives the reason when you add it. Try saving it as `.pptx` again |

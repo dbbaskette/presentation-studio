@@ -121,15 +121,16 @@ folder and only ever reads and writes under `presentations/`.
     classify.md                # spec/material verdict, or deck inventory + source name and sha256
     research/plan.md
     research/report.md
+    outline.json               # the outline as harness-slides reads it
     outline.md
-    look.json                  # the chosen direction
-    plan/                      # harness-slides outline / composition / deck-plan JSON
+    look.json  look.md         # the looks proposed and the chosen direction
     brand/                     # brand-contract.json, DESIGN.md, VOICE.md, brand version
-    reviews/<stage>-<n>.md     # each request for changes and what was done
+    reviews/build-<n>.md       # what the review of each build round found
     deliver.json               # Slides file ID and URL, pptx name, revision number
     contact-sheet.png          # one small picture of the deck for teammates
     sources/                   # never shared: uploaded documents and the original deck
-    work/                      # never shared: harness-slides workspace, previews, renders, .pptx
+    work/                      # never shared: harness-slides workspace, the build plan and
+                               #   each section's drawing (work/build/), previews, renders, .pptx
 ```
 
 Team rules are Training Studio's (`docs/runner.md`, "With a team"):

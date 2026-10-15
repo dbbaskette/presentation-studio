@@ -263,7 +263,7 @@ const view = {
   joining: false,
   // The versions Home last told of, when set-up was last read, and the restart in hand.
   versionsTold: undefined, setupAt: 0, restarting: false, comingBack: null,
-  notifying: false, unnotified: '', downloading: false,
+  notifying: false, unnotified: '', downloading: false, delivering: false,
   // The refresh in hand, and whether another was asked for while it was.
   refreshing: null, again: false,
   // What the decks screen is narrowed to.
@@ -1193,9 +1193,8 @@ function noteSheet(kind) {
     view.notes[key] = box.value;
   });
   const marked = markedSlides();
-  const hint = make('p', 'quiet', spec.hint + (marked.length ? ' Only '
-    + slidesNamed(marked) + ', which you marked, ' + (marked.length === 1 ? 'is' : 'are')
-    + ' built again.' : ''));
+  const hint = make('p', 'quiet', spec.hint + (marked.length ? ' The parts of the deck '
+    + 'that hold ' + slidesNamed(marked) + ', which you marked, are drawn again.' : ''));
   hint.id = 'note-hint';
   const problem = problemLine();
   const submit = submitButton(spec.send, 'send');
@@ -3444,24 +3443,42 @@ function outlinePanel(gate, readonly) {
   paintOutline(gate, items, said);
   if (!readonly) {
     const held = chosenFor(gate);
+    const live = gate.delivery === 'live';
+    if (held.addingNotes === undefined) held.addingNotes = '';
     const go = capsule('Add the slide', '', () => {
       const title = held.adding.trim();
+      const notes = held.addingNotes.trim();
+      refuse('outline-add', '');
+      refuse('outline-add-notes', '');
       if (!title) {
         refuse('outline-add', 'Give the new slide a title first.');
         byId('outline-add').focus();
         return;
       }
+      if (live && !notes) {
+        refuse('outline-add-notes', 'A deck presented live needs what the presenter says '
+          + 'on each slide.');
+        byId('outline-add-notes').focus();
+        return;
+      }
       const work = outlineWork(gate);
       // A content slide as the outline contract has it: the person's request is what it
-      // rests on, and its points are left for the build to fill.
+      // rests on, and its points are left for the build to fill. It is light, so it does
+      // not make a long run of dense slides.
       work.push({ id: newSlideId(title, work), kind: 'content', title, understand: title,
-        relation: 'none', points: [], sources: ['request'] });
+        relation: 'none', rhythm: 'breathing', points: [], sources: ['request'],
+        ...(notes ? { notes } : {}) });
       held.adding = '';
+      held.addingNotes = '';
       byId('outline-add').value = '';
+      byId('outline-add-notes').value = '';
       outlineEdited(gate);
     }, 'outline-add-go');
     add(node, add(make('div', 'paper callout'), field('outline-add', 'A new slide’s title',
       held, 'adding', { limit: 300, hint: 'It is added at the end. Move it where it belongs.' }),
+    field('outline-add-notes', 'What the presenter says on it', held, 'addingNotes',
+      { long: true, limit: 2000, hint: live ? 'Needed: this deck is presented live.'
+        : 'Optional. These are its speaker notes.' }),
     add(make('div', 'bar'), go)));
   }
   if (!slides.length) add(node, documentPart('The outline', gate.text));
@@ -3579,7 +3596,7 @@ function buildPanel(gate, readonly) {
   const tellMarked = () => {
     const numbers = markedSlides();
     marked.textContent = numbers.length ? 'Marked for changes: ' + slidesNamed(numbers)
-      + '. Ask for changes, and only those are built again.' : '';
+      + '. Ask for changes, and the parts of the deck that hold them are drawn again.' : '';
     marked.hidden = !numbers.length;
   };
   tellMarked();
@@ -3660,6 +3677,13 @@ function deliverPart(run) {
   }
   add(node, bar);
   if (found.notice) add(node, make('p', 'fix', found.notice));
+  if (found.to_google && !theirs(run)) {
+    const google = capsule(view.delivering ? 'Delivering…' : 'Deliver to Google Slides', '',
+      () => deliverToGoogle(run, google), 'deliver-google');
+    add(node, make('p', 'quiet', 'Once you are signed in to Google with gcloud on this '
+      + 'computer, the same deck goes to Google Slides as the next revision. Nothing in it '
+      + 'is built again.'), add(make('div', 'bar'), google));
+  }
   const revisions = list(found.revisions);
   if (revisions.length > 1) {
     const items = make('ul', 'rows');
@@ -3677,8 +3701,9 @@ function deliverPart(run) {
       { kind: 'build', ref: 'contact-sheet' }), 'Every slide of the deck', found.revision)));
   }
   if (!theirs(run)) {
-    add(node, make('p', 'quiet', 'To change it, ask for changes: only what you name is built '
-      + 'again, and it is delivered as the next revision. The one before is kept.'),
+    add(node, make('p', 'quiet', 'To change it, ask for changes: the parts that draw the '
+      + 'slides you name are drawn again, and it is delivered as the next revision. The one '
+      + 'before is kept.'),
     add(make('div', 'bar'), capsule('Ask for changes', '', openSheet('changes', 'changes'),
       'changes')));
   }
@@ -3686,6 +3711,28 @@ function deliverPart(run) {
 }
 
 // The deck, fetched with the key and handed to the browser to keep, from memory.
+// A deck made as a PowerPoint file because Google was not connected, sent to Google Slides.
+async function deliverToGoogle(run, pressed) {
+  if (view.delivering || view.busy) return;
+  const turn = view.turn;
+  view.delivering = true;
+  pressed.disabled = true;
+  try {
+    const shown = await send('deliver', { path: run.path });
+    view.delivering = false;
+    toast('The deck is in Google Slides now.');
+    if (turn === view.turn) {
+      view.run = shown;
+      paintDeck(false);
+    }
+    refresh();
+  } catch (failure) {
+    view.delivering = false;
+    pressed.disabled = false;
+    toast(failure.message + ' Nothing was sent.');
+  }
+}
+
 async function downloadDeck(run, pressed) {
   if (view.downloading) return;
   view.downloading = true;

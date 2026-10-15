@@ -12,12 +12,14 @@ import shutil
 import subprocess
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import helpers
 import runner_support
 from test_runner_page import PageCase
 
 import server
+from runner.steps import build
 
 PAGE = helpers.SCRIPTS / 'desk'
 HARNESS = Path(__file__).resolve().parent / 'page_harness.js'
@@ -404,6 +406,58 @@ class ScreenTests(ScriptedPage, PageCase):
         self.assertEqual(self.run_of(path)['gate']['name'], 'gate:look')
         kept = json.loads((Path(path) / 'outline.json').read_text())
         self.assertEqual([one['id'] for one in kept['slides']], [one['id'] for one in edited])
+
+    def test_a_slide_added_to_a_deck_presented_live_carries_its_notes(self):
+        title = 'Watch each batch of the restart closely'
+        said = 'Say why each batch is watched.'
+        with mock.patch.object(build, 'DELIVERY', 'live'):
+            self.workers.outline_said = {**self.workers.outline_said, 'delivery': 'live'}
+            path = self.started()
+            self.assertEqual(self.run_of(path)['gate']['delivery'], 'live')
+            result = self.deck_screen(path, [
+                {'fill': 'A new slide’s title', 'value': title}, {'click': 'Add the slide'},
+                {'snapshot': 'unnoted'},
+                {'fill': 'What the presenter says on it', 'value': said},
+                {'click': 'Add the slide'}, {'snapshot': 'added'},
+                {'click': 'Approve'}, {'click': 'Approve'}],
+                **{'POST /api/decide': [ok(self.run_of(path))]})
+            self.assertIn('A deck presented live needs what the presenter says on each slide.',
+                          result['snapshots']['unnoted']['text'])
+            self.assertIn('Notes: ' + said, result['snapshots']['added']['text'])
+            approval = [body for address, body in self.posts(result)
+                        if address == '/api/decide'][-1]
+            added = approval['extra']['edited'][-1]
+            self.assertEqual((added['title'], added['notes'], added['rhythm']),
+                             (title, said, 'breathing'))
+            self.workers.outline_said = {**self.workers.outline_said,
+                                         'slides': approval['extra']['edited']}
+            # What the page sent is checked by the slides tool and kept, for real.
+            self.post('decide', approval)
+            self.assertEqual(self.run_of(path)['gate']['name'], 'gate:look')
+            kept = json.loads((Path(path) / 'outline.json').read_text())
+            self.assertEqual(kept['slides'][-1]['notes'], said)
+
+    def test_a_deck_made_as_powerpoint_is_sent_to_google_slides_from_its_screen(self):
+        path = self.started()
+        self.slides.run.drive = False
+        for gate in ('gate:outline', 'gate:look', 'gate:build'):
+            self.decided(path, gate)
+        before = self.run_of(path)
+        self.slides.run.drive = True
+        sent = self.post('deliver', {'path': path})
+        result = self.deck_screen(path, [
+            {'snapshot': 'fallback'}, {'click': 'Deliver to Google Slides'},
+            {'snapshot': 'sent'}], **{'GET /api/run': [ok(before), ok(sent)],
+                                      'POST /api/deliver': [ok(sent)]})
+        fallback = result['snapshots']['fallback']
+        self.assertIn("Google isn't connected, so this deck was made as a PowerPoint file.",
+                      fallback['text'])
+        self.assertIn('Deliver to Google Slides', fallback['buttons'])
+        self.assertEqual([body for address, body in self.posts(result)],
+                         [{'path': path}])
+        self.assertIn('The deck is in Google Slides now.', result['snapshots']['sent']['toasts'])
+        self.assertNotIn('Deliver to Google Slides', result['snapshots']['sent']['buttons'])
+        self.assertIn('Revision 2.', result['snapshots']['sent']['text'])
 
     def test_an_existing_deck_shows_its_slides_at_classify(self):
         path = self.started(route='existing', level='polish',
