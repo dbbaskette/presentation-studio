@@ -3513,6 +3513,7 @@ function outlineWork(gate) {
 function outlineEdited(gate) {
   chosenFor(gate).edited = true;
   paintOutline(gate, byId('outline-list'), byId('outline-said'));
+  reviewChanged(gate);
 }
 
 // A name for a slide that is added, unlike every other slide's.
@@ -3538,18 +3539,41 @@ function outlineRow(gate, slides, index, readonly) {
       { limit: 300, typed: () => {
         chosenFor(gate).edited = true;
         paintOutlineSaid(gate, byId('outline-said'));
+        reviewChanged(gate);
       } }));
   }
-  for (const text of [one.subtitle, one.understand]) {
-    if (text) add(node, make('p', 'outline-said', text));
-  }
+  // What the slide must make clear stays in view; the rest opens under it.
+  if (one.understand) add(node, make('p', 'outline-said', one.understand));
   const points = list(one.points).filter((point) => point && (point.label || point.text));
-  if (points.length) {
-    add(node, bullets(points.map((point) => (point.label && point.text
-      ? point.label + ': ' + point.text : point.label || point.text)), 'outline-points'));
+  const more = [one.subtitle ? make('p', 'outline-said', one.subtitle) : null,
+    points.length ? bullets(points.map((point) => (point.label && point.text
+      ? point.label + ': ' + point.text : point.label || point.text)), 'outline-points') : null,
+    one.notes ? make('p', 'outline-notes quiet', 'Notes: ' + one.notes) : null]
+    .filter(Boolean);
+  if (more.length) {
+    const fold = make('details', 'card-part');
+    fold.dataset.key = 'slide-more ' + one.id;
+    const top = make('summary', '', 'Points and notes');
+    top.setAttribute('aria-label', 'Points and notes of slide ' + (index + 1));
+    add(node, add(fold, top, ...more));
   }
-  if (one.notes) add(node, make('p', 'outline-notes quiet', 'Notes: ' + one.notes));
   if (readonly) return node;
+  // A mark asks for changes to this slide, with a line on what should change.
+  const held = chosenFor(gate);
+  const asking = owns(held.slideNotes, one.id);
+  if (asking) {
+    add(node, field('slide-note-' + one.id, 'What should change on “' + title + '”',
+      held.slideNotes, one.id, { long: true, limit: LINE, typed: () => reviewChanged(gate) }));
+  }
+  const ask = capsule(asking ? 'Keep it as it is' : 'Ask for changes', 'quiet', () => {
+    if (asking) delete held.slideNotes[one.id];
+    else held.slideNotes[one.id] = '';
+    paintOutline(gate, byId('outline-list'), byId('outline-said'));
+    reviewChanged(gate);
+    focusKey(asking ? 'slide-ask ' + one.id : 'slide-note-' + one.id);
+  }, 'slide-ask ' + one.id);
+  ask.setAttribute('aria-label', (asking ? 'Keep it as it is: “' : 'Ask for changes to “')
+    + title + '”');
   const move = (by) => () => {
     const [taken] = slides.splice(index, 1);
     slides.splice(index + by, 0, taken);
@@ -3569,30 +3593,37 @@ function outlineRow(gate, slides, index, readonly) {
   up.disabled = index === 0;
   down.disabled = index === slides.length - 1;
   remove.disabled = slides.length < 2;
-  return add(node, add(make('div', 'bar'), up, down, remove));
+  return add(node, add(make('div', 'bar'), ask, up, down, remove));
 }
 
 // Whether the outline here differs from the one the deck holds, in a line.
 function paintOutlineSaid(gate, holder) {
   if (!holder) return;
   const held = chosenFor(gate);
-  holder.replaceChildren(...(held.edited ? [state('review', 'Edited here. Your edits are sent '
-    + 'with your approval, and checked first.'), capsule('Put it back as drafted', 'quiet', () => {
+  holder.replaceChildren(...(held.edited ? [state('review', 'Edited here. Your edits go with '
+    + 'your decision, and are checked first.'), capsule('Put it back as drafted', 'quiet', () => {
     held.work = null;
     held.edited = false;
     paintOutline(gate, byId('outline-list'), holder);
+    reviewChanged(gate);
     focusKey('outline-add');
   }, 'outline-reset')] : []));
 }
 
+// The slides, drawn again after an edit or a mark. What was open stays open.
 function paintOutline(gate, holder, said) {
   if (!holder) return;
   const readonly = holder.dataset.readonly === 'true';
   const slides = readonly ? list(gate.slides) : outlineWork(gate);
   const active = document.activeElement;
   const focused = active && active.dataset && holder.contains(active) ? active.dataset.key : '';
+  const opened = Array.from(holder.querySelectorAll('details')).filter((node) => node.open)
+    .map((node) => node.dataset.key);
   holder.replaceChildren(...slides.map((one, index) => outlineRow(gate, slides, index,
     readonly)));
+  for (const node of holder.querySelectorAll('details')) {
+    if (opened.includes(node.dataset.key)) node.open = true;
+  }
   if (focused) focusKey(focused);
   paintOutlineSaid(gate, said);
 }
@@ -3600,9 +3631,10 @@ function paintOutline(gate, holder, said) {
 function outlinePanel(gate, readonly) {
   const node = card('The outline');
   const slides = list(gate.slides);
-  add(node, make('p', '', count(slides.length, 'slide', 'slides') + ', each with its title, '
-    + 'what it says and its notes.' + (readonly ? '' : ' Retitle, move, add or remove '
-    + 'slides here; your edits are sent with your approval.')));
+  add(node, make('p', '', count(slides.length, 'slide', 'slides') + ', each with its title '
+    + 'and what it must make clear; its points and notes open under it.' + (readonly ? ''
+    : ' Retitle, move, add or remove slides here, or ask for changes to one; your edits go '
+      + 'with your decision.')));
   const said = make('div', 'bar');
   said.id = 'outline-said';
   said.setAttribute('role', 'status');
@@ -3652,6 +3684,7 @@ function outlinePanel(gate, readonly) {
     add(make('div', 'bar'), go)));
   }
   if (!slides.length) add(node, documentPart('The outline', gate.text));
+  if (!readonly) add(node, reviewBar(gate));
   return add(node, ...gateSaid(gate));
 }
 

@@ -606,6 +606,45 @@ class ScreenTests(ScriptedPage, PageCase):
             kept = json.loads((Path(path) / 'outline.json').read_text())
             self.assertEqual(kept['slides'][-1]['notes'], said)
 
+    def test_a_slide_marked_on_the_page_is_sent_with_what_should_change(self):
+        path = self.started()
+        second = self.run_of(path)['gate']['slides'][1]
+        result = self.deck_screen(path, [
+            {'snapshot': 'outline'},
+            {'click': f"Ask for changes to “{second['title']}”"}, {'snapshot': 'asking'},
+            {'fill': f"What should change on “{second['title']}”", 'value': 'Split it in two.'},
+            {'snapshot': 'marked'}, {'click': 'Send 1 change'}],
+            **{'POST /api/decide': [ok(self.run_of(path))]})
+        self.assertIn('Points and notes', result['snapshots']['outline']['text'])
+        # Pressing Ask for changes takes the focus to the box for what should change, and
+        # the way to take the mark back names the slide.
+        asking = result['snapshots']['asking']
+        self.assertEqual(asking['focus'], f"slide-note-{second['id']}")
+        self.assertIn(f"Keep it as it is: “{second['title']}”", asking['buttons'])
+        self.assertIn('1 slide to change', result['snapshots']['marked']['text'])
+        (_, body), = self.posts(result)
+        self.assertEqual((body['decision'], body['extra']),
+                         ('changes', {'slides': {second['id']: 'Split it in two.'}}))
+        self.post('decide', body)
+        self.assertIn(f"- Slide `{second['id']}`: Split it in two.",
+                      self.workers.of('outline')[-1].task)
+
+    def test_an_outline_put_back_as_drafted_is_approved_as_it_was(self):
+        path = self.started()
+        result = self.deck_screen(path, [
+            {'fill': 'Title of slide 2', 'value': 'Batches, one at a time'},
+            {'snapshot': 'edited'}, {'click': 'Put it back as drafted'}, {'snapshot': 'back'},
+            {'click': 'Approve'}],
+            **{'POST /api/decide': [ok(self.run_of(path))]})
+        edited = result['snapshots']['edited']['text']
+        self.assertIn('0 slides to change · edited here', edited)
+        self.assertIn('Your edits go with your decision', edited)
+        # The tally follows the outline put back, and nothing edited goes with the approval.
+        self.assertNotIn('edited here', result['snapshots']['back']['text'])
+        (_, body), = self.posts(result)
+        self.assertEqual(body['decision'], 'approve')
+        self.assertNotIn('extra', body)
+
     def test_a_deck_made_as_powerpoint_is_sent_to_google_slides_from_its_screen(self):
         path = self.started()
         self.slides.run.drive = False

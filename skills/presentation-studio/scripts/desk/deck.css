@@ -171,3 +171,8 @@
   padding-top: 0.8rem;
   border-top: 1px solid var(--hair);
 }
+
+/* A slide's points and notes, folded under its row, spaced as the row is. */
+.outline-slide > details > * + * {
+  margin-top: 0.55rem;
+}
