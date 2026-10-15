@@ -211,6 +211,29 @@ class QuestionTests(StudioCase):
         self.assertIn('Answer: A platform engineer.', self.workers.of('outline')[-1].task)
 
 
+class SharedDataTests(StudioCase):
+    def test_a_data_folder_others_share_stops_the_deck_before_any_worker_with_a_sentence(self):
+        from runner import agents
+        import home
+        shared = lambda: [home.data_root().parent]   # noqa: E731
+        with mock.patch.object(agents, 'shared_temporary', shared):
+            said = agents.data_shared()
+            self.assertIn('a temporary folder other programs share', said)
+            self.assertIn('PRESENTATION_STUDIO_DATA', said)
+            self.assertNotIn('staging', said)
+            self.assertEqual(self.engine.status()['problem'], said)
+            root = self.start()
+            record = self.record(root)
+            self.assertEqual(self.state(root), 'stopped')
+            self.assertEqual(record['halted']['why'], said)
+            self.assertEqual(self.workers.jobs, [])
+            self.assertFalse(any((entry or {}).get('failed')
+                                 for entry in record['steps'].values()
+                                 if isinstance(entry, dict)), 'no try was spent on it')
+        self.assertIsNone(agents.data_shared())
+        self.assertIsNone(self.engine.status()['problem'])
+
+
 class HaltTests(StudioCase):
     def test_pause_stop_resume_and_what_is_refused(self):
         root = self.start()

@@ -312,6 +312,11 @@ class Jobs:
             record = self._load(root)
             if self._closing or self._resting(record):
                 return False
+            shared = agents.data_shared()
+            if shared:      # no try is spent on it: every one would be refused alike
+                self._problem(root, None, 'stopped', shared, 'Everything made so far is kept.',
+                              'resume')
+                return False
             if self._left(record) > 0:
                 return True
             dollars = spent(record)[0] or 0.0

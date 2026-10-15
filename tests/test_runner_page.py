@@ -432,6 +432,28 @@ class RunTests(PageCase):
         # Once it is there, there is nothing more to send.
         self.assertIn('already', self.post('deliver', {'path': path}, 409)['error'])
 
+    def test_a_second_press_while_the_deck_is_on_its_way_to_google_is_refused(self):
+        path = self.started()
+        self.slides.run.drive = False
+        for gate in ('gate:outline', 'gate:look', 'gate:build'):
+            self.decided(path, gate)
+        self.slides.run.drive = True
+        upload, said = deliver.upload, []
+
+        def pressed_again(*given, **named):
+            try:
+                self.engine.deliver_again(path)
+            except WorkspaceError as refusal:
+                said.append(str(refusal))
+            return upload(*given, **named)
+
+        with mock.patch.object(deliver, 'upload', pressed_again):
+            shown = self.engine.deliver_again(path)
+        self.assertEqual(said, [engines.ON_ITS_WAY])
+        self.assertEqual(shown['deliver']['revision'], 2)
+        self.assertEqual(len([one for one in self.run_of(path)['deliver']['revisions']
+                              if one.get('url')]), 1)
+
     def test_a_deck_not_delivered_is_not_sent_to_google(self):
         path = self.started()
         self.assertIn('not been delivered', self.post('deliver', {'path': path}, 409)['error'])

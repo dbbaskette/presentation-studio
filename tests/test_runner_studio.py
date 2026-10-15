@@ -355,7 +355,8 @@ class StatusTests(StudioCase):
         waiting = self.start(title='Health checks')
         found = self.status()
         self.assertEqual(sorted(found), ['agent', 'brand', 'configured', 'decks', 'limits',
-                                         'notify', 'output', 'person', 'previews', 'shared',
+                                         'notify', 'output', 'person', 'previews', 'problem',
+                                         'shared',
                                          'shared_notice', 'shared_problem', 'suggested',
                                          'team_moved', 'updates', 'upkeep', 'version',
                                          'workspace'])
@@ -425,7 +426,10 @@ class ProcessTests(StudioCase):
         if 'error' in printed:
             self.skipTest(f"This environment does not allow listening on a local port: "
                           f"{printed['error']}")
-        self.assertEqual(set(printed), {'address', 'opened', 'note'})
+        # The tests' data folder is a temporary one, so the runner says, from its start,
+        # that no assistant may work there.
+        self.assertEqual(set(printed), {'address', 'opened', 'note', 'problem'})
+        self.assertIn('a temporary folder other programs share', printed['problem'])
         self.assertNotIn('token', line)
         url = opened.read_text()
         address, _, fragment = url.partition('#')

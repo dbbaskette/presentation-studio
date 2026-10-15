@@ -162,15 +162,32 @@ def shared_temporary() -> list[Path]:
     return list(dict.fromkeys(Path(name).resolve() for name in named if name))
 
 
+def _shared(folder: Path) -> Path | None:
+    resolved = Path(folder).resolve()
+    return next((shared for shared in shared_temporary()
+                 if resolved == shared or shared in resolved.parents), None)
+
+
+def data_shared() -> str | None:
+    """Why no assistant can be given work on this computer, when Presentation Studio's data
+    folder, where job folders go, is inside a temporary folder others share; else None."""
+    shared = _shared(home.data_root())
+    if shared is None:
+        return None
+    return (f"Presentation Studio keeps its work in {home.data_root()}, inside {shared}, a "
+            'temporary folder other programs share, so no assistant may work there. Set '
+            'PRESENTATION_STUDIO_DATA to a folder of your own, or unset it, and open '
+            'Presentation Studio again.')
+
+
 def check_folder(folder: Path) -> Path:
     """A job's folder, resolved. Refuses one under a shared temporary folder."""
-    resolved = Path(folder).resolve()
-    for shared in shared_temporary():
-        if resolved == shared or shared in resolved.parents:
-            raise WorkspaceError(
-                f'{folder} is under {shared}, a temporary folder other programs share, so a '
-                'worker could write to it. Keep job folders under agents.staging().')
-    return resolved
+    shared = _shared(folder)
+    if shared is not None:
+        raise WorkspaceError(
+            f'{folder} is inside {shared}, a temporary folder other programs share, so no '
+            'assistant may work there.')
+    return Path(folder).resolve()
 
 
 def check(job: Job) -> Path:

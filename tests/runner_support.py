@@ -822,6 +822,8 @@ class StudioCase(unittest.TestCase):
             # through these two, so no test can reach a real one.
             mock.patch.object(engines.slides_tool, 'Slides', self.the_slides),
             mock.patch.object(engines.brand_skill, 'Brand', self.the_brand),
+            # The tests' data folders are temporary; the check of that is tested on its own.
+            mock.patch.object(engines.agents, 'shared_temporary', lambda: []),
             mock.patch.object(engines.team, 'Notifier', lambda *given, **named: self.notifier),
             mock.patch.object(engines.brand_skill, 'found',
                               lambda *asked, **named: [] if self.brand is None
@@ -1070,6 +1072,7 @@ def fake_studio() -> Fake:
             mock.patch.object(worker_tools, 'resolve', web.resolver),
             mock.patch.object(engines.slides_tool, 'Slides', lambda *a, **k: slides),
             mock.patch.object(engines.brand_skill, 'Brand', lambda *a, **k: brand),
+            mock.patch.object(engines.agents, 'shared_temporary', lambda: []),
             mock.patch.object(engines.team, 'Notifier', lambda *a, **k: Notifier()),
             mock.patch.object(engines.brand_skill, 'found',
                               lambda *asked, **named: [{'name': brand.name,

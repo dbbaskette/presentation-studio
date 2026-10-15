@@ -171,7 +171,7 @@ class JobTests(JobCase):
         with self.assertRaisesRegex(WorkspaceError, 'a temporary folder other programs share'):
             agents.check_folder(self.job)
         for adapter in (Claude('true'), Codex('true')):
-            with self.assertRaisesRegex(WorkspaceError, 'Keep job folders under'):
+            with self.assertRaisesRegex(WorkspaceError, 'so no assistant may work there'):
                 adapter.run(self.a_job())
         self.assertFalse(self.job.exists())
 

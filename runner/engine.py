@@ -208,6 +208,7 @@ AGAIN_HERE = ('carry on here: {steps} again, as what was made for them is kept o
               'computer that made it')
 NOT_WAITING = 'The {it} is not waiting for a decision now.'
 NO_NOTE = 'Say what should change.'
+ON_ITS_WAY = 'This deck is on its way to Google Slides already. Wait for it.'
 STILL_NOT_CONNECTED = ("Google still isn't connected on this computer. Sign in with gcloud, "
                        'then deliver it again.')
 UNDO_NOT = ('The last step cannot be undone: only the last thing done, when it was this '
@@ -308,6 +309,7 @@ class Engine(Jobs, Researching):
         self._ready: dict[str, tuple[float, agents.Readiness]] = {}
         self._models: dict[str, tuple[float, dict]] = {}
         self._listing: dict[str, threading.Lock] = {}
+        self._sending: set[str] = set()      # decks on their way to Google Slides now
 
     # --- what is driven ----------------------------------------------------------------------
 
@@ -2179,7 +2181,7 @@ class Engine(Jobs, Researching):
         return found
 
     def status(self) -> dict:
-        return {'decks': [{key: brief[key] for key in ('path', 'id', 'state', 'sentence')}
+        return {'problem': agents.data_shared(), 'decks': [{key: brief[key] for key in ('path', 'id', 'state', 'sentence')}
                           for brief in (self._brief(root) for root in self.every())]}
 
     def standing(self) -> dict:
@@ -2342,19 +2344,26 @@ class Engine(Jobs, Researching):
                     or ((record.get('form') or {}).get('output') or 'google') != 'google':
                 raise WorkspaceError('This deck is already delivered as you asked, so there '
                                      'is nothing to send to Google Slides.')
-        if not slides.drive_check():
-            raise WorkspaceError(STILL_NOT_CONNECTED)
-        made = delivering.upload(root, record, slides)
-        if made.get('output') != 'google' or not made.get('url'):
-            raise WorkspaceError(STILL_NOT_CONNECTED)
-        with self.files:
-            record = self._load(root)
-            if decks.delivered(root) != said:
-                raise WorkspaceError('The deck changed while it was being sent. Look at it '
-                                     'again before you deliver it.')
-            made = delivering.record(root, record, made, space)
-            self._commit(root, f"deliver revision {made['revision']} to Google Slides: "
-                         f"{made['url']}", self._listed(space))
+            if str(root) in self._sending:
+                raise WorkspaceError(ON_ITS_WAY)
+            self._sending.add(str(root))
+        try:
+            if not slides.drive_check():
+                raise WorkspaceError(STILL_NOT_CONNECTED)
+            made = delivering.upload(root, record, slides)
+            if made.get('output') != 'google' or not made.get('url'):
+                raise WorkspaceError(STILL_NOT_CONNECTED)
+            with self.files:
+                record = self._load(root)
+                if decks.delivered(root) != said:
+                    raise WorkspaceError('The deck changed while it was being sent. Look at '
+                                         'it again before you deliver it.')
+                made = delivering.record(root, record, made, space)
+                self._commit(root, f"deliver revision {made['revision']} to Google Slides: "
+                             f"{made['url']}", self._listed(space))
+        finally:
+            with self.files:
+                self._sending.discard(str(root))
         self._last()
         return self.view(root)
 

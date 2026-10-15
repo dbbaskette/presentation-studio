@@ -126,7 +126,9 @@ def serve(args, make=engines.Engine, out=None, opener=server.show, keeper=None,
             # Opened again in its own place, the page that is open already has the key.
             shown = server.announce(studio, out.isatty(),
                                     (lambda url: False) if token else opener)
-            print(json.dumps(shown), file=out, flush=True)
+            shared = engines.agents.data_shared()
+            print(json.dumps({**shown, 'problem': shared} if shared else shown), file=out,
+                  flush=True)
             if out.isatty() and getattr(args, 'open', False):
                 opener(studio.url)   # the person's own terminal, and their own browser
             engine.resume(wait=False)   # the page answers while the workspace is fetched
