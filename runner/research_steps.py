@@ -324,6 +324,27 @@ class Researching:
                             if item.get('public_query') else ''))
         write_atomic(root / PLAN_MD, '\n'.join(lines).rstrip() + '\n')
 
+    def _drop_questions(self, root: Path, record: dict, dropped) -> None:
+        """Take the questions the person dropped out of the plan, as they asked, with no
+        worker. A plan is never left with none."""
+        plan = home.read_json(root / PLAN, None)
+        items = plan.get('items') if isinstance(plan, dict) else None
+        if not isinstance(items, list):
+            raise WorkspaceError('There is no research plan to drop a question from.')
+        dropped = set(dropped)
+        kept = [item for item in items
+                if not (isinstance(item, dict) and item.get('id') in dropped)]
+        if not kept:
+            raise WorkspaceError(marks.ALL_DROPPED)
+        self._keep_plan(root, record, json.dumps({**plan, 'items': kept}, indent=2,
+                                                 ensure_ascii=False))
+
+    def _add_questions(self, root: Path, record: dict, texts) -> list[str]:
+        """Add the questions the person wrote to the plan. Returns their IDs."""
+        if texts:
+            raise WorkspaceError('Adding a question after the research comes next.')
+        return []
+
     def _research_plan(self, root: Path, run: Run, step: stages.Step) -> None:
         self._agent(root, run, step,
                     lambda record, request, error: self._plan_work(root, record, request,

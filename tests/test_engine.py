@@ -12,7 +12,7 @@ import runner_support
 from runner_support import OUTLINE, StudioCase, asks, fails
 from workspace import WorkspaceError
 
-from runner import decks, stages
+from runner import decks, marks, stages
 from runner.steps import build
 
 
@@ -161,6 +161,23 @@ class ScratchTests(StudioCase):
         self.assertEqual([slide['id'] for slide in kept['slides']],
                          [slide['id'] for slide in moved])
         self.assertEqual(self.waiting(root), 'gate:look')
+
+    def test_an_edited_outline_is_kept_before_its_worker_is_asked_for_changes(self):
+        root = self.start()
+        slides = self.view(root)['gate']['slides']
+        moved = [*slides[:2], slides[3], slides[2], *slides[4:]]
+        seen = []
+
+        def again(tools, job):
+            kept = json.loads((root / 'outline.json').read_text())
+            seen.append([slide['id'] for slide in kept['slides']])
+            return self.workers.outline(tools, job)
+
+        self.workers.then('outline', again)
+        self.engine.decide(root, 'gate:outline', 'changes', 'Shorten the close.',
+                           {'edited': moved})
+        self.assertEqual(seen, [[slide['id'] for slide in moved]])
+        self.assertIn('Shorten the close.', self.workers.of('outline')[-1].task)
 
     def test_changes_to_the_deck_draw_only_the_sections_of_the_named_slides(self):
         root = self.start()
@@ -468,6 +485,51 @@ class ResearchTests(StudioCase):
         kept.write_text(json.dumps(record))
         self.assertEqual(self.view(root)['gate']['items'][0]['headline'],
                          'What the page says about instance-min.')
+
+
+class PlanMarkTests(StudioCase):
+    def questions(self, root):
+        return [item['id'] for item in
+                json.loads((root / 'research' / 'plan.json').read_text())['items']]
+
+    def test_dropped_questions_go_with_the_approval(self):
+        root = self.start(research=True)
+        self.engine.decide(root, 'gate:research-plan', 'approve', None,
+                           {'dropped': ['health-checks']})
+        self.assertEqual(self.questions(root), ['instance-min'])
+        self.assertNotIn('health-checks', (root / 'research' / 'plan.md').read_text())
+        self.assertEqual(len(self.workers.of('question')), 1)
+        self.assertEqual(self.waiting(root), 'gate:research')
+
+    def test_rewording_and_adding_go_back_to_the_planner_as_one_note(self):
+        root = self.start(research=True)
+        self.engine.decide(root, 'gate:research-plan', 'changes', 'Keep it short.', {
+            'dropped': ['health-checks'],
+            'reword': {'instance-min': 'How many instances keep capacity?'},
+            'add': ['What does a restart cost?']})
+        task = self.workers.of('research-plan')[-1].task
+        self.assertIn('- Reword `instance-min` as: How many instances keep capacity?', task)
+        self.assertIn('- Add a question: What does a restart cost?', task)
+        self.assertIn('Keep it short.', task)
+        # The drop was applied before the planner ran again.
+        self.assertIn('"id": "instance-min"', task)
+        self.assertNotIn('"id": "health-checks"', task)
+        gate = self.record(root)['gates']['gate:research-plan']
+        self.assertEqual((gate['state'], gate['round']), ('waiting', 2))
+
+    def test_marks_that_say_nothing_or_need_a_worker_with_approve_are_refused(self):
+        root = self.start(research=True)
+        for decision, extra, said in (
+                ('approve', {'add': ['Why?']}, marks.AS_CHANGES),
+                ('approve', {'dropped': ['instance-min', 'health-checks']}, marks.ALL_DROPPED),
+                ('changes', {'dropped': ['nowhere']}, 'There is no question nowhere here.'),
+                ('changes', {}, 'Say what should change.')):
+            with self.subTest(extra=extra):
+                with self.assertRaises(WorkspaceError) as caught:
+                    self.engine.decide(root, 'gate:research-plan', decision, None, extra)
+                self.assertIn(said, str(caught.exception))
+        self.assertEqual(self.questions(root), ['instance-min', 'health-checks'])
+        self.assertEqual(self.waiting(root), 'gate:research-plan')
 
 
 class DocumentTests(StudioCase):
