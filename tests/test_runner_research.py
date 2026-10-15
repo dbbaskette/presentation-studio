@@ -286,17 +286,28 @@ class StandInTests(DeckCase):
         self.assertEqual((rewritten['completed'], rewritten['carried']), (0, []))
 
     def test_a_claim_file_is_pinned_so_changing_it_keeps_no_finding(self):
-        self.write('claims/restart.txt', 'Two instances keep capacity.\n')
-        claimed = {'file': 'claims/restart.txt'}
+        text = 'Two instances keep capacity.'
+        self.write('claims/restart.txt', text + '\n')
+        claim = {'file': 'claims/restart.txt', 'quote': text, 'start': 0}
         self.plan_file.write_text(json.dumps({**PLAN, 'items': [
-            {**PLAN['items'][0], 'claim': claimed}, PLAN['items'][1]]}))
+            {**PLAN['items'][0], 'claim': claim}, PLAN['items'][1]]}))
         run = self.planned()
         self.research.record(self.root, run, 'instance-min', self.finding())
         self.assertEqual(research_record(self.root)['input_files'], ['claims/restart.txt'])
-        self.write('claims/restart.txt', 'Three instances keep capacity.\n')
+        self.write('claims/restart.txt', text + '\nReviewed again.\n')
         changed = self.research.plan(self.root, self.plan_file)
         self.assertNotEqual(changed['run'], run)
         self.assertEqual((changed['completed'], changed['carried']), (0, []))
+
+    def test_an_input_file_that_is_not_there_is_pinned_as_missing(self):
+        self.plan_file.write_text(json.dumps({**PLAN, 'input_files': ['notes/later.txt']}))
+        run = self.planned()
+        record = research_record(self.root)
+        self.assertEqual((record['input_files'], record['inputs']),
+                         (['notes/later.txt'], {'notes/later.txt': None}))
+        self.write('notes/later.txt', 'Now it is.\n')
+        self.assertEqual(self.research.status(self.root)['status'], 'stale')
+        self.assertNotEqual(self.research.plan(self.root, self.plan_file)['run'], run)
 
     def test_a_finding_keeps_its_headline_and_the_report_gives_it(self):
         run = self.planned()

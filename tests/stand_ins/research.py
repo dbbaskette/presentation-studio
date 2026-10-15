@@ -215,14 +215,14 @@ class StandIn:
                                 'URLs, paths or emails.')
         sources = [{**source, 'limits': source.get('limits') or 'none'}
                    for source in supplied.get('sources') or []]
-        # The files a plan rests on: those it names, its sources' and its claims'.
-        files = sorted({*(supplied.get('input_files') or []),
-                        *(name for source in sources
-                          for name in (source.get('file'), source.get('original_file')) if name),
-                        *(item['claim'].get('file') for item in items if item.get('claim'))}
-                       - {None})
-        for name in files:
+        # The files a plan rests on. Its sources' and its claims' must be there; one it names
+        # as an input that is not there is pinned as missing.
+        needed = {name for source in sources
+                  for name in (source.get('file'), source.get('original_file')) if name}
+        needed |= {item['claim'].get('file') for item in items if item.get('claim')} - {None}
+        for name in sorted(needed):
             self._file(project, name)
+        files = sorted(needed | set(supplied.get('input_files') or []))
         plan = {'topic': supplied['topic'], 'purpose': supplied['purpose'],
                 'scope': supplied['scope'], 'input_files': files, 'items': items}
         if 'sources' in supplied:

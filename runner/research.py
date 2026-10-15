@@ -119,7 +119,7 @@ class Research:
     def plan(self, project: Path, file: Path, allow_web: bool = False) -> dict:
         """Hand over an approved plan. The same plan again continues its run; a changed
         one starts a new run that keeps the findings of unchanged questions, listed in
-        `carried`, when its topic, purpose, scope, sources and the files they rest on are
+        `carried`, when its topic, purpose, scope, sources and the files it rests on are
         unchanged. `allow_web` permits a plan that widens supplied-only research to the
         public web."""
         extra = ['--allow-web'] if allow_web else []
@@ -128,6 +128,7 @@ class Research:
     def record(self, project: Path, run: str, item: str, finding: dict) -> dict:
         """Record one question's finding in a run."""
         wanted = {key: finding.get(key) for key in ('status', 'summary', 'limits', 'evidence')}
+        # harness-research refuses a null headline, so the key is omitted when there is none.
         if finding.get('headline'):
             wanted['headline'] = finding['headline']
         handle, name = tempfile.mkstemp(suffix='.json', prefix='finding-')
