@@ -25,11 +25,20 @@ What a caller needs to know
   notifications, that a deck needs a decision while no page is open. Off until they
   turn it on.
 - `look_for_updates` is whether the runner asks, at most once a day, which releases of
-  Presentation Studio and its companion skills exist. On until they turn it off. See `upkeep`.
+  Presentation Studio, its companion skills and the brand skill exist. On until they turn it
+  off. See `upkeep`.
+- `brand_repository` is the address of the brand skill's own repository, https, ssh or a
+  folder, from which the page installs and upgrades it; None until the person names one.
+  `brand_release` is the release tag to install from it, None for the newest. Neither is
+  needed to use a brand skill installed by hand. Whether the repository can be reached is
+  `brand_source`'s to say; here only its shape is checked. `brand_source()` gives both, and
+  is how every other part reads them.
 - `name` is the person's own name, as set-up shows it and offers to share with every studio;
   None until they give it. git's own identity still signs each commit and each claim.
-- `brand` and `variant` are the brand a new deck is offered first, and `output` what it is
-  made as: `google` (Google Slides) or `pptx`. A deck's own form says what it is made with.
+- `brand` and `variant` are the brand a new deck is offered first, as the brand skill names
+  them, and `output` what it is made as: `google` (Google Slides) or `pptx`. None for
+  either brand or variant is the first the installed brand skill lists: no brand is named
+  here. A deck's own form says what it is made with.
 - A value that makes no sense is refused with a sentence, not corrected silently.
 """
 from __future__ import annotations
@@ -42,6 +51,7 @@ from pathlib import Path
 
 import runner  # noqa: F401  puts the core on the import path
 import home
+import hub
 from workspace import WorkspaceError
 
 SCHEMA = 1
@@ -60,6 +70,8 @@ PREVIEWS = ('drive', 'local')   # how a deck's previews are rendered
 OUTPUTS = ('google', 'pptx')    # what a new deck is made as
 WORD = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$')   # a brand's or a variant's name
 NAME = 100                  # characters in a person's name
+ADDRESS = 2000              # characters in a repository's address
+RELEASE = re.compile(r'^[\w][\w.+-]{0,99}$')   # a release tag's name, as git takes it
 
 
 @dataclass(frozen=True)
@@ -76,9 +88,11 @@ class Settings:
     notify: bool = False
     look_for_updates: bool = True
     name: str | None = None
-    brand: str = 'tanzu'
-    variant: str = 'light'
+    brand: str | None = None
+    variant: str | None = None
     output: str = 'google'
+    brand_repository: str | None = None
+    brand_release: str | None = None
 
     @property
     def limits(self) -> dict:
@@ -226,8 +240,48 @@ def check_name(name) -> str | None:
 def check_word(value, label: str) -> str:
     """A brand's or a variant's short name, as the brand skill lists it."""
     if not isinstance(value, str) or not WORD.match(value):
-        raise WorkspaceError(f'The {label} is a short name such as tanzu or light.')
+        raise WorkspaceError(f'The {label} is a short name, as your brand skill lists it.')
     return value
+
+
+def check_choice(value, label: str) -> str | None:
+    """A brand or a variant as `check_word` takes it, or None for the brand skill's first."""
+    return None if value is None or value == '' else check_word(value, label)
+
+
+def check_repository(address) -> str | None:
+    """The brand skill's repository as an address git takes, or None for none."""
+    if address is None or address == '':
+        return None
+    if not isinstance(address, str) or not address.strip() or len(address) > ADDRESS \
+            or any(mark.isspace() or ord(mark) < 32 for mark in address.strip()) \
+            or address.strip().startswith('-'):
+        raise WorkspaceError("Give the brand skill's repository as one address, such as "
+                             'https://github.com/your-org/your-brand.git.')
+    if hub.ADDRESS_WITH_SECRET.match(address.strip()):
+        raise WorkspaceError('That address carries a password or token. Give the address '
+                             'without it; git signs in with your own credentials.')
+    return address.strip()
+
+
+def check_release(release, repository: str | None = None) -> str | None:
+    """A release tag's name, or None for the newest. A release needs a repository."""
+    if release is None or release == '':
+        return None
+    if not isinstance(release, str) or not RELEASE.match(release) or '..' in release:
+        raise WorkspaceError('Give the release as its tag, such as v1.4.0, or nothing for '
+                             'the newest.')
+    if repository is None:
+        raise WorkspaceError("A release is chosen from the brand skill's repository: give "
+                             'the repository too.')
+    return release
+
+
+def brand_source() -> tuple[str | None, str | None]:
+    """Where the brand skill is installed from: (its repository, the release chosen), each
+    None until the person names it."""
+    chosen = load()
+    return chosen.brand_repository, chosen.brand_release
 
 
 def check_output(output) -> str:
@@ -248,6 +302,7 @@ def number(value, label: str, least: float, most: float, whole: bool):
 def check(chosen: Settings) -> Settings:
     """The same settings, once every one of them makes sense."""
     agent = check_agent(chosen.agent)
+    repository = check_repository(chosen.brand_repository)
     return Settings(
         agent=agent, model=check_model(chosen.model),
         effort=check_effort(chosen.effort, agent, chosen.model),
@@ -259,8 +314,10 @@ def check(chosen: Settings) -> Settings:
         previews=check_previews(chosen.previews), brand_skill=check_place(chosen.brand_skill),
         notify=check_notify(chosen.notify),
         look_for_updates=check_look(chosen.look_for_updates),
-        name=check_name(chosen.name), brand=check_word(chosen.brand, 'brand'),
-        variant=check_word(chosen.variant, 'variant'), output=check_output(chosen.output))
+        name=check_name(chosen.name), brand=check_choice(chosen.brand, 'brand'),
+        variant=check_choice(chosen.variant, 'variant'), output=check_output(chosen.output),
+        brand_repository=repository,
+        brand_release=check_release(chosen.brand_release, repository))
 
 
 def load() -> Settings:

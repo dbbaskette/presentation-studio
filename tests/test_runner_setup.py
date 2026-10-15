@@ -73,7 +73,11 @@ class SetUpTests(FirstTimeCase):
         self.assertEqual((said['configured'], said['workspace'], said['suggested']),
                          (False, None, None))
         self.assertEqual(self.defaults(said), DEFAULTS)
-        self.assertEqual(said['brand']['default'], {'brand': 'tanzu', 'variant': 'light'})
+        self.assertEqual(said['brand']['default'], {'brand': 'example', 'variant': 'light'},
+                         'the first brand the brand skill lists, and its first variant')
+        self.assertEqual((settings.load().brand, settings.load().variant), (None, None),
+                         'no brand is named by Presentation Studio itself')
+        self.assertEqual((said['brand']['repository'], said['brand']['release']), (None, None))
         self.assertEqual((said['shared'], said['shared_problem']), ({}, None))
         self.assertEqual((said['notify'], said['updates'], said['upkeep']),
                          ({'on': False, 'can': True, 'problem': None}, {'look': True}, None))
@@ -159,7 +163,7 @@ class SetUpTests(FirstTimeCase):
                 ({'path': folder, 'effort': 'warp'}, 'The reasoning level is one of'),
                 ({'path': folder, 'person': 7}, 'Give your name as text'),
                 ({'path': folder, 'brand': '../x'}, 'The brand is a short name'),
-                ({'path': folder, 'variant': ''}, 'The variant is a short name'),
+                ({'path': folder, 'variant': 'not a word!'}, 'The variant is a short name'),
                 ({'path': folder, 'output': 'keynote'}, 'A deck is made as one of: google, '
                  'pptx.'),
                 ({'path': folder, 'previews': 'paper'}, 'Previews are rendered one of'),
@@ -350,8 +354,7 @@ class SharedConfigTests(FirstTimeCase):
             'schema': 1, 'team': {'repository': str(remote), 'branch': 'main'},
             'share': 'decision',
             'assistant': {'agent': 'claude'},   # null is as good as leaving it out
-            'person': {'name': 'Alex Example'},
-            'brand': {'brand': 'tanzu', 'variant': 'light'}, 'output': 'google'})
+            'person': {'name': 'Alex Example'}, 'output': 'google'})
         self.assertEqual(studios_config.read(), (kept, None))
 
 

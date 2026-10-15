@@ -1,6 +1,7 @@
-"""What the runner looks after: Presentation Studio and its three companions (harness-slides,
-harness-research and tanzu-brand) against the pins in installer/companions.json, which
-releases exist, the update of the companions and which guidance a new deck gets.
+"""What the runner looks after: Presentation Studio and its two companions (harness-slides and
+harness-research) against the pins in installer/companions.json, which releases exist, the
+update of the companions and which guidance a new deck gets. The brand skill is not a
+companion: its row and its install are in test_runner_brand_source.py.
 
 Each test has a home of its own with the companions it needs laid out as their installers
 leave them, and an installer folder of its own: with no installer, or with a small stand-in
@@ -24,7 +25,7 @@ from workspace import WorkspaceError
 from runner import settings, upkeep
 
 VERSION = (helpers.REPO / 'VERSION').read_text().strip()
-PINS = {'harness-slides': '0.14.1', 'harness-research': '0.8.0', 'tanzu-brand': '1.2.0'}
+PINS = {'harness-slides': '0.14.1', 'harness-research': '0.8.0'}
 STAND_IN = '''"""A stand-in for the installer: what upkeep asks of it, answered as it does."""
 import json
 import sys
@@ -115,8 +116,7 @@ class CompanionTests(UpkeepCase):
         self.companion('harness-slides', '0.14.1')
         found = self.keeper().check(repair=False)
         self.assertEqual(self.states(found), {'harness-slides': 'ok',
-                                              'harness-research': 'missing',
-                                              'tanzu-brand': 'missing'})
+                                              'harness-research': 'missing'})
         slides = found['companions'][0]
         self.assertEqual((slides['wanted'], slides['repository'], slides['says']),
                          (None, None, 'harness-slides 0.14.1. No version is pinned for it yet.'))
@@ -131,31 +131,27 @@ class CompanionTests(UpkeepCase):
         self.companion('harness-research', '0.9.0')
         found = self.keeper().check(repair=False)
         self.assertEqual(self.states(found), {'harness-slides': 'older',
-                                              'harness-research': 'ok',
-                                              'tanzu-brand': 'missing'})
+                                              'harness-research': 'ok'})
         self.assertEqual(found['companions'][0]['says'], 'harness-slides 0.13.1 is older than '
                          'the 0.14.1 this Presentation Studio was made with.')
-        self.assertIn('This Presentation Studio was made with 1.2.0.',
-                      found['companions'][2]['says'])
         self.assertEqual(found['companions'][0]['commit'], 'a' * 12)
         rows = {row['name']: row for row in self.keeper().versions(found, None, False)['rows']}
         self.assertEqual((rows['harness-slides']['state'], rows['harness-slides']['target']),
                          ('update', '0.14.1'))
         self.assertEqual(rows['harness-research']['state'], 'current')
-        self.assertEqual(rows['tanzu-brand']['state'], 'missing')
+        self.assertEqual(rows['brand skill']['state'], 'unknown')
 
-    def test_tanzu_brand_is_found_as_the_runner_finds_a_brand_skill(self):
+    def test_no_brand_skill_is_pinned_or_named(self):
         self.pin()
-        installed = self.companion('tanzu-brand', '1.2.0', self.home / '.agents' / 'skills')
-        self.companion('another-brand', '9.0.0')
         found = self.keeper().check(repair=False)
-        self.assertEqual(found['companions'][2]['state'], 'ok')
-        self.assertEqual(found['companions'][2]['found'], {str(installed): '1.2.0'})
-        elsewhere = self.companion('tanzu-brand', '1.1.0', self.base / 'mine')
-        with mock.patch.dict(os.environ, {'BRAND_SKILL_RUNTIME': str(elsewhere)}):
-            found = self.keeper().check(repair=False)
-        self.assertEqual(found['companions'][2]['state'], 'older',
-                         'the one the runner is told to use is the one looked at')
+        self.assertEqual(sorted(self.states(found)), ['harness-research', 'harness-slides'])
+        rows = self.keeper().versions(found, None, False)['rows']
+        self.assertEqual([row['name'] for row in rows],
+                         ['presentation-studio', 'harness-slides', 'harness-research',
+                          'brand skill'])
+        self.assertEqual(rows[-1]['says'], 'No brand skill is installed, so no deck is '
+                         'offered. Name its repository in Settings to install and upgrade it '
+                         'from here.')
 
     def test_a_companion_whose_version_cannot_be_read_is_said_and_left_alone(self):
         self.pin()
@@ -177,7 +173,8 @@ class CompanionTests(UpkeepCase):
         self.companion('harness-slides', '0.14.1')
         with mock.patch.object(subprocess, 'Popen', side_effect=AssertionError('ran')):
             keep = self.keeper()
-            with mock.patch.object(keep, '_tools', return_value={}):
+            with mock.patch.object(keep, '_tools', return_value={}), \
+                    mock.patch.object(keep, '_brands', return_value=[]):
                 self.assertEqual(self.states(keep.check(repair=False))['harness-slides'], 'ok')
 
 
@@ -273,8 +270,7 @@ class ReleaseTests(UpkeepCase):
     def test_each_pinned_companion_is_looked_for_in_its_own_repository(self):
         self.pin()
         self.assertEqual(sorted(self.keeper().repositories()),
-                         ['harness-research', 'harness-slides', 'presentation-studio',
-                          'tanzu-brand'])
+                         ['harness-research', 'harness-slides', 'presentation-studio'])
         (self.installer / 'companions.json').unlink()
         self.assertEqual(sorted(self.keeper().repositories()), ['presentation-studio'])
 
@@ -288,8 +284,7 @@ class ReleaseTests(UpkeepCase):
         keep = self.keeper()
         keep.check(repair=False)
         key = keep.report()['versions']['key']
-        self.assertEqual(key, 'harness-slides missing, harness-research missing, '
-                              'tanzu-brand missing')
+        self.assertEqual(key, 'harness-slides missing, harness-research missing')
         self.assertTrue(keep.dismiss(key)['versions']['dismissed'])
         self.companion('harness-slides', '0.14.1')
         keep.check(repair=False)

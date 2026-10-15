@@ -44,6 +44,13 @@ What a caller needs to know
   - `/api/companions` {}, `/api/upgrade` {"version"}, `/api/restart` {}, `/api/versions`
     {"dismiss"}: asked of `engine.upkeep`, each answering {"upkeep"}; 409 where nothing
     looks after the skills here, and while a deck is working (`upkeep` says so).
+  - `/api/brand` {"repository", "release"} keeps the brand skill's repository once git can
+    read it as this person, and answers the set-up; it is 400, with a sentence, when it
+    cannot be read or has no such release. An empty repository forgets it.
+    `/api/brand/install` {"release"} installs that release of the brand skill with its own
+    installer, in the background, and answers {"upkeep"}; it is 409 while a deck is
+    working, while anything else is in hand, while a companion waits for Update, and when
+    `release` is not the one shown in `upkeep.versions.brand`.
   - `/api/computer` {}: look at this computer again, and at the skills, and wake the decks
     that were waiting on what was missing.
 - A refusal is {"error": "<a sentence>"}. Something sent in the wrong shape is 400; a deck
@@ -80,7 +87,7 @@ READS = ('/api/capabilities', '/api/setup', '/api/agents', '/api/models', '/api/
 WRITES = ('/api/setup/check', '/api/setup', '/api/decks', '/api/run', '/api/decide',
           '/api/answer', '/api/share', '/api/fetch', '/api/drive', '/api/publish',
           '/api/delete', '/api/bring', '/api/companions', '/api/upgrade', '/api/restart',
-          '/api/versions')
+          '/api/versions', '/api/brand', '/api/brand/install')
 PNG = 'image/png'
 PPTX = 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
 DECKS = '/api/decks'
@@ -297,6 +304,12 @@ class RunnerPage(server.Page):
         if path == '/api/versions':
             dismissed = server.text(sent, 'dismiss')
             return server.as_json(HTTPStatus.OK, {'upkeep': self.keeper().dismiss(dismissed)})
+        if path == '/api/brand':
+            return server.as_json(HTTPStatus.OK, shaped(setup.save_brand, self.engine, sent))
+        if path == '/api/brand/install':
+            release = server.text(sent, 'release')
+            return server.as_json(HTTPStatus.OK, {'upkeep': self.keeper().install_brand(
+                self.working(), release)})
         return super().write(path, sent)
 
     def keeper(self):

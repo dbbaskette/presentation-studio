@@ -13,6 +13,7 @@ import base64
 import json
 import os
 import shutil
+import subprocess
 import tempfile
 import time
 import unittest
@@ -40,7 +41,7 @@ GETS = ('/api/capabilities', '/api/setup', '/api/agents', '/api/models', '/api/d
 POSTS = ('/api/setup/check', '/api/setup', '/api/decks', '/api/run', '/api/decide',
          '/api/answer', '/api/share', '/api/fetch', '/api/drive', '/api/publish',
          '/api/delete', '/api/bring', '/api/companions', '/api/upgrade', '/api/restart',
-         '/api/versions', '/api/computer')
+         '/api/versions', '/api/computer', '/api/brand', '/api/brand/install')
 BOTH = ('/api/setup', '/api/decks', '/api/run', '/api/delete', '/api/computer')
 LISTED = [{'name': 'gpt-6-sol', 'label': 'GPT-6-Sol (gpt-6-sol)', 'family': None,
            'about': 'Previous generation workhorse model.', 'default_level': 'medium',
@@ -178,7 +179,9 @@ class RuleTests(PageCase):
             '/api/delete': {'path': self.path, 'title': 'Rolling restarts'},
             '/api/bring': {'path': self.path},
             '/api/upgrade': {'version': '99.0.0'},
-            '/api/versions': {'dismiss': 'presentation-studio 99.0.0'}})
+            '/api/versions': {'dismiss': 'presentation-studio 99.0.0'},
+            '/api/brand': {'repository': str(self.base / 'brand.git')},
+            '/api/brand/install': {'release': 'v1.2.0'}})
         self.reads = {target: target for target in GETS}
         self.reads.update({
             '/api/models': '/api/models?agent=claude',
@@ -566,6 +569,12 @@ class Keeper:
     def dismiss(self, key: str) -> dict:
         return self.answer('dismiss', key)
 
+    def install_brand(self, working: bool, release: str) -> dict:
+        return self.answer('install_brand', working, release)
+
+    def remember_brand(self, repository: str, listed: dict) -> None:
+        self.asked.append(('remember_brand', repository, sorted(listed)))
+
 
 class UpkeepTests(PageCase):
     def test_set_up_and_status_say_what_was_found_of_the_skills(self):
@@ -600,6 +609,63 @@ class UpkeepTests(PageCase):
         self.assertEqual(keeper.asked, [
             ('update', False), ('upgrade', False, '99.0.0'), ('restart', False),
             ('dismiss', 'x 99.0.0'), ('update', False), ('update', True), ('restart', True)])
+
+    def test_the_brand_skills_repository_is_kept_once_it_can_be_read(self):
+        work, bare = self.base / 'brand-work', self.base / 'brand.git'
+        for args in (('init', '-q', str(work)), ('init', '-q', '--bare', str(bare))):
+            subprocess.run(['git', *args], cwd=self.base, check=True, capture_output=True)
+        (work / 'SKILL.md').write_text('---\nname: acme-brand\n---\n')
+        for args in (('add', '-A'), ('commit', '-q', '-m', 'Release'), ('tag', 'v1.2.0'),
+                     ('tag', 'v2026.1.0'), ('push', '-q', '--tags', str(bare), 'HEAD:main')):
+            subprocess.run(['git', '-c', 'user.name=A Test', '-c', 'user.email=t@example.com',
+                            *args], cwd=work, check=True, capture_output=True)
+        keeper = self.engine.upkeep = Keeper()
+        said = self.post('brand', {'repository': str(self.base / 'nowhere.git')}, 400)
+        self.assertTrue(said['error'].startswith("The brand skill's repository could not be "
+                                                 'read. It was not found ('), said['error'])
+        self.assertEqual(self.post('brand', {'repository': str(bare), 'release': 'v9.0.0'},
+                                   400)['error'],
+                         f'{bare} has no release v9.0.0. Its newest is v1.2.0. Leave the '
+                         'release empty for the newest.')
+        self.assertEqual(self.post('brand', {'release': 'v1.2.0'}, 400)['error'],
+                         "A release is chosen from the brand skill's repository: give the "
+                         'repository too.')
+        self.assertIsNone(settings.load().brand_repository, 'nothing was kept')
+        made = self.post('brand', {'repository': str(bare), 'release': '1.2.0'})
+        self.assertEqual((made['brand']['repository'], made['brand']['release']),
+                         (str(bare), 'v1.2.0'))
+        self.assertEqual(settings.brand_source(), (str(bare), 'v1.2.0'))
+        self.assertEqual(keeper.asked, [('remember_brand', str(bare), ['v1.2.0',
+                                                                       'v2026.1.0'])])
+        self.assertEqual(self.post('setup', {'limits': {'parallel': 3}})['brand']['repository'],
+                         str(bare), 'a change to anything else leaves it as it was')
+        cleared = self.post('brand', {'repository': ''})
+        self.assertEqual((cleared['brand']['repository'], cleared['brand']['release']),
+                         (None, None))
+
+    def test_the_brand_skill_is_installed_only_when_asked_and_not_under_a_working_deck(self):
+        self.assertEqual(self.post('brand/install', {'release': 'v1.2.0'}, 409)['error'],
+                         page.NO_KEEPER)
+        keeper = self.engine.upkeep = Keeper()
+        self.assertEqual(self.post('brand/install', {}, 400)['error'],
+                         'Give release as text.')
+        self.assertEqual(self.post('brand/install', {'release': 'v1.2.0'}),
+                         {'upkeep': {'stand_in': True}})
+        keeper.refuse = 'The brand skill is being installed already.'
+        self.assertEqual(self.post('brand/install', {'release': 'v1.2.0'}, 409)['error'],
+                         keeper.refuse)
+        keeper.refuse, seen = None, []
+
+        def looks(tools, job):
+            seen.append(self.post('brand/install', {'release': 'v1.2.0'}))
+            self.workers.outline(tools, job)
+
+        self.workers.then('outline', looks)
+        self.started()
+        self.assertEqual(keeper.asked, [('install_brand', False, 'v1.2.0'),
+                                        ('install_brand', False, 'v1.2.0'),
+                                        ('install_brand', True, 'v1.2.0')],
+                         'a deck working in the background is said to be working')
 
     def test_checking_this_computer_again_looks_at_the_skills_and_what_a_deck_needs(self):
         keeper = self.engine.upkeep = Keeper()

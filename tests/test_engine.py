@@ -264,6 +264,50 @@ class BrandTests(StudioCase):
         self.assertTrue(view['sentence'].startswith('The brand changed since this deck began'))
         self.assertEqual(self.workers.of('look'), [])
 
+    def without_a_brand_skill(self):
+        """No brand skill on this computer, as the engine looks at it afresh."""
+        self.installed, self.brand = self.brand, None
+        self.engine.deck_needs(fresh=True)
+
+    def test_without_a_brand_skill_a_deck_runs_until_it_needs_its_brand(self):
+        from runner import engine
+        self.without_a_brand_skill()
+        root = self.start(research=True, brand='', variant='')
+        self.assertIn('your brand, chosen when the brand skill is installed',
+                      (root / 'intake.md').read_text())
+        self.assertEqual(self.waiting(root), 'gate:research-plan')
+        self.decide(root, 'gate:research-plan')
+        self.assertEqual(self.waiting(root), 'gate:research')
+        self.decide(root, 'gate:research')
+        view = self.view(root)
+        self.assertEqual((view['state'], view['sentence']), ('stopped', engine.NO_BRAND))
+        self.assertEqual(view['problem']['action'], 'retry')
+        self.assertEqual(self.workers.of('outline'), [], 'nothing that needs the brand ran')
+        self.brand = self.installed
+        self.engine.act(root, 'retry')
+        self.assertEqual(self.waiting(root), 'gate:outline')
+        form = json.loads((root / 'run.json').read_text())['form']
+        self.assertEqual((form['brand'], form['variant']), ('example', 'light'),
+                         'the first brand the brand skill lists, and its first variant')
+
+    def test_a_brand_named_in_settings_is_the_one_a_deck_with_none_chosen_gets(self):
+        from dataclasses import replace
+        self.settings.save(replace(self.settings.load(), brand='example', variant='dark'))
+        self.without_a_brand_skill()
+        root = self.start(brand='', variant='')
+        self.assertEqual(self.state(root), 'stopped')
+        self.brand = self.installed
+        self.engine.act(root, 'retry')
+        form = json.loads((root / 'run.json').read_text())['form']
+        self.assertEqual((form['brand'], form['variant']), ('example', 'dark'))
+
+    def test_without_a_brand_skill_an_existing_deck_is_still_listed_slide_by_slide(self):
+        self.without_a_brand_skill()
+        root = self.start(route='existing', level='polish', brand='', variant='',
+                          source={'kind': 'upload', 'name': 'old.pptx'},
+                          uploads={'old.pptx': ExistingTests.DECK})
+        self.assertEqual(self.waiting(root), 'gate:classify')
+
 
 class ResearchTests(StudioCase):
     def test_research_is_planned_approved_done_and_reported(self):

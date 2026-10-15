@@ -51,6 +51,10 @@ What a caller needs to know
 - The brand is exported once, with the first step that needs it, and checked before every
   step that uses it: the outline, the look, the patch, each step of the build and its
   render. A brand that changed since stops the deck with build's sentence.
+- No brand is named here: a deck started with no brand chosen is given, when its brand is
+  first exported, the one Settings names where the brand skill has it, else the first the
+  brand skill lists. A deck can be started with no brand skill installed; everything that
+  does not need the brand is done, and the first step that does stops with NO_BRAND.
 - What a deck is made from (sources/) and what its steps make on the way (work/) are never
   shared, so a deck taken over or brought in may lack them. Before its next step, the steps
   whose work is missing here are done again (the build from its start; the looks), and a
@@ -230,6 +234,9 @@ NO_LOCAL = ('Previews are set to be rendered with LibreOffice, which this comput
 NO_PICTURES = ('The programs the slides tool uses to turn a render into pictures are not on '
                'this computer.')
 CANNOT_DRAW = 'The slides cannot be drawn on this computer yet. {said}'
+NO_BRAND = ("Your deck needs your brand from here on, and no brand skill is installed on this "
+            "computer: name the brand skill's repository in Settings and install it, then "
+            'retry.')
 DRIVE_FILES = {'preview': 'Preview presentation', 'slides': 'Google Slides deck'}
 
 
@@ -661,11 +668,7 @@ class Engine(Jobs, Researching):
         an uploaded file's name to its bytes. Returns {'path', 'id'}."""
         space, chosen = self.space(), settings.load()
         gitstate.identity(space.repo)
-        brands = self.brands()
-        if brands is None:
-            raise WorkspaceError(self._look()['brand']['problem']
-                                 or 'No brand skill was found on this computer.')
-        checked = decks.check_form(form, brands)
+        checked = decks.check_form(form, self.brands())
         given = self._given(form, checked, uploads or {})
         named = isinstance(form, dict) and form.get('agent') not in (None, '')
         agent = settings.check_agent(form['agent']) if named else chosen.agent
@@ -1091,7 +1094,8 @@ class Engine(Jobs, Researching):
             or not self._older(seen['version'], slides_tool.MINIMUM) else (
             f"The slides tool on this computer is version {seen['version']}, and a deck needs "
             f'{slides_tool.MINIMUM} or newer. Update it.')
-        missing = [said for said in (seen['tool'], dated, brand['problem']) if said]
+        # The brand skill is not a need of drawing: a deck without one stops at its brand.
+        missing = [said for said in (seen['tool'], dated) if said]
         if not seen['tool']:
             if how is None:
                 renders = NOT_CHOSEN if seen['drive'] else NO_RENDERER
@@ -1188,9 +1192,26 @@ class Engine(Jobs, Researching):
         """The deck's brand contract: exported the first time, and checked every time after,
         before each step that uses it. A brand that changed stops the deck with build's
         sentence."""
-        skill = self._skill()
+        try:
+            skill = self._skill()
+        except WorkspaceError:
+            if self._look(fresh=True)['skills']:
+                raise
+            with self.files:
+                step = first(self._load(root))
+            self._problem(root, step.name if step else 'brand', 'stopped', NO_BRAND,
+                          KEPT_SO_FAR)
+            raise _Halted()
         with self.files:
             record = self._load(root)
+            form = record.get('form') or {}
+            if not (root / build.CONTRACT).is_file() \
+                    and (not form.get('brand') or not form.get('variant')):
+                chosen = decks.default_brand(form.get('brand') or settings.load().brand,
+                                             form.get('variant') or settings.load().variant,
+                                             skill.brands())
+                record['form'] = {**form, **chosen}
+                self._store(root, record)
             try:
                 return build.export_brand(root, record, skill)
             except build.BrandChanged:

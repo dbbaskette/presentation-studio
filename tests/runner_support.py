@@ -807,9 +807,11 @@ class StudioCase(unittest.TestCase):
             mock.patch.object(engines.brand_skill, 'Brand', self.the_brand),
             mock.patch.object(engines.team, 'Notifier', lambda *given, **named: self.notifier),
             mock.patch.object(engines.brand_skill, 'found',
-                              lambda *asked, **named: [{'name': self.brand.name,
-                                                        'runtime': str(self.brand.runtime),
-                                                        'brands': self.brand.brands()}]),
+                              lambda *asked, **named: [] if self.brand is None
+                              else [{'name': self.brand.name,
+                                     'version': getattr(self.brand, 'version', None),
+                                     'runtime': str(self.brand.runtime),
+                                     'brands': self.brand.brands()}]),
             mock.patch.object(engines.slides_tool, 'ready', lambda slides=None, which=None,
                               drive=True, look=engines.slides_tool.ready: look(
                                   slides, which=self.which, drive=drive))]
@@ -834,6 +836,13 @@ class StudioCase(unittest.TestCase):
         return self.slides
 
     def the_brand(self, runtime=None, run=None):
+        """The stand-in brand skill, or, once a test sets `self.brand` to None, the refusal
+        the real one gives when none is installed."""
+        if self.brand is None:
+            from workspace import WorkspaceError
+            raise WorkspaceError('No brand skill was found on this computer, so a deck '
+                                 'cannot be made. Install one, or name its folder in '
+                                 'BRAND_SKILL_RUNTIME, then try again.')
         return self.brand
 
     def set_up(self):
@@ -1040,6 +1049,7 @@ def fake_studio() -> Fake:
             mock.patch.object(engines.team, 'Notifier', lambda *a, **k: Notifier()),
             mock.patch.object(engines.brand_skill, 'found',
                               lambda *asked, **named: [{'name': brand.name,
+                                                        'version': None,
                                                         'runtime': str(brand.runtime),
                                                         'brands': brand.brands()}]),
             mock.patch.object(engines.slides_tool, 'ready', lambda slides=None, which=None,

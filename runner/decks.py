@@ -24,7 +24,7 @@ import runner  # noqa: F401  puts the core on the import path
 import home
 from workspace import WorkspaceError, write_atomic
 
-from runner import gitstate
+from runner import gitstate, settings
 
 ROUTES = ('scratch', 'document', 'existing')
 LEVELS = ('brand-only', 'polish', 'redesign', 'rework', 'selected')
@@ -78,8 +78,11 @@ def _source(sent: dict, route: str) -> dict:
     return {'kind': 'paste'}
 
 
-def check_form(sent: dict, brands: list) -> dict:
-    """The form, checked and trimmed. Raises WorkspaceError with one sentence otherwise."""
+def check_form(sent: dict, brands: list | None) -> dict:
+    """The form, checked and trimmed. Raises WorkspaceError with one sentence otherwise.
+    `brands` are those the brand skill lists, or None with no brand skill: a deck can then
+    still be started, with its brand left to the brand step, or named as a short word the
+    brand skill will be asked for there."""
     if not isinstance(sent, dict):
         raise WorkspaceError('The form was not understood.')
     route = sent.get('route')
@@ -101,11 +104,16 @@ def check_form(sent: dict, brands: list) -> dict:
         if not 1 <= minutes <= LIMITS['minutes']:
             raise WorkspaceError(f'The length must be between 1 and {LIMITS["minutes"]} minutes.')
     brand, variant = sent.get('brand'), sent.get('variant')
-    chosen = next((one for one in brands if one.get('brand') == brand), None)
-    if chosen is None:
-        raise WorkspaceError('That brand is not one this studio has.')
-    if variant not in chosen.get('variants', []):
-        raise WorkspaceError(f'The {brand} brand has no "{variant}" variant.')
+    if brands is None:
+        brand = None if brand in (None, '') else settings.check_word(brand, 'brand')
+        variant = None if variant in (None, '') or brand is None \
+            else settings.check_word(variant, 'variant')
+    else:
+        chosen = next((one for one in brands if one.get('brand') == brand), None)
+        if chosen is None:
+            raise WorkspaceError('That brand is not one your brand skill has.')
+        if variant not in chosen.get('variants', []):
+            raise WorkspaceError(f'The {brand} brand has no "{variant}" variant.')
     output = sent.get('output')
     if output not in OUTPUTS:
         raise WorkspaceError(f'Choose an output: {", ".join(OUTPUTS)}.')
@@ -170,6 +178,26 @@ def _source_words(source: dict) -> str:
     return 'pasted text'
 
 
+def default_brand(brand: str | None, variant: str | None, brands) -> dict:
+    """The brand and variant a deck is given: `brand` and `variant` where the brand skill
+    has them, else the first it lists, else the first variant of that brand. With nothing
+    listed, they stay as they are. No brand is named here."""
+    listed = [entry for entry in brands or [] if isinstance(entry, dict) and entry.get('brand')]
+    if not listed:
+        return {'brand': brand, 'variant': variant}
+    entry = next((one for one in listed if one.get('brand') == brand), listed[0])
+    variants = [str(one) for one in entry.get('variants') or []]
+    return {'brand': entry['brand'],
+            'variant': variant if variant in variants else (variants[0] if variants else None)}
+
+
+def brand_words(form: dict) -> str:
+    """The deck's brand and variant, or what stands for them until the brand step chooses."""
+    if not form.get('brand'):
+        return 'your brand, chosen when the brand skill is installed'
+    return f"{form['brand']} ({form['variant']})" if form.get('variant') else form['brand']
+
+
 def intake(form: dict) -> str:
     parts = [f"# {form['title']}", '', '## Title', form['title'], '',
              '## Route', form['route']]
@@ -181,7 +209,7 @@ def intake(form: dict) -> str:
         parts += ['', '## Goal', form['goal']]
     if form['minutes']:
         parts += ['', '## Length', f"{form['minutes']} minutes"]
-    parts += ['', '## Brand', f"{form['brand']} ({form['variant']})",
+    parts += ['', '## Brand', brand_words(form),
               '', '## Output', form['output']]
     if form['route'] != 'existing':
         parts += ['', '## Research', 'yes' if form['research'] else 'no']
@@ -227,7 +255,7 @@ def _where(deliver: dict) -> str:
 def readme(run: dict, deliver: dict | None) -> str:
     form = run['form']
     lines = [f"# {run['title']}", '', f"Route: {run['route']}",
-             f"Brand: {form['brand']} ({form['variant']})", f"Output: {form['output']}",
+             f"Brand: {brand_words(form)}", f"Output: {form['output']}",
              f"State: {'finished' if deliver else state(run)}"]
     if deliver:
         where = _where(deliver)

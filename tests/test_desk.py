@@ -26,6 +26,7 @@ FORBIDDEN_WORDS = re.compile(r'\b(artifacts?|stale|lineage|trainings?)\b', re.IG
 MARKUP = '<script>alert(1)</script>\n<img src=x onerror=alert(2)>\n'
 PICTURE = {'status': 200, 'picture': base64.b64encode(runner_support.png()).decode('ascii')}
 DECK = b'PK\x03\x04' + b'stand-in deck'
+ADDRESS = 'https://github.com/acme/acme-brand.git'
 MODELS = {'GET /api/models': [{'status': 200, 'body': {
     'agent': 'claude', 'source': 'Claude Code model list', 'problem': None, 'levels': [],
     'models': [{'name': 'opus', 'label': 'Opus', 'family': None, 'about': None,
@@ -459,6 +460,121 @@ class ScreenTests(ScriptedPage, PageCase):
         self.assertIn('Nothing was changed.', result['snapshots']['stopped']['text'])
         self.assertEqual(self.posts(result), [('/api/run', {'path': path, 'action': 'stop'})])
 
+
+    def brand_upkeep(self) -> dict:
+        """What the runner's own upkeep reports with a brand skill's repository named and no
+        brand skill installed: the brand skill offered from its repository."""
+        from dataclasses import replace
+        from runner import settings, upkeep
+        settings.save(replace(settings.load(), brand_repository=ADDRESS))
+        keep = upkeep.Upkeep(home_dir=self.base / 'home', root=self.base / 'root',
+                             installer=self.base / 'no-installer' / 'install.py')
+        keep.remember_brand(ADDRESS, {'v2026.6.0': {'commit': 'b' * 40},
+                                      'v0.13.1': {'commit': 'c3405eee0aad' + 'a' * 28}})
+        installed, self.brand = self.brand, None
+        try:
+            keep.check(repair=False)
+        finally:
+            self.brand = installed
+        return keep.report()
+
+    def test_home_offers_the_brand_skill_and_asks_before_it_is_installed(self):
+        found = self.brand_upkeep()
+        offer = found['versions']['brand']
+        self.assertEqual((offer['offered'], offer['action'], offer['release']),
+                         (True, 'Install', 'v0.13.1'))
+        running = f'Fetching v0.13.1 from {ADDRESS} and running its own installer. This can ' \
+                  'take a few minutes.'
+        busy = {**found, 'versions': {**found['versions'], 'brand': {
+            **offer, 'offered': False, 'state': 'running', 'since': '2026-10-14T09:05:00Z',
+            'says': running}}}
+        down = ('A deck on this computer is working now, and a step in hand keeps using the '
+                'brand skill it started with. Pause it, or wait until it stops for you, then '
+                'install.')
+        answers = self.answers(**{
+            'GET /api/setup': [ok({**self.get('setup'), 'upkeep': found})],
+            'POST /api/brand/install': [{'status': 409, 'body': {'error': down}},
+                                        ok({'upkeep': busy})]})
+        result = self.run_page(answers, [
+            {'snapshot': 'home'},
+            {'click': 'Install the brand skill'}, {'snapshot': 'asked'},
+            {'click': 'Cancel'}, {'snapshot': 'cancelled'},
+            {'click': 'Install the brand skill'}, {'click': 'Install it now'},
+            {'snapshot': 'refused'},
+            {'click': 'Install it now'}, {'snapshot': 'installing'}])
+        shots = result['snapshots']
+        for said in ('Newer versions are ready for this computer:',
+                     'brand skill 0.13.1, which is missing',
+                     'No brand skill is installed, so no deck is offered.'):
+            self.assertIn(said, shots['home']['text'])
+        asked = shots['asked']['sheet']
+        for said in ('Install the brand skill 0.13.1?', 'What is installed',
+                     'Release v0.13.1, at revision c3405eee0aad.', f'From {ADDRESS}.',
+                     'Its own installer is run, and told to leave harness-research alone.',
+                     'Where it would put in its own harness-slides in place of the one '
+                     'Presentation Studio uses, nothing is run, and you are told.',
+                     'Install only from a repository you trust.'):
+            self.assertIn(said, asked)
+        self.assertIn(down + ' Nothing was changed.', shots['refused']['sheet'])
+        done = shots['installing']
+        self.assertEqual(done['sheet'], '')
+        self.assertIn('Installing the brand skill. Home and the Status screen say how it goes.',
+                      done['toasts'])
+        self.assertIn(running, done['text'])
+        self.assertNotIn('Install the brand skill', done['buttons'], 'one install at a time')
+        self.assertEqual(self.posts(result), [('/api/brand/install', {'release': 'v0.13.1'})]
+                         * 2, 'nothing before the yes')
+
+    def test_the_brand_skills_repository_is_checked_and_saved_in_settings(self):
+        described = self.get('setup')
+        saved = {**described, 'brand': {**described['brand'], 'repository': ADDRESS,
+                                         'release': 'v0.13.1'}}
+        cannot = ("The brand skill's repository could not be read. git could not sign in to "
+                  "it without asking (could not read Username for 'https://github.com': "
+                  'terminal prompts disabled). Sign git in with an account that may read it, '
+                  'through its credential helper for an https address or an ssh key for an '
+                  'ssh one, then try again.')
+        answers = self.answers(**{
+            'GET /api/setup': [ok(described)] * 3 + [ok(saved)],
+            'POST /api/brand': [{'status': 400, 'body': {'error': cannot}}, ok(saved)]})
+        result = self.run_page(answers, [
+            {'click': 'Settings'}, {'snapshot': 'empty'},
+            {'fill': 'Its repository', 'value': ADDRESS},
+            {'fill': 'Which release', 'value': 'v0.13.1'},
+            {'click': 'Check and save'}, {'snapshot': 'refused'},
+            {'click': 'Check and save'}, {'snapshot': 'saved'}])
+        shots = result['snapshots']
+        for said in ('Brand skill', 'Your brand skill is released from a repository of its '
+                     'own.', 'A brand skill you installed yourself is still found and used.',
+                     'Empty for the newest'):
+            self.assertIn(said, shots['empty']['text'])
+        self.assertIn(cannot + ' Nothing was changed.', shots['refused']['text'])
+        self.assertIn(f'Installed from {ADDRESS}, release v0.13.1.', shots['saved']['text'])
+        self.assertIn('Saved. The Status screen shows which release can be installed.',
+                      shots['saved']['toasts'])
+        self.assertEqual(self.posts(result), [('/api/brand', {'repository': ADDRESS,
+                                                              'release': 'v0.13.1'})] * 2)
+
+    def test_without_a_brand_skill_a_new_deck_can_still_be_started(self):
+        self.brand = None
+        self.engine.deck_needs(fresh=True)
+        described = self.get('setup')
+        self.assertEqual(described['brand']['default'], {'brand': None, 'variant': None})
+        answers = self.answers(**{'POST /api/decks': [ok({'path': '/nowhere', 'id': 'x'})],
+                                  'GET /api/run': [{'status': 404,
+                                                    'body': {'error': 'There is no deck there.'}}]})
+        result = self.run_page(answers, [
+            {'click': 'New deck'}, {'click': 'Start from scratch'}, {'click': 'Continue'},
+            {'fill': 'A short title', 'value': 'Rolling restarts'}, {'click': 'Continue'},
+            {'snapshot': 'last'}, {'click': 'Start the deck'}])
+        self.assertIn('A deck can still be started: it is made up to the point it needs your '
+                      'brand, and waits there.', result['snapshots']['last']['text'])
+        (address, body), = self.posts(result)
+        self.assertEqual((address, body['form']['brand'], body['form']['variant']),
+                         ('/api/decks', '', None))
+        # What the page sends is what the server takes, and the deck stops at its brand.
+        made = self.post('decks', body)
+        self.assertEqual(self.run_of(made['path'])['state'], 'stopped')
 
 if __name__ == '__main__':
     unittest.main()
