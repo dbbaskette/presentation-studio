@@ -3,7 +3,8 @@
     brand = stand_in()         # the runner's Brand, with StandIn behind it
 
 StandIn knows one made-up brand, Example Co, with a contract the slides stand-in accepts,
-a few icons and an audit, and needs neither Node nor an installed skill. `stand_in()` reads
+a template whose layouts are the slides stand-in's (each picture slot SLOT in size), a few
+icons and an audit, and needs neither Node nor an installed skill. `stand_in()` reads
 `Brand` from the runner's module when it is called, so a test that has replaced that class
 gets its replacement.
 """
@@ -23,6 +24,31 @@ from stand_ins import slides
 
 from runner import brand as skill
 from runner.brand import DELIVERIES
+
+
+SLOT = (9144000, 5143500)   # the size of a picture slot in the template, 16 by 9
+
+
+def template(archive: zipfile.ZipFile) -> None:
+    """The template's layouts, as the slides stand-in lists them, each of its master, and a
+    picture slot of SLOT on each layout that has one."""
+    p = 'http://schemas.openxmlformats.org/presentationml/2006/main'
+    a = 'http://schemas.openxmlformats.org/drawingml/2006/main'
+    r = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
+    rel = 'http://schemas.openxmlformats.org/package/2006/relationships'
+    for number, (name, _, _, pictures) in enumerate(slides.LAYOUTS, start=1):
+        slot = (f'<p:sp><p:nvSpPr><p:cNvPr id="2" name="Picture"/><p:cNvSpPr/><p:nvPr>'
+                f'<p:ph type="pic" idx="10"/></p:nvPr></p:nvSpPr><p:spPr><a:xfrm>'
+                f'<a:off x="0" y="0"/><a:ext cx="{SLOT[0]}" cy="{SLOT[1]}"/></a:xfrm>'
+                '</p:spPr></p:sp>' if pictures else '')
+        archive.writestr(f'ppt/slideLayouts/slideLayout{number}.xml',
+                         f'<p:sldLayout xmlns:p="{p}" xmlns:a="{a}"><p:cSld name="{name}">'
+                         f'<p:spTree>{slot}</p:spTree></p:cSld></p:sldLayout>')
+        archive.writestr(f'ppt/slideLayouts/_rels/slideLayout{number}.xml.rels',
+                         f'<Relationships xmlns="{rel}"><Relationship Id="rId1" '
+                         f'Type="{r}/slideMaster" Target="../slideMasters/slideMaster1.xml"/>'
+                         '</Relationships>')
+    archive.writestr('ppt/slideMasters/slideMaster1.xml', f'<p:sldMaster xmlns:p="{p}"/>')
 
 
 def stand_in() -> skill.Brand:
@@ -128,6 +154,8 @@ class StandIn:
             if not path.exists():
                 with zipfile.ZipFile(path, 'w') as archive:
                     archive.writestr(zipfile.ZipInfo('[Content_Types].xml'), '<Types/>')
+                    if name == 'assets/template.pptx':
+                        template(archive)
 
     def __call__(self, command: list[str], cwd: Path | None = None) -> tuple[int, str, str]:
         args = [str(part) for part in command[2:]]

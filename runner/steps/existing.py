@@ -23,9 +23,12 @@ What a caller needs to know
   as a table. Pictures of the original go to work/original/, with a shots.json, taken as
   the build's previews are: one at a time on this computer, and through the deck's one
   preview file in Drive.
-- `original_picture(root, number, folder)` copies the largest PNG or JPEG picture of one
-  slide of sources/original.pptx into `folder`, with its alt text from the inventory, for
-  a slide that had no words at brand only and polish (`build.start`).
+- `original_picture(root, number, folder)` copies the picture of one slide of
+  sources/original.pptx into `folder` when it is all the slide shows (a PNG or JPEG, not a
+  video's), with its alt text from the inventory and its shape as the slide crops it, for a
+  slide that had no words at brand only and polish (`build.start`). `template_slot` reads
+  the size of a template layout's picture slot. Both are best effort: a file that cannot be
+  read carries nothing.
 - The patch is handed back as `patch`, a kind checked by `check_patch` and registered
   here: {"sourceSha256", "operations": [{"slide": number, "object", "expectedHash", and one
   of "text", "runs", "alt", "title"}]}. A slide the person did not name, an unknown object,
@@ -44,7 +47,9 @@ import posixpath
 import re
 import secrets
 import shutil
+import struct
 import zipfile
+import zlib
 from pathlib import Path
 from xml.etree import ElementTree
 
@@ -229,6 +234,10 @@ NS = {'p': 'http://schemas.openxmlformats.org/presentationml/2006/main',
 PICTURE_TYPES = {'.png': b'\x89PNG\r\n\x1a\n', '.jpg': b'\xff\xd8\xff', '.jpeg': b'\xff\xd8\xff'}
 PICTURE_MOST = 20 * 1024 * 1024    # bytes: the largest picture the slides tool takes
 PART_MOST = 8 * 1024 * 1024        # bytes: the largest XML part read to find one
+MEDIA = ('videoFile', 'audioFile', 'quickTimeFile', 'wavAudioFile', 'media')
+# Reading a deck is best effort: whatever a damaged or unusual file raises, nothing is carried.
+UNREADABLE = (OSError, KeyError, ValueError, IndexError, TypeError, EOFError, RuntimeError,
+              NotImplementedError, zlib.error, zipfile.BadZipFile, ElementTree.ParseError)
 
 
 def _part(deck: zipfile.ZipFile, name: str):
@@ -238,76 +247,143 @@ def _part(deck: zipfile.ZipFile, name: str):
     return ElementTree.fromstring(deck.read(info))
 
 
-def _targets(deck: zipfile.ZipFile, part: str) -> dict:
-    """The relationships of one part, by ID, each as the part it points to."""
+def _relations(deck: zipfile.ZipFile, part: str) -> list[tuple[str, str, str]]:
+    """The relationships of one part inside the package: (ID, type, the part it points
+    to). A target that starts with / is named from the package's root."""
     folder, name = posixpath.split(part)
     rels = posixpath.join(folder, '_rels', name + '.rels')
     if rels not in deck.namelist():
-        return {}
-    return {one.get('Id'): posixpath.normpath(posixpath.join(folder, one.get('Target') or ''))
-            for one in _part(deck, rels).findall('rel:Relationship', NS)
-            if one.get('TargetMode') != 'External'}
+        return []
+    found = []
+    for one in _part(deck, rels).findall('rel:Relationship', NS):
+        target = one.get('Target') or ''
+        if one.get('TargetMode') == 'External' or not target:
+            continue
+        where = target.lstrip('/') if target.startswith('/') \
+            else posixpath.join(folder, target)
+        found.append((one.get('Id'), one.get('Type') or '', posixpath.normpath(where)))
+    return found
+
+
+def _targets(deck: zipfile.ZipFile, part: str) -> dict:
+    """The relationships of one part, by ID, each as the part it points to."""
+    return {ident: target for ident, _, target in _relations(deck, part)}
+
+
+def _size(data: bytes) -> tuple[int, int] | None:
+    """A PNG's or JPEG's width and height in pixels, or None."""
+    if data.startswith(PICTURE_TYPES['.png']) and len(data) >= 24:
+        return struct.unpack('>II', data[16:24])
+    at = 2
+    while at + 9 < len(data) and data[at] == 0xFF:
+        marker, length = data[at + 1], struct.unpack('>H', data[at + 2:at + 4])[0]
+        if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC):
+            high, wide = struct.unpack('>HH', data[at + 5:at + 9])
+            return wide, high
+        at += 2 + length
+    return None
+
+
+def _cropped(picture, wide: int, high: int) -> float | None:
+    """The width over the height of what a picture shows on its slide: its pixels, less
+    what the slide crops off (a:srcRect, in thousandths of a percent)."""
+    crop = picture.find('p:blipFill/a:srcRect', NS)
+    cut = {side: int(crop.get(side, 0)) / 100000 if crop is not None else 0.0
+           for side in 'ltrb'}
+    across, down = wide * (1 - cut['l'] - cut['r']), high * (1 - cut['t'] - cut['b'])
+    return across / down if across > 0 and down > 0 else None
 
 
 def original_picture(root, number: int, folder) -> dict | None:
-    """The largest picture on slide `number` of the original deck, copied into `folder`, as
-    {'src': its path, 'alt': what the inventory says it shows, or None}. None when the slide
-    has no picture the slides tool can place (a PNG or JPEG of at most 20 MB), or the deck
+    """The picture of slide `number` of the original deck, copied into `folder`, when it is
+    all that slide shows: the inventory lists one object on it, a picture, and that picture
+    is a PNG or JPEG of at most 20 MB, not a video's or a sound's. Returns {'file': its
+    path, 'alt': what the inventory says it shows or None, 'aspect': the width over the
+    height of what the slide shows of it}; None when there is no such picture or the deck
     cannot be read. The deck is read with the standard library: the slides tool has no
     command that hands a picture out."""
+    from runner.steps import outline   # it reaches this step through worker_tools
     root, folder = Path(root), Path(folder)
+    slide = next((one for one in (outline.inventory_of(root) or {}).get('slides') or ()
+                  if isinstance(one, dict) and one.get('number') == number), None)
+    objects = [item for item in (slide or {}).get('objects') or () if isinstance(item, dict)]
+    if len(objects) != 1 or objects[0].get('type') != 'pic':
+        return None
+    ident = str(objects[0].get('id'))
     try:
         with zipfile.ZipFile(root / SOURCE) as deck:
             listed = _part(deck, 'ppt/presentation.xml').findall('p:sldIdLst/p:sldId', NS)
             if not 1 <= number <= len(listed):
                 return None
-            slide = _targets(deck, 'ppt/presentation.xml').get(
+            part = _targets(deck, 'ppt/presentation.xml').get(
                 listed[number - 1].get(f"{{{NS['r']}}}id"))
-            if not slide:
+            if not part:
                 return None
-            media, found = _targets(deck, slide), []
-            for picture in _part(deck, slide).iter(f"{{{NS['p']}}}pic"):
-                blip = picture.find('.//a:blip', NS)
-                target = media.get(blip.get(f"{{{NS['r']}}}embed")) if blip is not None \
-                    else None
-                extent = picture.find('p:spPr/a:xfrm/a:ext', NS)
-                area = int(extent.get('cx', 0)) * int(extent.get('cy', 0)) \
-                    if extent is not None else 0
-                kind = posixpath.splitext(target or '')[1].lower()
-                if target in deck.namelist() and kind in PICTURE_TYPES:
-                    found.append((area, picture.find('.//p:cNvPr', NS), target, kind))
-            if not found:
+            tree = _part(deck, part).find('p:cSld/p:spTree', NS)
+            picture = next((shape for shape in tree if shape.tag == f"{{{NS['p']}}}pic"
+                            and shape.find('p:nvPicPr/p:cNvPr', NS) is not None
+                            and shape.find('p:nvPicPr/p:cNvPr', NS).get('id') == ident),
+                           None) if tree is not None else None
+            if picture is None or any(
+                    element.tag.rpartition('}')[2] in MEDIA
+                    for element in picture.find('p:nvPicPr', NS).iter()):
                 return None
-            _, props, target, kind = max(found, key=lambda one: one[0])
+            blip = picture.find('p:blipFill/a:blip', NS)
+            target = _targets(deck, part).get(blip.get(f"{{{NS['r']}}}embed")) \
+                if blip is not None else None
+            kind = posixpath.splitext(target or '')[1].lower()
+            if kind not in PICTURE_TYPES:
+                return None
             info = deck.getinfo(target)
             if info.file_size > PICTURE_MOST:
                 return None
             data = deck.read(info)
-    except (OSError, KeyError, ValueError, zipfile.BadZipFile, ElementTree.ParseError):
+            size = _size(data) if data.startswith(PICTURE_TYPES[kind]) else None
+            aspect = _cropped(picture, *size) if size else None
+            if aspect is None:
+                return None
+            said = objects[0].get('alt') \
+                or picture.find('p:nvPicPr/p:cNvPr', NS).get('descr')
+            folder.mkdir(parents=True, exist_ok=True)
+            path = folder / f'slide-{number}{kind}'
+            path.write_bytes(data)
+    except UNREADABLE:
         return None
-    if not data.startswith(PICTURE_TYPES[kind]):
-        return None
-    ident = props.get('id') if props is not None else None
-    said = next((item.get('alt') for slide in (inventory_of(root) or {}).get('slides') or ()
-                 if isinstance(slide, dict) and slide.get('number') == number
-                 for item in slide.get('objects') or ()
-                 if isinstance(item, dict) and item.get('id') == ident), None)
-    if not (isinstance(said, str) and said.strip()) and props is not None:
-        said = props.get('descr')
-    folder.mkdir(parents=True, exist_ok=True)
-    path = folder / f'slide-{number}{kind}'
-    path.write_bytes(data)
-    return {'src': str(path.resolve()),
+    return {'file': path, 'aspect': aspect,
             'alt': ' '.join(said.split()) if isinstance(said, str) and said.strip() else None}
 
 
-def inventory_of(root) -> dict | None:
-    """classify.json, or None when there is none."""
+def template_slot(template, default_part: str, name: str) -> tuple[int, int] | None:
+    """The width and height of the first picture slot of the template layout called `name`,
+    among the layouts of the default layout's master, as the slides tool finds them; None
+    when it has none, its size is not written on it, or the template cannot be read."""
+    tidy = ' '.join(str(name).split())
     try:
-        found = json.loads((Path(root) / INVENTORY).read_text(encoding='utf-8'))
-    except (OSError, ValueError):
+        with zipfile.ZipFile(template) as deck:
+            def master_of(part):
+                return next((target for _, kind, target in _relations(deck, part)
+                             if kind.endswith('/slideMaster')), None)
+            family = master_of(default_part)
+            for part in sorted(deck.namelist(), key=lambda one: (len(one), one)):
+                if not re.fullmatch(r'ppt/slideLayouts/slideLayout\d+\.xml', part) \
+                        or master_of(part) != family:
+                    continue
+                layout = _part(deck, part)
+                named = layout.find('p:cSld', NS)
+                if named is None or ' '.join((named.get('name') or '').split()) != tidy:
+                    continue
+                for shape in layout.iter(f"{{{NS['p']}}}sp"):
+                    slot = shape.find('p:nvSpPr/p:nvPr/p:ph', NS)
+                    if slot is None or slot.get('type') != 'pic':
+                        continue
+                    extent = shape.find('p:spPr/a:xfrm/a:ext', NS)
+                    wide, high = (int(extent.get('cx', 0)), int(extent.get('cy', 0))) \
+                        if extent is not None else (0, 0)
+                    return (wide, high) if wide > 0 and high > 0 else None
+                return None
+    except UNREADABLE:
         return None
-    return found if isinstance(found, dict) else None
+    return None
 
 
 def _inventory(root: Path) -> dict:

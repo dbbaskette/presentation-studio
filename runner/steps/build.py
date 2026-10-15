@@ -41,10 +41,15 @@ What a caller needs to know
   (`bare_layout`, from `compose layouts`), with the original's picture in the layout's
   slot (`existing.original_picture`). That is done only when both the picture can be
   carried and the template has such a layout with a picture slot: a slide is never left
-  blank. The start records them as 'wordless'; the composer hands each in as given, and
-  `kept` refuses any other layout, picture or drawing on it. Any other such slide is
-  recorded as 'titled': its composer draws it as before, with no words but its approved
-  title, and gate:build shows TITLED on it.
+  blank. Only a slide whose one object is a PNG or JPEG picture is carried, and only when
+  the layout's picture slot (read from the brand's template) is within NEAR of the
+  picture's shape. The start records them as 'wordless'; the composer hands each in as
+  given, and `kept` refuses any other layout, picture or drawing on it. Every other such
+  slide is recorded in 'titled' and drawn as before, with no words but its approved title;
+  where its picture is carried and the composition has image nodes, the picture is a fixed
+  image node under the title, which `kept` holds. gate:build shows a note on each, TITLED
+  or REDRAWN. Pictures are copied to the start's pictures/ folder and named from the
+  composition, so they are copied beside each draft and each round's composition.
 - `to_draw` is every section not yet drawn, and every section a review or the person sent
   back that was not drawn again since the last round. A review sends back each section with
   a major or critical finding about how one of its slides is drawn, for at most REPAIRS
@@ -124,16 +129,26 @@ def slides_of(outline) -> list[dict]:
 
 
 def fixed(whole: dict, ids: list[str], number: int, strict: bool = False,
-          bare=(), placed=None) -> dict:
+          bare=(), placed=None, titled=None) -> dict:
     """What the composer of one section may not change: the deck's title and direction,
     and for each of its slides the title, the subtitle and detail, the sources, the points,
     the caveat, the source line and the notes that were approved. With `strict` (brand only
     and polish) the slide draws no words but those, and a slide in `bare`, whose original
     shows no words, draws none: its title is only a label. Such a slide that `placed` sets
     on a template layout ({id: {'layout', 'picture'?}}, from `start`) keeps that layout and
-    picture, which show no title."""
+    picture, which show no title. One that `titled` gives a picture ({id: {'image': {src,
+    alt}}}) has it as a fixed image node, `image`, to place under its title."""
     by_id = {slide.get('id'): slide for slide in slides_of(whole)}
     placed = (placed or {}) if strict else {}
+    titled = (titled or {}) if strict else {}
+
+    def image(ident):
+        shown = (titled.get(ident) or {}).get('image') if ident in bare else None
+        if not shown:
+            return {}
+        stem = re.sub(r'[^A-Za-z0-9]', '', ident)[:20] or 'slide'
+        return {'image': {'type': 'image', 'id': f's{number}_{stem}_picture',
+                          'src': shown['src'], 'alt': shown['alt'], 'fit': 'contain'}}
     return {'title': whole.get('title'), 'direction': whole.get('direction') or DIRECTION,
             'prefix': f's{number}_', 'strict': bool(strict),
             'slides': [{'id': ident, 'title': by_id[ident].get('title'),
@@ -141,6 +156,7 @@ def fixed(whole: dict, ids: list[str], number: int, strict: bool = False,
                         **({key: value for key, value in placed[ident].items()
                             if key in ('layout', 'picture')}
                            if ident in bare and ident in placed else {}),
+                        **image(ident),
                         'subtitle': by_id[ident].get('subtitle'),
                         'detail': by_id[ident].get('detail'),
                         'focal': by_id[ident].get('focal'),
@@ -169,6 +185,20 @@ def _drawn(node, found: list[str], ids: list[str]) -> None:
             elif isinstance(value, str) and key in ('text', 'value', 'label', 'title') \
                     and node.get('type') != 'badge':
                 found.append(value)
+
+
+def _nodes(node) -> list[dict]:
+    """Every node of a drawing, the node itself first."""
+    found = []
+    if isinstance(node, list):
+        for item in node:
+            found += _nodes(item)
+    elif isinstance(node, dict):
+        found.append(node)
+        for value in node.values():
+            if isinstance(value, (dict, list)):
+                found += _nodes(value)
+    return found
 
 
 def _same(one, other) -> bool:
@@ -243,6 +273,9 @@ def kept(section, spec: dict) -> list[str]:
             problems += _set_on_layout(mine, theirs)
         elif 'layout' in mine:
             problems.append(f'{ident}: a slide you draw names no template layout.')
+        if theirs.get('image') and theirs['image'] not in _nodes(mine.get('canvas')):
+            problems.append(f"{ident}: place this picture under the title exactly as it is "
+                            f"given: {json.dumps(theirs['image'])}")
         texts, ids = [], []
         _drawn([mine.get('canvas'), mine.get('connect')], texts, ids)
         wrong = [found for found in ids if not found.startswith(spec['prefix'])]
@@ -531,7 +564,7 @@ One JSON object, the section, handed in with `submit_section`:
 {skeleton}
 ```
 
-Each slide is `{{"id", "title", "sources", "brief": {{"relation", "focal": the ID of the node that carries the point, "rhythm"}}, "canvas", "connect"?, "caveat"?, "source"?, "notes"}}`. Copy each slide's `id`, `title`, `sources`, caveat, source line and notes exactly as they are given below, and keep every word of every point. The input "composition contract" has the exact format.''',
+Each slide is `{{"id", "title", "sources", "brief": {{"relation", "focal": the ID of the node that carries the point, "rhythm"}}, "canvas", "connect"?, "caveat"?, "source"?, "notes"}}`. Copy each slide's `id`, `title`, `sources`, caveat, source line and notes exactly as they are given below, and keep every word of every point. Where your task gives a slide whole (a template `layout`, a `picture`) or gives an image node to place, copy it exactly as given. The input "composition contract" has the exact format.''',
                  'What you write')
     text = _part(text, 'House style', '\n'.join(
         f'- {line}' for line in whole.get('house') or HOUSE))
@@ -563,6 +596,10 @@ def _approval(root: Path, run: dict, outline: dict) -> list[str]:
 
 TITLED = ("This slide is drawn with a title because its picture can't be carried onto a "
           'layout without one.')
+REDRAWN = ("This slide is drawn afresh with a title, because what it showed can't be carried "
+           'onto a layout without one; compare it with the original.')
+PICTURES = 'pictures'   # in the start folder, and beside every composition that names one
+NEAR = 0.10             # how far a picture's shape may be from its slot's, as a share
 
 
 def bare_layout(listed) -> str | None:
@@ -577,6 +614,21 @@ def bare_layout(listed) -> str | None:
     return min(fits, key=lambda layout: layout.get('subtitles') or 0)['name']
 
 
+def images_drawn(contract: str) -> bool:
+    """Whether the composition contract has an image node."""
+    return re.search(r'type:image\b|NODE types:[^\n]*\bimage\b', contract or '') is not None
+
+
+def _slot(brand: Path, layout: str) -> tuple[int, int] | None:
+    """The size of a template layout's picture slot, read from the brand's template."""
+    found = home.read_json(brand, {})
+    native = ((found.get('design') or {}).get('nativeTemplate') or {}) \
+        if isinstance(found, dict) else {}
+    if not native.get('path') or not native.get('layoutPart'):
+        return None
+    return _existing().template_slot(native['path'], native['layoutPart'], layout)
+
+
 def wordless_slides(root, run: dict, outline: dict) -> list[str]:
     """The slides of an outline that, at brand only and polish, had no words of their own."""
     if run.get('route') != 'existing' or _level(run) not in STRICT:
@@ -585,23 +637,32 @@ def wordless_slides(root, run: dict, outline: dict) -> list[str]:
     return outlines.wordless(outline, outlines.inventory_of(root), _level(run))
 
 
-def _place_bare(root: Path, outline: dict, bare: list[str], listed,
-                folder: Path) -> tuple[dict, list[str]]:
-    """Each slide in `bare` whose original picture can be carried, set on a template layout
-    that shows no title and has a slot for it: ({id: {'layout', 'picture': {src, alt}}},
-    and the IDs of the others, which are drawn with their title)."""
-    placed, titled = {}, []
+def _place_bare(root: Path, outline: dict, bare: list[str], listed, brand: Path,
+                images: bool, folder: Path) -> tuple[dict, dict]:
+    """Where each slide in `bare` goes. It is set on a template layout that shows no title
+    when its original picture is all it showed and can be carried, and the layout has a
+    picture slot whose shape is within NEAR of the picture's: {id: {'layout', 'picture':
+    {src, alt}}}. Every other is drawn with its title: {id: {'note', 'image'?: {src, alt}}},
+    with its picture, where one is carried and the composition has image nodes, as an image
+    its composer places as it is given. A picture's src is named from the composition."""
+    placed, titled = {}, {}
     layout = bare_layout(listed)
+    slot = _slot(brand, layout) if layout else None
     by_id = {slide.get('id'): slide for slide in slides_of(outline)}
     order = list(by_id)
     for ident in bare:
-        picture = _existing().original_picture(root, order.index(ident) + 1, folder) \
-            if layout else None
-        if picture is None:
-            titled.append(ident)
-            continue
-        placed[ident] = {'layout': layout, 'picture': {
-            'src': picture['src'], 'alt': picture['alt'] or by_id[ident].get('title')}}
+        try:
+            picture = _existing().original_picture(root, order.index(ident) + 1, folder)
+        except Exception:   # carrying a picture is best effort
+            picture = None
+        shown = {'src': f"{PICTURES}/{picture['file'].name}",
+                 'alt': picture['alt'] or by_id[ident].get('title')} if picture else None
+        if shown and slot and abs(picture['aspect'] / (slot[0] / slot[1]) - 1) <= NEAR:
+            placed[ident] = {'layout': layout, 'picture': shown}
+        elif shown and images:
+            titled[ident] = {'note': TITLED, 'image': shown}
+        else:
+            titled[ident] = {'note': REDRAWN}
     return placed, titled
 
 
@@ -617,7 +678,6 @@ def start(root, run: dict, slides, brand) -> dict:
         outline = json.loads(_outline_path(root).read_text(encoding='utf-8'))
     except (OSError, ValueError):
         raise WorkspaceError('There is no approved outline to build the deck from.') from None
-    bare = wordless_slides(root, run, outline)
     work, folder = root / BUILD, root / START
     for old in (folder, root / TOLD, root / DRAWN, shots(root), *work.glob('whole-*')):
         shutil.rmtree(old, ignore_errors=True)
@@ -645,10 +705,14 @@ def start(root, run: dict, slides, brand) -> dict:
             sections.append({'id': ident, 'file': part, 'slides': ids})
         if not sections:
             raise WorkspaceError('The slides tool split the deck into no sections.')
-        placed, titled = _place_bare(root, outline, bare, listed, folder / 'pictures')
+        drawn_ids = {ident for entry in sections for ident in entry['slides']}
+        bare = [ident for ident in wordless_slides(root, run, outline) if ident in drawn_ids]
+        composing = slides.compose_contract(brand)
+        placed, titled = _place_bare(root, outline, bare, listed, brand,
+                                     images_drawn(composing), folder / PICTURES)
         home.write_json(folder / 'given' / 'outline.json', whole)
         told = root / TOLD
-        write_atomic(told / 'compose-contract.txt', slides.compose_contract(brand))
+        write_atomic(told / 'compose-contract.txt', composing)
         for name, text in slides.reading(brand).items():
             write_atomic(told / reading_file(name), text)
     except (WorkspaceError, OSError, KeyError, ValueError, TypeError) as refusal:
@@ -752,12 +816,21 @@ def section_work(root, run: dict, section: str, request: dict | None, error: str
                      'Take care not to end the same way.')
     strict = run.get('route') == 'existing' and _level(run) in STRICT
     bare = wordless_slides(root, run, whole)
-    placed = began.get('wordless') or {}
+    placed, titled = began.get('wordless') or {}, began.get('titled') or {}
+    if isinstance(titled, list):   # a deck started before pictures were carried this way
+        titled = {ident: {} for ident in titled}
     drawn_bare = [ident for ident in ids if ident in bare and ident not in placed]
     if drawn_bare:
         lines.append('These slides show no words in the deck you were given, so draw no '
                      'text on them: ' + ', '.join(drawn_bare) + '.')
-    fixed_spec = fixed(whole, ids, number, strict, bare, placed)
+    fixed_spec = fixed(whole, ids, number, strict, bare, placed, titled)
+    pictured = [slide for slide in fixed_spec['slides'] if slide.get('image')]
+    if pictured:
+        lines.append('Each of these slides keeps the picture it showed. Place its image node '
+                     'in its canvas, under the title, exactly as it is given here, and draw '
+                     'no words:\n\n' + '\n'.join(
+                         f"{slide['id']}: {json.dumps(slide['image'], ensure_ascii=False)}"
+                         for slide in pictured))
     set_bare = [slide for slide in fixed_spec['slides'] if slide.get('layout')]
     if set_bare:
         lines.append(
@@ -769,6 +842,8 @@ def section_work(root, run: dict, section: str, request: dict | None, error: str
                                              'notes') if slide.get(key)},
                 ensure_ascii=False) for slide in set_bare))
     spec = {'kind': 'section', 'brand': began['brand'], **fixed_spec,
+            **({'pictures': str((root / began['folder'] / PICTURES).resolve())}
+               if (root / began['folder'] / PICTURES).is_dir() else {}),
             'previews': PREVIEWS, **how(root, run, renderer)}
     return Work(guidance=briefs.guidance('section', repair=bool(found)),
                 task='\n\n'.join(lines), profile='write', name='section',
@@ -838,6 +913,8 @@ def draw_whole(root, run: dict, slides, renderer) -> dict:
     try:
         folder.mkdir(parents=True)
         shutil.copyfile(start_folder / 'parts.json', folder / 'parts.json')
+        if (start_folder / PICTURES).is_dir():   # named from the composition
+            shutil.copytree(start_folder / PICTURES, folder / PICTURES)
         for part in home.read_json(start_folder / 'parts.json', {})['parts']:
             made = drawn.get(Path(part).stem)
             (folder / part).parent.mkdir(parents=True, exist_ok=True)
@@ -1166,10 +1243,12 @@ def gate_view(root, run: dict) -> dict:
     if state['rounds']:
         last = state['rounds'][-1]
         found = ((last.get('review') or {}).get('findings')) or []
-        titled = set((state.get('start') or {}).get('titled') or ())
+        titled = (state.get('start') or {}).get('titled') or {}
+        titled = titled if isinstance(titled, dict) else {ident: {} for ident in titled}
         listed = [{'number': slide['number'], 'title': slide['title'],
                    'image': str(shots(root) / f"{slide['number']}.png"),
-                   **({'note': TITLED} if slide.get('id') in titled else {}),
+                   **({'note': titled[slide['id']].get('note') or REDRAWN}
+                      if slide.get('id') in titled else {}),
                    'findings': [{key: finding.get(key) for key in (
                        'severity', 'about', 'question', 'note', 'fix')}
                        for finding in ordered(found) if finding['slide'] == slide['id']]}
