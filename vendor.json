@@ -278,6 +278,77 @@
       "from": "tests/test_runner_team.py",
       "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
       "note": "the engine-driven team tests, with the claim and take-over cases of tests/test_runner_engine.py"
+    },
+    {
+      "path": "skills/presentation-studio/scripts/server.py",
+      "from": "skills/training-studio/scripts/desk.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
+      "note": "the security base only (Refusal, as_json, Server, Handler, Page, Desk and /api/computer), with announce, show, port and interrupt from scripts/cmd_desk.py; the training reads removed"
+    },
+    {
+      "path": "runner/page.py",
+      "from": "runner/page.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
+      "note": "rewritten for decks: one view, one decision address, the start form with base64 uploads, slide pictures, the download and whitelisted files; desk lists, gates, documents, copies, outline, assets and adopt removed"
+    },
+    {
+      "path": "runner/setup.py",
+      "from": "runner/setup.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
+      "note": "with defaults for a deck (person, brand, variant, output); the studios config part follows runner/setup.py at 0881ce768039ebeb9e1fa39b89cedf792bf5d40e"
+    },
+    {
+      "path": "runner/upkeep.py",
+      "from": "runner/upkeep.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
+      "note": "companions looked at here (harness-slides, harness-research, tanzu-brand) against installer/companions.json; a missing pins file is no pins yet"
+    },
+    {
+      "path": "runner/studio.py",
+      "from": "runner/studio.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
+      "note": "with the test-only serve --fake"
+    },
+    {
+      "path": "skills/presentation-studio/scripts/studios_config.py",
+      "from": "runner/studios_config.py",
+      "revision": "0881ce768039ebeb9e1fa39b89cedf792bf5d40e",
+      "note": "issue #67, not yet at the pinned revision; moved into the core"
+    },
+    {
+      "path": "tests/test_studios_config.py",
+      "from": "tests/test_runner_studios_config.py",
+      "revision": "0881ce768039ebeb9e1fa39b89cedf792bf5d40e"
+    },
+    {
+      "path": "tests/test_server_security.py",
+      "from": "tests/test_desk.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
+      "note": "the security cases (RefusalTests, PageTests, WriteRuleTests, WireTests, AnnounceTests) against a small page of their own"
+    },
+    {
+      "path": "tests/test_runner_page.py",
+      "from": "tests/test_runner_page.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
+      "note": "rewritten for decks, with the page-driven team tests deferred from tests/test_runner_team.py"
+    },
+    {
+      "path": "tests/test_runner_setup.py",
+      "from": "tests/test_runner_page.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
+      "note": "its SetUpTests and CheckTests, with the studios config tests"
+    },
+    {
+      "path": "tests/test_runner_upkeep.py",
+      "from": "tests/test_runner_upkeep.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
+      "note": "without the installer-driven link and upgrade tests, which come with the installer"
+    },
+    {
+      "path": "tests/test_runner_studio.py",
+      "from": "tests/test_runner_studio.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
+      "note": "with FakeTests"
     }
   ]
 }

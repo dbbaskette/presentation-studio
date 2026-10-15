@@ -4,9 +4,12 @@ import sys
 import tempfile
 from pathlib import Path
 
-# Nothing a test does may touch the real per-user data folder.
+# Nothing a test does may touch the real per-user data folder, nor the studios config every
+# *-studio on this computer reads: STUDIOS_CONFIG names a file that is not there until a
+# test writes it.
 _DATA = tempfile.TemporaryDirectory()
 os.environ['PRESENTATION_STUDIO_DATA'] = _DATA.name
+os.environ['STUDIOS_CONFIG'] = str(Path(_DATA.name) / 'config' / 'studios-config.json')
 
 # After a commit, a fetch or a push, git starts auto-gc and maintenance in the background. That
 # work can still be writing when a test's temporary directory is removed, which fails the

@@ -1,0 +1,548 @@
+"""Setting this computer up for the runner: the workspace, the defaults a new deck starts
+with, the limits and how a deck's previews are rendered.
+
+What a caller needs to know
+---------------------------
+    setup.describe(engine)        the workspace, the defaults and the limits, as saved, with
+                                  what this computer has for previews and for a brand
+    setup.check(sent)             whether a repository or a folder can be used; changes nothing
+    wanted = setup.read(sent)     what the set-up screen sent, once it all makes sense
+    setup.apply(engine, wanted)   set the workspace up, save the settings, and describe them
+
+- A workspace is given as a repository's address (`repository`) or as a folder on this
+  computer (`path`), never both. A repository is cloned into a copy of the runner's own; a
+  folder is used as it is. Either way the runner works in its `presentations/` folder only
+  (`folder` names another), on `branch`, and `name` is the workspace's name.
+- `check` looks before anything is written: the place can be reached and written to, git
+  knows who the person is, and the folder for decks is not another tool's. It reads a
+  repository through a shallow copy that it removes again, and asks the remote whether it
+  would take a push without sending one.
+- `found` says what the place already holds. When a Presentation Studio `hub.json` is
+  there, its name, folder and branch are the ones that will be used, and nothing it says is
+  asked for again.
+- When to share is written `each-decision` or `when-asked` here (`share_when`); `gitstate`
+  calls them `decision` and `asked`.
+- The defaults are sent as `agent`, `model` and `effort`; `person`, the person's own name;
+  `brand` and `variant`; `output`, `google` or `pptx`; `previews`, the renderer: LibreOffice
+  on this computer (`local`) or Google Drive (`drive`); and `limits`, {step_seconds,
+  deck_dollars, parallel}. `describe` gives them back as `agent` {default, model, effort},
+  `person` {name}, `brand` {..., default: {brand, variant}}, `output`, `previews` {how,
+  drive, local} with which of the two renderers this computer can use, and `limits`.
+  `brand` is the brand skill that was found and the brands it has, with every brand skill
+  found under `skills` as {'name', 'path', 'chosen'}; `brand_skill` names one of those
+  paths to use. Both are asked of the engine, which reuses its look at this computer.
+- `notify` is {'on', 'can', 'problem'}: whether the runner tells the person through the
+  computer's own notifications when no page is open, whether this computer has a way to,
+  and a sentence when it has none. It is sent as true or false, and cannot be turned on
+  where there is no way.
+- `updates` is {'look'}: whether the runner looks online, at most once a day, for newer
+  releases. It is sent as `look_for_updates`, true or false. `upkeep` is what the runner
+  found when it last looked at Presentation Studio and its companions on this computer, or
+  None where it does not look (see `upkeep.Upkeep.report`).
+- `shared` is what the studios config every *-studio reads holds that Presentation Studio
+  can use, in the file's own shape: `team` {repository, branch}, `person` {name},
+  `assistant` {agent, model, effort}, `brand` {brand, variant}, `output` and `share`. A
+  value that would be refused here is left out. `shared_problem` is a sentence when the
+  file could not be read, which is then as if there were none: it never stops set-up.
+- Set-up is pre-filled from `shared`: until this computer has saved settings of its own,
+  the defaults are the shared values in place of the built-in ones (`base`), and while no
+  workspace is set up, `suggested` is the team repository, its branch and when to share,
+  for the page to offer. Once saved, this computer's own settings win.
+- `"for_all_studios": true`, sent with the set-up, also writes into that file the shared
+  values this save changed: the team repository and its branch, when to share, the agent,
+  its model and its level, the person's name, the brand and its variant, and the output.
+  A value is written only when it differs from what this computer had before and from
+  what the file says; a model or level left to the agent is written as null. The set-up is
+  saved first, and the answer gains `for_all_studios`, {"written": [the keys written, such
+  as "team.repository"], "problem": a sentence or null}, so a file that cannot be written
+  never undoes the set-up. See `studios_config`.
+- Ported from Training Studio's runner/setup.py. Its brand repository and Word copies are
+  gone; the studios config part follows Training Studio's later issue #67.
+"""
+from __future__ import annotations
+
+import os
+import re
+import secrets
+import shutil
+from dataclasses import replace
+from pathlib import Path
+
+import runner  # noqa: F401  puts the core on the import path
+import hub
+import studios_config
+import workspace
+from workspace import WorkspaceError
+
+from runner import gitstate, settings
+
+WHEN = {'decision': 'each-decision', 'asked': 'when-asked'}
+SHARE = {said: kept for kept, said in WHEN.items()}
+PROBE = 'presentation-studio-write-check'   # a branch name that is asked about, never made
+NOBODY = ('-c', 'user.name=Presentation Studio', '-c', 'user.email=check@example.invalid')
+PLACE = 2000    # characters in an address or a path
+BRANCH = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$')   # a branch a file may name
+LIMITS = ('step_seconds', 'deck_dollars', 'parallel')
+MISSING = object()
+
+
+def working(engine) -> bool:
+    """Whether any deck on this computer is working now."""
+    return any(deck['state'] == 'working' for deck in engine.status()['decks'])
+
+
+def describe(engine) -> dict:
+    """What is set up on this computer, in the shape the page reads."""
+    space, chosen = engine.workspace, base()
+    found = None if space is None else {
+        'name': space.name, 'repository': space.address, 'path': str(space.repo),
+        'folder': space.folder, 'branch': space.branch, 'share_when': WHEN[space.share],
+        **engine.shared()}
+    needs = engine.deck_needs()
+    can, problem = engine.notifier.can()
+    values, unread = shared()
+    keeping = getattr(engine, 'upkeep', None)
+    return {'configured': space is not None, 'workspace': found,
+            'suggested': None if space is not None else suggested(values),
+            'shared': values, 'shared_problem': unread,
+            'notify': {'on': chosen.notify, 'can': can, 'problem': problem},
+            'updates': {'look': chosen.look_for_updates},
+            'upkeep': keeping.report() if keeping is not None else None,
+            'agent': {'default': chosen.agent, 'model': chosen.model,
+                      'effort': chosen.effort},
+            'person': {'name': chosen.name},
+            'output': chosen.output,
+            'limits': chosen.limits,
+            'previews': {'how': chosen.previews, 'drive': needs['drive'],
+                         'local': needs['local']},
+            'brand': {**needs['brand'], 'skills': engine.brand_skills(),
+                      'default': {'brand': chosen.brand, 'variant': chosen.variant}}}
+
+
+def suggested(values: dict) -> dict | None:
+    """The workspace the studios config names, for a computer with none set up yet."""
+    team = values.get('team') or {}
+    if not team.get('repository'):
+        return None
+    return {'repository': team['repository'], 'branch': team.get('branch'),
+            'share_when': WHEN.get(values.get('share'))}
+
+
+# --- the studios config ------------------------------------------------------------------
+
+def _group(found: dict, name: str) -> dict:
+    value = found.get(name)
+    return value if isinstance(value, dict) else {}
+
+
+def _passes(check, *args):
+    """What a check of Settings makes of a value, or None where it refuses it."""
+    try:
+        return check(*args)
+    except WorkspaceError:
+        return None
+
+
+def _address(value) -> str | None:
+    """A repository's address from the file, or None for one that could not be used here,
+    such as one that carries a password."""
+    if not isinstance(value, str) or not value.strip() or len(value) > PLACE:
+        return None
+    value = value.strip()
+    if value.startswith('-') or any(mark.isspace() or ord(mark) < 32 for mark in value) \
+            or hub.ADDRESS_WITH_SECRET.match(value):
+        return None
+    return value
+
+
+def _branch(value) -> str | None:
+    if not isinstance(value, str) or not BRANCH.match(value.strip()):
+        return None
+    value = value.strip()
+    return None if '..' in value or value.endswith(('/', '.', '.lock')) else value
+
+
+def shared() -> tuple[dict, str | None]:
+    """The studios config's values that Presentation Studio can use, in the file's own
+    shape, and a sentence when the file could not be read. A value that would be refused
+    here is left out."""
+    found, problem = studios_config.read()
+    team, person, assistant, brand = (_group(found, name)
+                                      for name in ('team', 'person', 'assistant', 'brand'))
+    named = assistant.get('agent')
+    agent = None if named is None else _passes(settings.check_agent, named)
+    # A model or a level named for an agent Presentation Studio does not have is not for it.
+    usable = named is None or agent is not None
+    model = _passes(settings.check_model, assistant.get('model')) if usable else None
+    effort = _passes(settings.check_effort, assistant.get('effort'),
+                     agent or settings.Settings().agent, model) if usable else None
+    values = {
+        'team': {'repository': _address(team.get('repository')),
+                 'branch': _branch(team.get('branch'))},
+        'person': {'name': _passes(settings.check_name, person.get('name'))},
+        'assistant': {'agent': agent, 'model': model, 'effort': effort},
+        'brand': {'brand': _passes(settings.check_word, brand.get('brand'), 'brand'),
+                  'variant': _passes(settings.check_word, brand.get('variant'), 'variant')},
+        'output': found.get('output') if found.get('output') in settings.OUTPUTS else None,
+        'share': found.get('share') if found.get('share') in gitstate.SHARE else None}
+    kept = {}
+    for key, value in values.items():
+        if isinstance(value, dict):
+            value = {name: inner for name, inner in value.items() if inner is not None}
+        if value:
+            kept[key] = value
+    return kept, problem
+
+
+def base() -> settings.Settings:
+    """This computer's settings. Until it has saved any, the built-in defaults with what the
+    studios config shares in their place."""
+    if settings.path().is_file():
+        return settings.load()
+    values, _ = shared()
+    assistant, brand = values.get('assistant') or {}, values.get('brand') or {}
+    wanted = {name: assistant[name] for name in ('agent', 'model', 'effort')
+              if name in assistant}
+    wanted.update({name: brand[name] for name in ('brand', 'variant') if name in brand})
+    if 'name' in (values.get('person') or {}):
+        wanted['name'] = values['person']['name']
+    if 'output' in values:
+        wanted['output'] = values['output']
+    try:
+        return settings.check(replace(settings.Settings(), **wanted))
+    except WorkspaceError:
+        return settings.Settings()
+
+
+def _values(space, chosen: settings.Settings | None) -> dict:
+    """What this computer's set-up says of the values every studio may share."""
+    said = {}
+    if space is not None and space.address:
+        said['team'] = {'repository': space.address, 'branch': space.branch}
+        said['share'] = space.share
+    if chosen is not None:
+        said['assistant'] = {'agent': chosen.agent, 'model': chosen.model,
+                             'effort': chosen.effort}
+        if chosen.name is not None:
+            said['person'] = {'name': chosen.name}
+        said['brand'] = {'brand': chosen.brand, 'variant': chosen.variant}
+        said['output'] = chosen.output
+    return said
+
+
+def _same(one, other) -> bool:
+    return type(one) is type(other) and one == other
+
+
+def share_all(before: dict, after: dict) -> dict:
+    """Write into the studios config each shared value this save changed, where the file
+    says otherwise. Answers {"written": [keys], "problem": a sentence or None}."""
+    found, problem = studios_config.read()
+    if problem:
+        return {'written': [], 'problem': problem}
+    changes, written = {}, []
+    for key, value in after.items():
+        was, held = before.get(key, MISSING), found.get(key)
+        if not isinstance(value, dict):
+            if not _same(value, was) and not _same(value, held):
+                changes[key] = value
+                written.append(key)
+            continue
+        was = was if isinstance(was, dict) else {}
+        held = held if isinstance(held, dict) else {}
+        for name, inner in value.items():
+            if _same(inner, was.get(name, MISSING)) or _same(inner, held.get(name)):
+                continue
+            changes.setdefault(key, {})[name] = inner
+            written.append(f'{key}.{name}')
+    if changes:
+        try:
+            studios_config.update(changes)
+        except WorkspaceError as refusal:
+            return {'written': [], 'problem': str(refusal)}
+    return {'written': written, 'problem': None}
+
+
+# --- what was sent -----------------------------------------------------------------------
+
+def _text(sent: dict, name: str) -> str | None:
+    value = sent.get(name)
+    if value is None or value == '':
+        return None
+    if not isinstance(value, str) or len(value) > PLACE or '\0' in value:
+        raise WorkspaceError(f'Give the {name} as text.')
+    return value.strip() or None
+
+
+def place(sent: dict) -> tuple[str | None, str | None]:
+    """The repository's address or the folder's path, whichever was given."""
+    repository, path = _text(sent, 'repository'), _text(sent, 'path')
+    if repository and path:
+        raise WorkspaceError('Give the repository\'s address or a folder on this computer, '
+                             'not both.')
+    return repository, path
+
+
+def whole(path: str) -> Path:
+    """A folder's path, which must say where it is whatever folder the runner was started
+    in."""
+    folder = Path(path).expanduser()
+    if not folder.is_absolute():
+        raise WorkspaceError('Give the folder\'s whole path, starting from / or from ~.')
+    return folder
+
+
+def names(sent: dict) -> tuple[str | None, str | None]:
+    """The folder and the branch that were asked for, when they were."""
+    folder, branch = _text(sent, 'folder'), _text(sent, 'branch')
+    if folder is not None:
+        gitstate.check_name(folder, 'A workspace folder')
+    if branch is not None and (branch.startswith('-') or not hub.passes(
+            _anywhere(), 'check-ref-format', '--branch', branch)):
+        raise WorkspaceError(f'"{branch}" cannot be the name of a branch.')
+    return folder, branch
+
+
+def _anywhere() -> Path:
+    """A folder to run git in when no repository is involved yet."""
+    base_folder = gitstate.clones()
+    base_folder.mkdir(parents=True, exist_ok=True)
+    return base_folder
+
+
+# --- looking before anything is written --------------------------------------------------
+
+def _check(what: str, problem: str | None) -> dict:
+    return {'what': what, 'ok': problem is None, 'fix': problem}
+
+
+def _identity() -> str | None:
+    """Why git cannot record anything for this person, or None when it can."""
+    try:
+        gitstate.identity(_anywhere())
+    except WorkspaceError as refusal:
+        return str(refusal)
+    return None
+
+
+def _marked(repo: Path, folder: str | None, branch: str | None, name: str,
+            on: str) -> tuple[dict, str | None]:
+    """What a repository's folder for decks holds, and why it cannot be used if it cannot."""
+    found = {'name': name, 'folder': folder or gitstate.FOLDER, 'branch': branch or on,
+             'existing': False}
+    try:
+        where = gitstate.find_folder(repo, folder)
+        marker = gitstate.marker(repo, where)
+        gitstate.check_name(name, 'A workspace name')
+    except WorkspaceError as refusal:
+        return found, str(refusal)
+    found['folder'] = where
+    if marker is None:
+        slot = repo / where
+        if slot.is_symlink() or (slot.exists() and not slot.is_dir()):
+            return found, (f'{where} in this repository is not a plain folder, so it cannot '
+                           'hold decks. Name a different folder.')
+        return found, None
+    found.update(name=marker['name'], branch=marker['branch'], existing=True)
+    if branch is not None and branch != marker['branch']:
+        return found, (f"{where}/{gitstate.MARKER} says this workspace's work is on the "
+                       f"branch {marker['branch']}, not {branch}. Leave the branch out to "
+                       'use it.')
+    return found, None
+
+
+def _remote(address: str, folder: str | None, branch: str | None) -> tuple[dict, list]:
+    """Look at a repository by its address, through a shallow copy that is then removed."""
+    name = hub.name_from(address)
+    found = {'name': name, 'folder': folder or gitstate.FOLDER, 'branch': branch or 'main',
+             'existing': False}
+    reach, write, slot = 'The repository can be reached', 'The repository can be written to', \
+        'The folder for decks can be used'
+    later = 'This is looked at once the repository can be reached.'
+    if hub.ADDRESS_WITH_SECRET.match(address):
+        return found, [_check(reach, 'That address carries a password or token. Give the '
+                              'address without it; git signs in with your own credentials.'),
+                       _check(write, later), _check(slot, later)]
+    base_folder = _anywhere()
+    listed = hub.run(base_folder, 'ls-remote', '--symref', '--', address, 'HEAD',
+                     'refs/heads/*')
+    if listed.returncode != 0:
+        return found, [_check(reach, f'The repository could not be reached '
+                              f'({hub.reason(listed)}). Check the address, and that git can '
+                              'sign in to it without asking.'),
+                       _check(write, later), _check(slot, later)]
+    heads = {line.split('\t')[1].removeprefix('refs/heads/')
+             for line in listed.stdout.splitlines()
+             if '\t' in line and line.split('\t')[1].startswith('refs/heads/')}
+    probe = base_folder / f'.checking-{secrets.token_hex(4)}'
+    try:
+        wanted = ['--branch', branch] if branch in heads else []
+        cloned = hub.run(base_folder, 'clone', '--quiet', '--depth', '1', '--no-tags', *wanted,
+                         *hub.COPY_AS_IS, '--', address, str(probe))
+        if cloned.returncode != 0:
+            return found, [_check(reach, f'The repository could not be read '
+                                  f'({hub.reason(cloned)}).'),
+                           _check(write, later), _check(slot, later)]
+        found, unusable = _marked(probe, folder, branch, name, gitstate.on_branch(probe))
+        return found, [_check(reach, None), _check(write, _unwritable(probe, address)),
+                       _check(slot, unusable)]
+    finally:
+        shutil.rmtree(probe, ignore_errors=True)
+
+
+def _unwritable(probe: Path, address: str) -> str | None:
+    """Why this computer may not push to a repository, or None when the remote says it
+    would take a push. Nothing is sent."""
+    if Path(address).is_dir() and not os.access(address, os.W_OK):
+        return ('This computer may read that repository but not write to it. Ask for write '
+                'access, then check again.')
+    if not hub.passes(probe, 'rev-parse', '--verify', '--quiet', 'HEAD'):
+        hub.run(probe, *NOBODY, 'commit', '--quiet', '--allow-empty', '-m', 'check')
+    sent = hub.run(probe, 'push', '--dry-run', '--quiet', 'origin',
+                   f'HEAD:refs/heads/{PROBE}')
+    if sent.returncode == 0:
+        return None
+    return (f'This computer may read the repository but not write to it ({hub.reason(sent)}). '
+            'Ask for write access, or sign git in as someone who has it, then check again.')
+
+
+def _local(path: str, folder: str | None, branch: str | None) -> tuple[dict, list]:
+    """Look at a folder on this computer that is, or will be, a repository with no remote."""
+    reach, write, slot = 'The folder can be reached', 'The folder can be written to', \
+        'The folder for decks can be used'
+    repo = whole(path).resolve()
+    name = hub.name_from(repo.name)
+    found = {'name': name, 'folder': folder or gitstate.FOLDER, 'branch': branch or 'main',
+             'existing': False}
+    later = 'This is looked at once the folder can be reached.'
+    skill, unreachable = workspace.SKILL_DIR, None
+    if repo == skill or repo in skill.parents or skill in repo.parents:
+        unreachable = (f'{repo} holds Presentation Studio itself. Choose a folder made for '
+                       'decks.')
+    elif repo.exists() and not repo.is_dir():
+        unreachable = f'{repo} is a file. Name a folder for the workspace.'
+    elif (repo / '.git').exists() and hub.run(repo, 'remote').stdout.strip():
+        unreachable = (f'{repo} is a copy of a shared repository that someone works in. '
+                       "Give the repository's address instead: the runner keeps a copy "
+                       'of its own, so it never changes yours.')
+    if unreachable:
+        return found, [_check(reach, unreachable), _check(write, later), _check(slot, later)]
+    nearest = next(parent for parent in (repo, *repo.parents) if parent.exists())
+    unwritable = None if os.access(nearest, os.W_OK | os.X_OK) else (
+        f'{nearest} cannot be written to by you. Choose a folder that can.')
+    on = gitstate.on_branch(repo) if (repo / '.git').exists() else _first_branch()
+    found, unusable = _marked(repo, folder, branch, name, on)
+    return found, [_check(reach, None), _check(write, unwritable), _check(slot, unusable)]
+
+
+def _first_branch() -> str:
+    """The branch git gives a repository it has just made on this computer."""
+    probe = _anywhere() / f'.checking-{secrets.token_hex(4)}'
+    try:
+        probe.mkdir()
+        hub.run(probe, 'init', '--quiet')
+        return gitstate.on_branch(probe)
+    except WorkspaceError:
+        return 'main'
+    finally:
+        shutil.rmtree(probe, ignore_errors=True)
+
+
+def check(sent: dict) -> dict:
+    """Whether a repository or a folder can be the workspace. It changes nothing."""
+    repository, path = place(sent)
+    if not repository and not path:
+        raise WorkspaceError('Give the repository\'s address, or a folder on this computer.')
+    folder, branch = names(sent)
+    found, checks = (_remote(repository, folder, branch) if repository
+                     else _local(path, folder, branch))
+    checks.insert(2, _check('git knows who you are', _identity()))
+    return {'ok': all(item['ok'] for item in checks), 'found': found, 'checks': checks}
+
+
+# --- setting it up -----------------------------------------------------------------------
+
+def chosen(sent: dict) -> settings.Settings:
+    """This computer's settings, with what was sent in place of what was saved."""
+    kept = base()
+    limits = sent.get('limits')
+    if limits is not None and not isinstance(limits, dict):
+        raise WorkspaceError('Give the limits as step_seconds, deck_dollars and parallel.')
+    agent = sent.get('agent') or kept.agent
+    same = agent == kept.agent
+    model = sent['model'] if 'model' in sent else (kept.model if same else None)
+    effort = sent['effort'] if 'effort' in sent else (kept.effort if same else None)
+    wanted = {name: (limits or {}).get(name, getattr(kept, name)) for name in LIMITS}
+
+    def given(name: str, field: str | None = None):
+        value = sent.get(name)
+        return value if value is not None else getattr(kept, field or name)
+
+    person = sent['person'] if 'person' in sent else kept.name
+    return settings.check(replace(
+        kept, agent=agent, model=model, effort=effort, previews=given('previews'),
+        brand_skill=given('brand_skill'), notify=given('notify'),
+        look_for_updates=given('look_for_updates'), name=person, brand=given('brand'),
+        variant=given('variant'), output=given('output'), **wanted))
+
+
+def read(sent: dict) -> dict:
+    """What the set-up screen sent, once every part of it makes sense. Refuses, with a
+    sentence, before anything is changed."""
+    repository, path = place(sent)
+    if not repository and not path and gitstate.current() is None:
+        raise WorkspaceError('Give the repository\'s address, or a folder on this computer.')
+    folder, branch = names(sent)
+    name, when = _text(sent, 'name'), sent.get('share_when')
+    if name is not None:
+        gitstate.check_name(name, 'A workspace name')
+    if when is not None and when not in SHARE:
+        raise WorkspaceError('Sharing is one of: ' + ', '.join(SHARE) + '.')
+    every = sent.get('for_all_studios', False)
+    if not isinstance(every, bool):
+        raise WorkspaceError('Say whether this is for all your studios as true or false.')
+    return {'repository': repository, 'path': whole(path) if path else None,
+            'for_all_studios': every, 'brand_skill': sent.get('brand_skill'),
+            'folder': folder, 'branch': branch, 'name': name,
+            'share': SHARE[when] if when else None, 'settings': chosen(sent)}
+
+
+def apply(engine, wanted: dict) -> dict:
+    """Set the workspace up, save this computer's settings, and describe both.
+
+    Without a repository or a folder, the workspace stays as it is and only the settings
+    and when to share change.
+    """
+    repository, path, share = wanted['repository'], wanted['path'], wanted['share']
+    named = wanted.get('brand_skill')
+    if named is not None and named not in [skill['path'] for skill in engine.brand_skills()]:
+        raise WorkspaceError('Choose the brand skill from those found on this computer.')
+    can, problem = engine.notifier.can()
+    if wanted['settings'].notify and not can:
+        raise WorkspaceError(problem)
+    before = engine.workspace
+    was = _values(before, settings.load() if settings.path().is_file() else None)
+    if not repository and not path:
+        if share:
+            gitstate.share_when(share)
+    else:
+        moving = before is not None and (
+            before.address != repository if repository
+            else before.address is not None or before.repo != path.resolve())
+        if moving and working(engine):
+            raise WorkspaceError('Decks are working in the workspace this computer uses now. '
+                                 'Pause or stop them before moving to another.')
+        with engine.files:
+            if repository:
+                gitstate.join(repository, wanted['folder'], wanted['branch'],
+                              wanted['name'], share)
+            else:
+                gitstate.local(path, wanted['folder'], wanted['branch'], wanted['name'],
+                               share)
+    saved = settings.save(wanted['settings'])
+    engine.saved()
+    engine.resume()
+    if not wanted.get('for_all_studios'):
+        return describe(engine)
+    report = share_all(was, _values(gitstate.current(), saved))
+    return {**describe(engine), 'for_all_studios': report}

@@ -1,6 +1,6 @@
 """The engine with a team: one driver for each deck, staying in step, turns, notifications,
 publishing, deleting and bringing a deck in. Ported from Training Studio's engine-driven
-team tests (the page-driven ones are Task 12's).
+team tests (the page-driven ones are in test_runner_page.TeamPageTests).
 
 Two people are two data folders and two git identities on this computer, against one bare
 repository. Nothing starts an agent, shows a real notification or touches the network.

@@ -9,8 +9,9 @@ reads a deck and cannot change it; a second claim the repository refuses is drop
 over and handing over; a deck started while the repository is away; the status list and its
 turns; adopting a teammate's decks on a timer and when the runner starts; a slow remote never
 holding up a decision; publishing, deleting and bringing a deck in) are in test_engine_team.py.
-Deferred to Task 12 (they drive the page): notifications on the page, the page's publish and
-published routes, and bringing a deck in through the page.
+The page-driven ones (notifications while a page is open, publishing and the published list,
+deleting, taking over and bringing a deck in through the page) are in
+test_runner_page.TeamPageTests.
 """
 import json
 import subprocess

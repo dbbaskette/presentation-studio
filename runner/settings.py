@@ -26,12 +26,17 @@ What a caller needs to know
   turn it on.
 - `look_for_updates` is whether the runner asks, at most once a day, which releases of
   Presentation Studio and its companion skills exist. On until they turn it off. See `upkeep`.
+- `name` is the person's own name, as set-up shows it and offers to share with every studio;
+  None until they give it. git's own identity still signs each commit and each claim.
+- `brand` and `variant` are the brand a new deck is offered first, and `output` what it is
+  made as: `google` (Google Slides) or `pptx`. A deck's own form says what it is made with.
 - A value that makes no sense is refused with a sentence, not corrected silently.
 """
 from __future__ import annotations
 
 import functools
 import json
+import re
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -52,6 +57,9 @@ EFFORTS = {'claude': ('low', 'medium', 'high', 'xhigh', 'max'), 'codex': LEVELS}
 # Claude Code has no list of its models, so the runner keeps one, with its source and date.
 CLAUDE_MODELS = Path(__file__).resolve().with_name('claude-code-models.json')
 PREVIEWS = ('drive', 'local')   # how a deck's previews are rendered
+OUTPUTS = ('google', 'pptx')    # what a new deck is made as
+WORD = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$')   # a brand's or a variant's name
+NAME = 100                  # characters in a person's name
 
 
 @dataclass(frozen=True)
@@ -67,6 +75,10 @@ class Settings:
     brand_skill: str | None = None
     notify: bool = False
     look_for_updates: bool = True
+    name: str | None = None
+    brand: str = 'tanzu'
+    variant: str = 'light'
+    output: str = 'google'
 
     @property
     def limits(self) -> dict:
@@ -201,6 +213,29 @@ def check_look(wanted) -> bool:
     return wanted
 
 
+def check_name(name) -> str | None:
+    """A person's name as they gave it, or None for none."""
+    if name is None or name == '':
+        return None
+    if not isinstance(name, str) or not name.strip() or len(name) > NAME \
+            or any(ord(mark) < 32 for mark in name):
+        raise WorkspaceError(f'Give your name as text of at most {NAME} characters.')
+    return name.strip()
+
+
+def check_word(value, label: str) -> str:
+    """A brand's or a variant's short name, as the brand skill lists it."""
+    if not isinstance(value, str) or not WORD.match(value):
+        raise WorkspaceError(f'The {label} is a short name such as tanzu or light.')
+    return value
+
+
+def check_output(output) -> str:
+    if output not in OUTPUTS:
+        raise WorkspaceError('A deck is made as one of: ' + ', '.join(OUTPUTS) + '.')
+    return output
+
+
 def number(value, label: str, least: float, most: float, whole: bool):
     """A limit a person typed, which must be a number in a sensible range."""
     plain = isinstance(value, (int, float)) and not isinstance(value, bool)
@@ -223,7 +258,9 @@ def check(chosen: Settings) -> Settings:
         parallel=number(chosen.parallel, 'How many decks run at once', *PARALLEL, True),
         previews=check_previews(chosen.previews), brand_skill=check_place(chosen.brand_skill),
         notify=check_notify(chosen.notify),
-        look_for_updates=check_look(chosen.look_for_updates))
+        look_for_updates=check_look(chosen.look_for_updates),
+        name=check_name(chosen.name), brand=check_word(chosen.brand, 'brand'),
+        variant=check_word(chosen.variant, 'variant'), output=check_output(chosen.output))
 
 
 def load() -> Settings:

@@ -1,6 +1,8 @@
 """Shared setup for the runner's tests: its import path, a job folder, a pretend web,
 processes a test started, and small stand-ins for the slides tool and a brand skill behind
-their wrappers. Later tasks add the engine's stand-ins here as the runner grows."""
+their wrappers; the engine's stand-ins (scripted workers, a person and a team); and
+`fake_studio`, the same engine for a process, which `studio serve --fake` serves for tests
+and the page's visual check."""
 import hashlib
 import json
 import os
@@ -986,3 +988,71 @@ class TeamCase(StudioCase):
 
     def tags(self) -> list[str]:
         return self.git('tag', '--list', repo=self.remote).splitlines()
+
+
+# --- the page over the stand-ins, for `studio serve --fake` -------------------------------
+
+class Fake:
+    """What `studio serve --fake` serves: `engine()` makes the engine, `keeper(after=...)`
+    what looks after the skills, both over a temporary folder of their own."""
+
+    def __init__(self, base: Path, engine, keeper):
+        self.base, self.engine, self.keeper = base, engine, keeper
+
+
+def fake_studio() -> Fake:
+    """The engine of StudioCase, made for a process rather than a test: a person called Alex
+    with a data folder, a git identity and a workspace on this computer, in a temporary
+    folder; the stand-ins for the slides tool, a brand skill and harness-research; a pretend
+    web; workers that do as Workers says; a look at this computer that runs nothing; and
+    upkeep that looks in an empty home and never online. The stand-ins stay in place for
+    the life of the process. For tests and the page's visual check only (see studio.py)."""
+    from dataclasses import replace
+    from unittest import mock
+    import computer
+    from runner import engine as engines, gitstate, settings, upkeep
+    from runner.agents import Scripted
+    from stand_ins import research as research_stand_in
+    base = Path(tempfile.mkdtemp(prefix='presentation-studio-fake-')).resolve()
+    (base / 'no-templates').mkdir()
+    (base / 'home').mkdir()
+    helpers.gitconfig(
+        base / 'gitconfig',
+        '[user]\n\tname = Alex\n\temail = alex@example.com\n[init]\n\tdefaultBranch = '
+        f"main\n\ttemplateDir = {base / 'no-templates'}\n")
+    os.environ.update({'PRESENTATION_STUDIO_DATA': str(base / 'data'),
+                       'STUDIOS_CONFIG': str(base / 'studios-config.json'),
+                       'GIT_CONFIG_GLOBAL': str(base / 'gitconfig'),
+                       'GIT_CONFIG_NOSYSTEM': '1'})
+    for name in ('GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE', 'BRAND_SKILL_RUNTIME',
+                 'HARNESS_SLIDES_RUNTIME', 'HARNESS_RESEARCH_RUNTIME'):
+        os.environ.pop(name, None)
+    web = Web()
+    web.page(URL, PAGE)
+    slides, brand = stand_in_slides(), stand_in_brand()
+    looked = {'checked_at': '2026-10-14T09:00:00Z', 'ready': True,
+              'assistants': ['Claude Code'], 'wrong': [], 'items': []}
+    for patch in (
+            mock.patch.object(worker_tools, 'fetch_once', web.opener),
+            mock.patch.object(worker_tools, 'resolve', web.resolver),
+            mock.patch.object(engines.slides_tool, 'Slides', lambda *a, **k: slides),
+            mock.patch.object(engines.brand_skill, 'Brand', lambda *a, **k: brand),
+            mock.patch.object(engines.team, 'Notifier', lambda *a, **k: Notifier()),
+            mock.patch.object(engines.brand_skill, 'found',
+                              lambda *asked, **named: [{'name': brand.name,
+                                                        'runtime': str(brand.runtime),
+                                                        'brands': brand.brands()}]),
+            mock.patch.object(engines.slides_tool, 'ready', lambda slides=None, which=None,
+                              drive=True, look=engines.slides_tool.ready: look(
+                                  slides, which=StudioCase.which, drive=drive)),
+            mock.patch.object(computer, 'check', lambda *a, **k: dict(looked))):
+        patch.start()
+    settings.save(replace(settings.load(), previews='local', look_for_updates=False,
+                          brand='example', variant='light'))
+    gitstate.local(base / 'team-work')
+    research, workers = research_stand_in.stand_in(), Workers()
+    adapters = {'claude': Scripted(workers), 'codex': Scripted(workers)}
+    return Fake(base,
+                lambda: engines.Engine(adapters=adapters, research=lambda: research),
+                lambda after=None: upkeep.Upkeep(home_dir=base / 'home',
+                                                 root=base / 'data', after=after))
