@@ -3,8 +3,8 @@ import hub
 from test_runner_gitstate import WorkspaceCase, git
 from runner import decks, gitstate
 
-BRANDS = [{'brand': 'tanzu', 'variants': ['light']}]
-FORM = {'route': 'scratch', 'title': 'Spring AI', 'brand': 'tanzu', 'variant': 'light',
+BRANDS = [{'brand': 'acme', 'variants': ['light']}]
+FORM = {'route': 'scratch', 'title': 'Spring AI', 'brand': 'acme', 'variant': 'light',
         'output': 'google'}
 
 

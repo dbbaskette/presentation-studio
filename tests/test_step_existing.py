@@ -84,7 +84,7 @@ class InventoryTests(Case):
         item = found['slides'][1]['objects'][0]
         self.assertEqual(sorted(item), sorted(existing.OBJECT_KEYS))
         self.assertTrue(item['contentHash'])
-        self.assertIn('| 2 | Run Tanzu fast |', (self.root / 'classify.md').read_text())
+        self.assertIn('| 2 | Run Acme fast |', (self.root / 'classify.md').read_text())
         self.assertEqual(run['gates']['gate:classify']['state'], 'waiting')
         self.assertEqual(decks.read_run(self.root)['gates']['gate:classify']['round'], 1)
         shots = json.loads((self.root / 'work/original/shots.json').read_text())
@@ -135,7 +135,7 @@ class PatchTests(Case):
         item = self.inv['slides'][1]['objects'][0]
         self.spec = existing._spec(self.inv, [2])
         self.op = {'slide': 2, 'object': item['id'], 'expectedHash': item['contentHash'],
-                   'text': 'Run Tanzu faster'}
+                   'text': 'Run Acme faster'}
 
     def plan(self, *ops, sha=None):
         return json.dumps({'sourceSha256': sha or self.inv['sha256'], 'operations': list(ops)})
@@ -179,7 +179,7 @@ class PatchTests(Case):
         path = existing.apply_patch(self.root, self.run_, self.slides)
         self.assertEqual(path, self.root / 'work/patched.pptx')
         after = self.slides.pptx_inspect(path)
-        self.assertEqual(after['slides'][1]['objects'][0]['text'], 'Run Tanzu faster')
+        self.assertEqual(after['slides'][1]['objects'][0]['text'], 'Run Acme faster')
 
     def test_apply_patch_removes_a_copy_that_changed_too_much(self):
         existing.keep_patch(self.root, self.plan(self.op))

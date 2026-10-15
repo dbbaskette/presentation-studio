@@ -8,6 +8,7 @@ import unittest
 
 import helpers
 import server
+import test_no_brand_named
 from runner import page
 
 PAGE = helpers.SCRIPTS / 'desk'
@@ -132,7 +133,7 @@ class WordTests(unittest.TestCase):
         # Any brand: the brands offered are only those the brand skill on this computer has.
         for name in ('app.js', 'index.html', 'deck.css'):
             with self.subTest(name):
-                self.assertNotRegex(read(name), r'(?i)tanzu|vmware|broadcom')
+                self.assertNotRegex(read(name), test_no_brand_named.NAMED)
 
     def test_rehearsing_with_yoodli_is_coming_later(self):
         script = read('app.js')

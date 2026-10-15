@@ -7,13 +7,13 @@ import helpers  # noqa: F401
 from runner import decks, gitstate
 from workspace import WorkspaceError
 
-BRANDS = [{'brand': 'tanzu', 'variants': ['light']},
-          {'brand': 'vmware', 'variants': ['light', 'dark']}]
+BRANDS = [{'brand': 'acme', 'variants': ['light']},
+          {'brand': 'globex', 'variants': ['light', 'dark']}]
 
 
 def form(**over):
-    sent = {'route': 'scratch', 'title': 'Spring AI on Tanzu', 'audience': 'Platform teams',
-            'goal': 'Show the path to production', 'brand': 'tanzu', 'variant': 'light',
+    sent = {'route': 'scratch', 'title': 'Spring AI on Acme', 'audience': 'Platform teams',
+            'goal': 'Show the path to production', 'brand': 'acme', 'variant': 'light',
             'output': 'google', 'research': False}
     sent.update(over)
     return sent
@@ -90,10 +90,10 @@ class CreateTests(unittest.TestCase):
 
     def test_create_writes_intake_run_and_readme(self):
         root = decks.create(self.space, decks.check_form(form(), BRANDS))
-        self.assertEqual(root.name, 'spring-ai-on-tanzu')
+        self.assertEqual(root.name, 'spring-ai-on-acme')
         run = decks.read_run(root)
         self.assertEqual(run['route'], 'scratch')
-        self.assertIn('# Spring AI on Tanzu', (root / 'README.md').read_text())
+        self.assertIn('# Spring AI on Acme', (root / 'README.md').read_text())
         self.assertIn('Platform teams', (root / 'intake.md').read_text())
 
     def test_create_commits(self):
@@ -116,7 +116,7 @@ class CreateTests(unittest.TestCase):
     def test_index_lists_decks(self):
         decks.create(self.space, decks.check_form(form(), BRANDS))
         decks.write_index(self.space)
-        self.assertIn('Spring AI on Tanzu', (self.space.root / 'README.md').read_text())
+        self.assertIn('Spring AI on Acme', (self.space.root / 'README.md').read_text())
 
 
 class DeliveredTests(unittest.TestCase):
@@ -144,7 +144,7 @@ class DeliveredTests(unittest.TestCase):
         self.assertEqual(decks.state(self.run, self.root), 'finished')
         row = decks.index(self.space)
         self.assertIn('https://slides.example/x', row)
-        self.assertIn('spring-ai-on-tanzu/README.md', row)
+        self.assertIn('spring-ai-on-acme/README.md', row)
         self.assertIn('finished', row)
 
     def test_index_for_pptx(self):

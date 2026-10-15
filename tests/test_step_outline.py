@@ -14,8 +14,8 @@ from runner import briefs, decks, worker_tools
 from runner.steps import outline
 
 INVENTORY = {'sha256': 'x', 'source': 'deck.pptx', 'slides': [
-    {'number': 1, 'id': '256', 'title': 'Run Tanzu fast', 'hidden': False, 'objects': [
-        {'id': '2', 'type': 'text', 'text': 'Run Tanzu fast', 'runs': ['Run Tanzu fast']},
+    {'number': 1, 'id': '256', 'title': 'Run Acme fast', 'hidden': False, 'objects': [
+        {'id': '2', 'type': 'text', 'text': 'Run Acme fast', 'runs': ['Run Acme fast']},
         {'id': '3', 'type': 'text', 'text': 'One   batch\nat a time',
          'runs': ['One batch', ' at a time']}]},
     {'number': 2, 'id': '257', 'title': 'Why', 'hidden': False, 'objects': [
@@ -29,7 +29,7 @@ def content(ident, title, number, label='Capacity holds'):
             'sources': [f'slide-{number}']}
 
 
-def extracted(title='Run Tanzu fast'):
+def extracted(title='Run Acme fast'):
     return {'version': 1, 'title': 'Deck', 'slides': [
         content('first-slide', title, 1, 'One batch at a time'),
         content('second-slide', 'Why', 2)]}
@@ -91,10 +91,10 @@ class RuleTests(Case):
     def test_verbatim_passes_copied_text_and_refuses_a_changed_word(self):
         rule = outline.verbatim_rule(INVENTORY)
         self.assertEqual(rule(extracted()), [])
-        said = rule(extracted('Run Tanzu faster'))
+        said = rule(extracted('Run Acme faster'))
         self.assertEqual(len(said), 1)
         self.assertIn('Slide 1 (first-slide)', said[0])
-        self.assertIn('Run Tanzu faster', said[0])
+        self.assertIn('Run Acme faster', said[0])
 
     def test_verbatim_ignores_whitespace_and_reads_joined_runs(self):
         outline_ = extracted()
@@ -134,7 +134,7 @@ class HandedBackTests(Case):
         job = root / 'job'
         worker_tools.prepare(job, **work.prepared)
         tools = worker_tools.WorkerTools(job, slides=self.slides)
-        ok, said = tools.submit_outline(json.dumps(extracted('Run Tanzu faster')))
+        ok, said = tools.submit_outline(json.dumps(extracted('Run Acme faster')))
         self.assertFalse(ok)
         self.assertIn('Slide 1 (first-slide)', said)
         self.assertEqual(tools.submit_outline(json.dumps(extracted())), (True, 'Accepted: outline.'))
@@ -149,7 +149,7 @@ class KeepTests(Case):
         outline.keep_outline(root, run, json.dumps(extracted()))
         self.assertEqual(json.loads((root / 'outline.json').read_text())['title'], 'Deck')
         text = (root / 'outline.md').read_text()
-        self.assertIn('## 1. Run Tanzu fast', text)
+        self.assertIn('## 1. Run Acme fast', text)
         self.assertIn('Understand: It holds.', text)
         self.assertEqual(decks.read_run(root)['gates']['gate:outline']['state'], 'waiting')
 
@@ -173,7 +173,7 @@ class EditTests(Case):
         edited = list(reversed(json.loads((root / 'outline.json').read_text())['slides']))
         outline.apply_edits(root, run, edited, self.slides, self.brand)
         text = (root / 'outline.md').read_text()
-        self.assertLess(text.index('## 1. Why'), text.index('## 2. Run Tanzu fast'))
+        self.assertLess(text.index('## 1. Why'), text.index('## 2. Run Acme fast'))
         self.assertEqual([s['id'] for s in json.loads((root / 'outline.json').read_text())['slides']],
                          ['second-slide', 'first-slide'])
 

@@ -301,6 +301,15 @@ class BrandTests(StudioCase):
         form = json.loads((root / 'run.json').read_text())['form']
         self.assertEqual((form['brand'], form['variant']), ('example', 'dark'))
 
+    def test_a_brand_skill_named_where_there_is_none_is_said_as_it_is(self):
+        from runner import engine
+        self.without_a_brand_skill()
+        with mock.patch.dict('os.environ', {'BRAND_SKILL_RUNTIME': str(self.base / 'nowhere')}):
+            root = self.start(brand='', variant='')
+        view = self.view(root)
+        self.assertNotEqual(view['sentence'], engine.NO_BRAND)
+        self.assertIn('No brand skill was found on this computer', view['sentence'])
+
     def test_without_a_brand_skill_an_existing_deck_is_still_listed_slide_by_slide(self):
         self.without_a_brand_skill()
         root = self.start(route='existing', level='polish', brand='', variant='',

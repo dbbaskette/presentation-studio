@@ -22,7 +22,7 @@ THEIRS = """{
              "reviewers": ["sam", "kim"]},
     "person": { "name": "Dan Baskette" },
     "assistant": { "agent": "claude", "model": "opus", "effort": "high" },
-    "brand": { "brand": "tanzu", "variant": "light" },
+    "brand": { "brand": "acme", "variant": "light" },
     "output": "google",
     "share": "decision",
     "blog": {"tone": "plain", "drafts": 3, "nested": {"a": [1, 2, {"b": null}]}}

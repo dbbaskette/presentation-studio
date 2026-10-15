@@ -10,7 +10,8 @@ grows. Each module's own docstring says what a caller needs to know.
     agents         starting the person's own agent as a confined worker for one job
     worker_tools   the only tools a worker has, and the server that offers them
     slides         the harness-slides command line
-    brand          a brand skill, such as tanzu-brand
+    brand          the person's own brand skill, whichever it is
+    brand_source   the brand skill's own repository: its releases, and installing one
     research       the harness-research command line
     documents      documents and pasted text a person supplies for a deck
     steps          the steps a deck goes through, one module per family of stages

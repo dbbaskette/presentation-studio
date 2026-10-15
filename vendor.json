@@ -40,7 +40,8 @@
     {
       "path": "runner/settings.py",
       "from": "runner/settings.py",
-      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
+      "note": "brand_repository, brand_release, check_repository and check_release follow runner/settings.py at 0881ce768039ebeb9e1fa39b89cedf792bf5d40e (PR #66); brand and variant name no brand"
     },
     {
       "path": "tests/helpers.py",
@@ -115,7 +116,8 @@
     {
       "path": "runner/brand.py",
       "from": "runner/brand.py",
-      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+      "revision": "0881ce768039ebeb9e1fa39b89cedf792bf5d40e",
+      "note": "a brand skill's version, from PR #66; without contracts(), which belongs to the move to harness-slides 0.14.1"
     },
     {
       "path": "runner/research.py",
@@ -201,7 +203,8 @@
     {
       "path": "tests/test_runner_brand.py",
       "from": "tests/test_runner_brand.py",
-      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+      "revision": "0881ce768039ebeb9e1fa39b89cedf792bf5d40e",
+      "note": "a brand skill's version, from PR #66; without the contracts() tests"
     },
     {
       "path": "tests/test_runner_research.py",
@@ -289,19 +292,19 @@
       "path": "runner/page.py",
       "from": "runner/page.py",
       "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
-      "note": "rewritten for decks: one view, one decision address, the start form with base64 uploads, slide pictures, the download and whitelisted files; desk lists, gates, documents, copies, outline, assets and adopt removed"
+      "note": "rewritten for decks: one view, one decision address, the start form with base64 uploads, slide pictures, the download and whitelisted files; desk lists, gates, documents, copies, outline, assets and adopt removed; /api/brand and /api/brand/install follow runner/page.py at 0881ce768039ebeb9e1fa39b89cedf792bf5d40e (PR #66)"
     },
     {
       "path": "runner/setup.py",
       "from": "runner/setup.py",
       "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
-      "note": "with defaults for a deck (person, brand, variant, output); the studios config part follows runner/setup.py at 0881ce768039ebeb9e1fa39b89cedf792bf5d40e"
+      "note": "with defaults for a deck (person, brand, variant, output); the brand skill's repository (save_brand) and the studios config part follow runner/setup.py at 0881ce768039ebeb9e1fa39b89cedf792bf5d40e"
     },
     {
       "path": "runner/upkeep.py",
       "from": "runner/upkeep.py",
       "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
-      "note": "companions looked at here (harness-slides, harness-research, tanzu-brand) against installer/companions.json; a missing pins file is no pins yet"
+      "note": "companions looked at here (harness-slides, harness-research) against installer/companions.json; a missing pins file is no pins yet; the brand skill's row and install follow runner/upkeep.py at 0881ce768039ebeb9e1fa39b89cedf792bf5d40e (PR #66), reading each assistant's companions itself"
     },
     {
       "path": "runner/studio.py",
@@ -330,7 +333,7 @@
       "path": "tests/test_runner_page.py",
       "from": "tests/test_runner_page.py",
       "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
-      "note": "rewritten for decks, with the page-driven team tests deferred from tests/test_runner_team.py"
+      "note": "rewritten for decks, with the page-driven team tests deferred from tests/test_runner_team.py; the brand skill's page tests follow tests/test_runner_page.py at 0881ce768039ebeb9e1fa39b89cedf792bf5d40e (PR #66)"
     },
     {
       "path": "tests/test_runner_setup.py",
@@ -368,7 +371,8 @@
     {
       "path": "skills/presentation-studio/scripts/desk/app.js",
       "from": "skills/training-studio/scripts/desk/app.js",
-      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
+      "note": "the brand skill's Settings card, sheet and Versions parts follow skills/training-studio/scripts/desk/app.js at 0881ce768039ebeb9e1fa39b89cedf792bf5d40e (PR #66)"
     },
     {
       "path": "tests/page_harness.js",
@@ -378,7 +382,19 @@
     {
       "path": "tests/test_desk.py",
       "from": "tests/test_desk.py",
-      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
+      "note": "with the brand skill's screen tests of tests/test_desk.py at 0881ce768039ebeb9e1fa39b89cedf792bf5d40e (PR #66)"
+    },
+    {
+      "path": "runner/brand_source.py",
+      "from": "runner/brand_source.py",
+      "revision": "0881ce768039ebeb9e1fa39b89cedf792bf5d40e"
+    },
+    {
+      "path": "tests/test_runner_brand_source.py",
+      "from": "tests/test_runner_brand_source.py",
+      "revision": "0881ce768039ebeb9e1fa39b89cedf792bf5d40e",
+      "note": "on this runner's upkeep tests: no installer is staged, the companions are laid out for each assistant, and the pins are Presentation Studio's"
     }
   ]
 }

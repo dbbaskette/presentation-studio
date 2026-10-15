@@ -308,7 +308,7 @@ class SelectedTests(unittest.TestCase):
         item = found['slides'][1]['objects'][0]
         existing.keep_patch(root, json.dumps({'sourceSha256': found['sha256'], 'operations': [
             {'slide': 2, 'object': item['id'], 'expectedHash': item['contentHash'],
-             'text': 'Run Tanzu faster'}]}))
+             'text': 'Run Acme faster'}]}))
         return root, run, slides, found
 
     def test_selected_renders_the_patched_deck_with_its_pictures(self):

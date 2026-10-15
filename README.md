@@ -1,10 +1,10 @@
 # Presentation Studio
 
-Presentation Studio makes Tanzu-branded slide decks. You give it an idea, a document or a deck you already have, and it builds the deck with you one step at a time. Nothing moves forward until you approve it, and at each stop you see the real slides, not a description of them.
+Presentation Studio makes slide decks in your brand. You give it an idea, a document or a deck you already have, and it builds the deck with you one step at a time. Nothing moves forward until you approve it, and at each stop you see the real slides, not a description of them.
 
 The work is done by an AI assistant you already have, Claude Code or Codex. Presentation Studio guides it, checks what it makes, and keeps track of what you have approved. The assistant never touches your files or runs commands on its own; only you approve.
 
-It is the third studio beside [Training Studio](https://github.com/dbbaskette/training-studio) and [Blog Studio](https://github.com/dbbaskette/blog-studio), and made for Tanzu colleagues, technical or not.
+It is the third studio beside [Training Studio](https://github.com/dbbaskette/training-studio) and [Blog Studio](https://github.com/dbbaskette/blog-studio), and made for colleagues who are technical or not.
 
 ## Three ways in
 
@@ -16,9 +16,9 @@ It is the third studio beside [Training Studio](https://github.com/dbbaskette/tr
 
 Redesigns come in five levels:
 
-- **Brand only**: same slides, Tanzu look.
+- **Brand only**: same slides, your brand's look.
 - **Polish**: brand plus tidier layouts and spacing. The words stay.
-- **Redesign, keep content**: rebuilt with Tanzu layouts, icons and diagrams. Same message on each slide.
+- **Redesign, keep content**: rebuilt with your brand's layouts, icons and diagrams. Same message on each slide.
 - **Full rework**: may tighten, split, merge or reorder the content, then redesign it.
 - **Selected changes**: you say which slides and what to fix.
 
@@ -35,7 +35,7 @@ The page stops at each of these and waits for you. Which ones apply depends on h
 
 **Rehearse with Yoodli** is shown on the page as coming later.
 
-Brand defaults to Tanzu. VMware (light or dark) and Broadcom are available when you start a deck.
+Your brand comes from your brand skill: the brands and variants it lists are the ones offered when you start a deck, and the first it lists is the default until you choose another. Presentation Studio names no brand of its own.
 
 ## Before you start
 
@@ -47,7 +47,8 @@ You need:
 - **Arial**, which the brand uses.
 - **A way to see slides**: LibreOffice and Poppler on this computer, or Google Drive previews if you sign in to Google.
 - **Google sign-in** (gcloud), only if you want Google Slides as the output or a Google Doc as the input. Without it you get a PowerPoint file.
-- **Three companion skills**: [harness-slides](https://github.com/dbbaskette/harness-slides-skill) builds the decks, [harness-research](https://github.com/dbbaskette/harness-research-skill) does the research, and tanzu-brand holds the Tanzu, VMware and Broadcom brands. The installer brings all three at the versions it was tested with.
+- **Two companion skills**: [harness-slides](https://github.com/dbbaskette/harness-slides-skill) builds the decks and [harness-research](https://github.com/dbbaskette/harness-research-skill) does the research. The installer brings both at the versions it was tested with.
+- **Your brand skill**: a skill that holds your organisation's brands, its slide template and its icons. It is your own, so the installer does not bring it. Install it yourself, or name its repository in Settings and install and upgrade it from the page. Without one, a deck is made up to the point it needs your brand, and waits there.
 
 The page checks this computer the first time you open it and says in one sentence what is missing.
 

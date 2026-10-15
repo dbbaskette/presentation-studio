@@ -481,6 +481,7 @@ class ScreenTests(ScriptedPage, PageCase):
         return keep.report()
 
     def test_home_offers_the_brand_skill_and_asks_before_it_is_installed(self):
+        self.started()
         found = self.brand_upkeep()
         offer = found['versions']['brand']
         self.assertEqual((offer['offered'], offer['action'], offer['release']),

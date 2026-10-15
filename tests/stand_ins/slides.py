@@ -1153,8 +1153,8 @@ def invented(title: str) -> dict:
         {'id': '256', 'title': title, 'hidden': False, 'objects': [
             _shape(2, 'Title 1', [title], 457200),
             _shape(3, 'Subtitle 2', ['A deck to work from'], 1828800)]},
-        {'id': '257', 'title': 'Run Tanzu fast', 'hidden': False, 'objects': [
-            _shape(2, 'Title 1', ['Run Tanzu fast'], 457200),
+        {'id': '257', 'title': 'Run Acme fast', 'hidden': False, 'objects': [
+            _shape(2, 'Title 1', ['Run Acme fast'], 457200),
             _shape(3, 'Content 2', ['Ship apps ', 'in minutes, not weeks.'], 1828800)]},
         {'id': '258', 'title': 'Backup slide', 'hidden': True, 'objects': [
             _shape(2, 'Title 1', ['Backup slide'], 457200)]}]}

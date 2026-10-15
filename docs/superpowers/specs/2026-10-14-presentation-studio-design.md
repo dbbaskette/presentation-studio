@@ -3,10 +3,21 @@
 Date: 2026-10-14
 Status: Draft for review
 
+> **Amendment: any brand (2026-10-14).** Presentation Studio is for any brand. The brand
+> skill, and the repository it is installed from, are inputs the person gives: Settings
+> names the repository and release, and the page installs and upgrades the brand skill
+> from there with the brand skill's own installer, as Training Studio does. Nothing in the
+> product names, defaults to or pins a particular brand. The default brand and variant are
+> the first the installed brand skill lists, unless Settings or the studios config name
+> one. The installer pins only harness-slides and harness-research. Without a brand
+> skill, a deck is made up to the first step that needs its brand, and stops there with
+> one sentence saying to name the brand skill's repository in Settings. The text below
+> is written to match.
+
 ## 1. Purpose
 
 Presentation Studio is the third studio beside Training Studio and Blog Studio. It lets
-Tanzu colleagues — a mix of technical and non-technical people — make on-brand decks
+colleagues — a mix of technical and non-technical people — make decks in their brand
 through a guided, approval-gated page, without knowing the tools underneath.
 
 It has three entry routes:
@@ -14,12 +25,12 @@ It has three entry routes:
 1. **Start from scratch** — a brief (and optional research) becomes a deck.
 2. **Start from a document** — a document that either *specifies* the slides or is
    *source material* for them becomes a deck.
-3. **Redesign an existing deck** — a `.pptx` or Google Slides deck gets Tanzu design and
-   brand applied, at a chosen level of change.
+3. **Redesign an existing deck** — a `.pptx` or Google Slides deck gets your brand's design
+   applied, at a chosen level of change.
 
 Success means a colleague installs it with the one-click installer, picks a route, approves
-each step on the page while seeing the real slides, and gets a Tanzu-branded Google Slides
-deck (or `.pptx`) — with all of the work, decisions and the deck link shared in the team
+each step on the page while seeing the real slides, and gets a Google Slides deck in their brand
+(or `.pptx`) — with all of the work, decisions and the deck link shared in the team
 repository.
 
 ### Decisions made during brainstorming
@@ -56,9 +67,9 @@ Existing-deck change levels (harness-slides `references/intake.md`):
 
 | Level | Plain-language card | Stages after Classify |
 |---|---|---|
-| Brand only | "Same slides, Tanzu look: colors, fonts, logo, master layouts." | Build, Deliver |
+| Brand only | "Same slides in your brand's look: colors, fonts, logo, master layouts." | Build, Deliver |
 | Polish | "Brand plus tidier layouts, spacing and overflow fixes. Words stay." | Build, Deliver |
-| Redesign, keep content | "Rebuilt with Tanzu layouts, icons and diagrams. Same message per slide." | Look, Build, Deliver |
+| Redesign, keep content | "Rebuilt with your brand's layouts, icons and diagrams. Same message per slide." | Look, Build, Deliver |
 | Full rework | "We may tighten, split, merge or reorder content, then redesign." | Outline, Look, Build, Deliver |
 | Selected changes | "Tell us which slides and what to fix." | A *which slides / what* step at intake, then Build (only those slides), Deliver |
 
@@ -66,9 +77,10 @@ Existing-deck change levels (harness-slides `references/intake.md`):
 person's notes. It uses harness-slides' review/patch path, renders only the changed
 slides again and delivers a new numbered revision; it does not start over.
 
-**Brand.** Tanzu is the default. VMware light/dark and Broadcom are chosen at intake from
-tanzu-brand's `presentation-brands.json`. Before Look, the runner runs `tanzu-brand
-contract export --medium slides` and passes the contract to harness-slides with `--brand`.
+**Brand.** The brands and variants are those the person's brand skill lists, chosen at
+intake; the default is the one Settings names, else the first the brand skill lists. When
+a deck first needs its brand, the runner runs the brand skill's `contract export` and
+passes the contract to harness-slides with `--brand`.
 The exported contract, `DESIGN.md` and `VOICE.md` are kept in the deck so a rerun uses the
 same brand version.
 
@@ -139,11 +151,11 @@ by revision, as Blog Studio does in `training-studio-ui.json`.
 
 **First launch.**
 1. *Check this computer*: Claude Code or Codex CLI, Node 20+, git, harness-slides,
-   harness-research, tanzu-brand, LibreOffice, Poppler, Arial, Google sign-in. Each missing
+   harness-research, a brand skill, LibreOffice, Poppler, Arial, Google sign-in. Each missing
    item says one sentence and, where the installer can, has a **Fix it** button.
 2. *Workspace*: "Join our team repository" (address → `presentations/` added beside
    whatever is there) or "Just this computer".
-3. *Defaults*: assistant and model, your name, brand variant (Tanzu), output (Google Slides),
+3. *Defaults*: assistant and model, your name, brand and variant (from your brand skill), output (Google Slides),
    preview renderer, share after each decision or when asked, time and cost limit per step.
 
 **Home**: Needs you · In progress · Finished (Slides link + contact-sheet thumbnail) · Run by
@@ -193,9 +205,12 @@ presentation-studio/
   `workspace init --source`, `review`. The studio never edits slide files itself.
 - **Documents** (Word, PDF, Google Docs, Markdown, pasted text) are read into text by the
   forked `documents.py`; the classify worker decides spec vs material.
-- **Companions.** `installer/companions.json` pins harness-slides, harness-research and
-  tanzu-brand (repository, version, commit, sha256), as Training Studio pins the first two.
-  The installer and "Check this computer" install or upgrade them.
+- **Companions.** `installer/companions.json` pins harness-slides and harness-research
+  (repository, version, commit, sha256), as Training Studio pins them. The installer and
+  "Check this computer" install or upgrade them.
+- **The brand skill** is the person's own. Settings names its repository and release; the
+  Versions view installs or upgrades it with its own installer (Training Studio's
+  `brand_source`), leaving the pinned companions alone.
 - **Launch.** `~/.local/share/presentation-studio/studio` or `Open Presentation Studio.command`;
   binds 127.0.0.1 on a random port; the printed URL carries a key after `#`; one runner per
   computer.
@@ -219,7 +234,7 @@ presentation-studio/
   stub slides tool that records the commands it was given.
 - `stages.py` skip map tested as a table.
 - Claim, take over, hand over and clash tests adapted from Training Studio's.
-- Manual acceptance walkthrough per route against the real harness-slides and tanzu-brand,
+- Manual acceptance walkthrough per route against the real harness-slides and a real brand skill,
   recorded in `docs/`.
 
 ## 9. Not in v1

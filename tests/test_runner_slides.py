@@ -2226,11 +2226,11 @@ class NewCommandTests(unittest.TestCase):
     def test_a_patch_changes_only_what_it_names_and_compare_says_so(self):
         deck = self.deck()
         found = self.slides.pptx_inspect(deck)
-        made = self.slides.pptx_patch(deck, self.plan(found, text='Run Tanzu faster'),
+        made = self.slides.pptx_patch(deck, self.plan(found, text='Run Acme faster'),
                                       self.tmp / 'out.pptx')
         self.assertTrue(made['preservation']['preserved'])
         after = self.slides.pptx_inspect(self.tmp / 'out.pptx')
-        self.assertEqual(after['slides'][1]['objects'][0]['text'], 'Run Tanzu faster')
+        self.assertEqual(after['slides'][1]['objects'][0]['text'], 'Run Acme faster')
         self.assertTrue((self.tmp / 'out.pptx').read_bytes().startswith(b'PK\x03\x04'))
         allow = self.tmp / 'allow.json'
         allow.write_text(json.dumps([{'slide': found['slides'][1]['id'],
@@ -2244,7 +2244,7 @@ class NewCommandTests(unittest.TestCase):
 
     def test_patch_refuses_an_existing_output_and_leaves_it_alone(self):
         deck = self.deck()
-        plan = self.plan(self.slides.pptx_inspect(deck), text='Run Tanzu faster')
+        plan = self.plan(self.slides.pptx_inspect(deck), text='Run Acme faster')
         (self.tmp / 'out.pptx').write_bytes(b'x')
         with self.assertRaises(slides_tool.Refused):
             self.slides.pptx_patch(deck, plan, self.tmp / 'out.pptx')
@@ -2285,7 +2285,7 @@ class NewCommandTests(unittest.TestCase):
         made = self.slides.drive_export('1AbC_d-9', self.tmp / 'exported.pptx')
         self.assertEqual(made, self.tmp / 'exported.pptx')
         self.assertTrue(made.read_bytes().startswith(b'PK\x03\x04'))
-        self.assertIn('Run Tanzu fast', json.dumps(self.slides.pptx_inspect(made)))
+        self.assertIn('Run Acme fast', json.dumps(self.slides.pptx_inspect(made)))
         with self.assertRaises(slides_tool.Refused):
             self.slides.drive_export('1AbC_d-9', self.tmp / 'exported.pptx')
         self.slides.run.gone.add('deleted')

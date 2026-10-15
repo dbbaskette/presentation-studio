@@ -95,6 +95,7 @@ from __future__ import annotations
 
 import contextvars
 import json
+import os
 import re
 import shutil
 import tempfile
@@ -1194,8 +1195,11 @@ class Engine(Jobs, Researching):
         sentence."""
         try:
             skill = self._skill()
-        except WorkspaceError:
-            if self._look(fresh=True)['skills']:
+        except WorkspaceError as refusal:
+            # Only a brand skill that is not there at all is said as NO_BRAND: one that is
+            # there but cannot be asked, or a folder named for it that holds none, says why.
+            if str(refusal) == brand_skill.NO_NODE or os.environ.get(brand_skill.VARIABLE) \
+                    or self._look(fresh=True)['skills']:
                 raise
             with self.files:
                 step = first(self._load(root))
