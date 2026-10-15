@@ -1594,7 +1594,8 @@ class Engine(Jobs, Researching):
             else:
                 gated = record['gates'].get(gate) or {}
                 named = self._numbers(extra) if gate == 'gate:build' else None
-                more = {'again': None, 'free': None} if gate == 'gate:research' else {}
+                more = {'again': None, 'added': None, 'free': None} \
+                    if gate == 'gate:research' else {}
                 if rebrand:
                     looks.rebrand(root, record, extra['brand'], extra.get('variant'), brands)
                     note = note or ('Make it in ' + decks.brand_words(record['form']) + '.')
@@ -1696,7 +1697,7 @@ class Engine(Jobs, Researching):
                                       'left_out': marked['left_out']}
             added = self._add_questions(root, record, marked.get('add') or [])
             again = {**(marked.get('again') or {}), **{ident: '' for ident in added}}
-            more = {'again': again, 'free': note}
+            more = {'again': again, 'added': added, 'free': note}
         return record, marks.note(gate, marked, note), more
 
     def act(self, path, action: str) -> dict:

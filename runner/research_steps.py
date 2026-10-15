@@ -13,9 +13,10 @@ What a caller needs to know
   ATTEMPTS times is left unanswered and named in the report; research that answered nothing
   stops the deck.
 - Asking for changes at gate:research with questions marked to research again, or added,
-  researches only those, each worker told the line written against its question. A note
-  alone researches again the questions it names by their IDs, and those not yet settled.
-  A question the person left out is never researched again.
+  researches only those: each worker is told the line written against its question, or
+  that the person added it, and their own words. A note alone researches again the
+  questions it names by their IDs, and those not yet settled. A question the person left
+  out is never researched again; a finding a changed plan lost always is.
 - `Researching` is a part of the engine and is not used alone.
 """
 from __future__ import annotations
@@ -38,7 +39,6 @@ from runner.jobs import Halted, Run, given_up, last_error, sha256_of, text_of, t
 from runner.steps import Work
 
 BUSY_TRIES = 20         # times a finding is offered while another save holds the lock
-QUESTIONS = 30          # questions harness-research takes in one plan
 PLAN = Path('research') / 'plan.json'
 PLAN_MD = Path('research') / 'plan.md'
 REPORT = Path('research') / 'report.md'
@@ -79,8 +79,8 @@ class Researching:
         total = len(kept)
         supported = sum(item['status'] == 'supported' for item in kept)
         lines = ['# Research report', '',
-                 f"{supported} of {total} question{'' if total == 1 else 's'} have an answer "
-                 'the sources support.']
+                 f"{supported} of {total} question{'' if total == 1 else 's'} "
+                 f"{'has' if supported == 1 else 'have'} an answer the sources support."]
         unresolved = [item for item in kept if item['status'] in UNRESOLVED]
         unread = [item for item in kept if item['status'] == 'pending']
         if unresolved:
@@ -108,7 +108,8 @@ class Researching:
             if item['sources']:
                 lines += ['', 'Sources:']
                 lines += [f"- {source['title'] or source['origin']} ({source['origin']}): "
-                          f"\"{source['quote']}\"" for source in item['sources']]
+                          f"\"{' '.join(source['quote'].split())}\""
+                          for source in item['sources']]
         return '\n'.join(lines) + '\n'
 
     @staticmethod
@@ -166,23 +167,31 @@ class Researching:
             rf'(?<![a-z0-9-]){re.escape(ident)}(?![a-z0-9-])', note.lower()) is not None
 
     @staticmethod
-    def _told(gate: dict, ident: str) -> str | None:
-        """What a worker researching `ident` again is told the person said: the line they
-        wrote against it and their own words, or their note at the gate."""
+    def _own_words(gate: dict) -> str | None:
+        """What the person wrote themselves at gate:research. A request with marks keeps it
+        as `free`, beside the note the runner wrote from the marks."""
+        return gate.get('free') if isinstance(gate.get('again'), dict) else gate.get('note')
+
+    @classmethod
+    def _told(cls, gate: dict, ident: str) -> str | None:
+        """What a worker researching `ident` is told the person said: that they added the
+        question, or the line they wrote against it, then their own words; or their note
+        at the gate."""
         if gate.get('state') != 'changes':
             return None
         again = gate.get('again')
-        if isinstance(again, dict) and again:
-            line = again.get(ident) or ''
-            said = ('The person asked for your question to be researched again'
-                    + (f'. What they said about it:\n\n{line}' if line else '.'))
+        if isinstance(again, dict) and ident in again:
+            line = again[ident] or ''
+            if ident in (gate.get('added') or ()):
+                said = 'The person added your question after reading the research.'
+            else:
+                said = ('The person asked for your question to be researched again'
+                        + (f'. What they said about it:\n\n{line}' if line else '.'))
             if gate.get('free'):
                 said += ('\n\nThey also wrote this, which may or may not be about your '
                          f"question:\n\n{gate['free']}")
             return said
-        # With marks, the note at the gate is the runner's; the person's own words are kept
-        # beside it.
-        note = gate.get('free') if isinstance(again, dict) else gate.get('note')
+        note = cls._own_words(gate)
         return ('The person looked at the research and asked for this, which may or may '
                 f'not be about your question:\n\n{note}') if note else None
 
@@ -192,17 +201,22 @@ class Researching:
         report to name."""
         with self.files:
             record = self._load(root)
-            handed = record.get('research') or {}
+            handed, lost = record.get('research') or {}, []
             if not handed.get('run') or handed.get('plan') != sha256_of(root / PLAN):
+                before = self._verdicts(root)
                 status = self.research().plan(root, root / PLAN)
+                # A finding harness-research did not keep for the changed plan, as when a
+                # file it rests on changed, is researched again.
+                lost = [ident for ident, verdict in self._verdicts(root).items()
+                        if verdict == 'pending' and before.get(ident, 'pending') != 'pending']
                 # What the person left out stays with a changed plan.
                 record['research'] = {**handed, 'run': status.get('run'),
                                       'plan': sha256_of(root / PLAN)}
                 self._store(root, record)
                 self._commit(root, 'hand the approved questions to research')
             gate = record['gates'].get('gate:research') or {}
-            # The gate's `again` holds the person's marks; the run's, which questions this
-            # request still has to research.
+            # Two kinds of `again`: the gate's is what the person marked; `research.again`
+            # is the runner's own list of the questions this request still has to research.
             asked = record['research'].get('again')
             if gate.get('state') == 'changes' and (asked or {}).get('at') != gate.get('at'):
                 verdicts = self._verdicts(root)
@@ -212,12 +226,13 @@ class Researching:
                 if isinstance(marked, dict) and marked:
                     left = [ident for ident in kept if ident in marked]
                 else:
-                    # A request with marks names its questions by them, so only the
-                    # person's own words are looked through for IDs.
-                    said = gate.get('free') if isinstance(marked, dict) else gate.get('note')
+                    # Only the person's own words are looked through for IDs: the note the
+                    # runner wrote from marks names the questions left out.
+                    said = self._own_words(gate)
                     left = [ident for ident in kept
                             if self._named(ident, said)
                             or verdicts[ident] in ('pending', *UNRESOLVED)] or kept
+                left += [ident for ident in lost if ident in kept and ident not in left]
                 record['research']['again'] = {'at': gate.get('at'), 'left': left}
                 for ident in left:
                     tries(record, f'research:{ident}')
@@ -248,7 +263,7 @@ class Researching:
                             for ident in todo]:
                 pending.result()
 
-    def _question(self, root: Path, run: Run, ident: str, asked: str | None) -> None:
+    def _question(self, root: Path, run: Run, ident: str, told: str | None) -> None:
         """One try at one research question. An accepted finding is recorded at once."""
         name = f'research:{ident}'
         record = self._load(root)
@@ -263,8 +278,8 @@ class Researching:
                 + ('The documents the person supplied are saved for you already. Read them '
                    'as well as the web.\n' if offered else '')
                 + f'\nThe presentation:\n{self._about(record)}')
-        if asked:
-            task += f'\n\n{asked}'
+        if told:
+            task += f'\n\n{told}'
         error = last_error(record, name)
         if error:
             task += (f'\n\nAn earlier try at this job did not work: {error}\nTake care not to '
@@ -401,8 +416,9 @@ class Researching:
         plan = home.read_json(root / PLAN, None)
         if not isinstance(plan, dict) or not isinstance(plan.get('items'), list):
             raise WorkspaceError('There is no research plan to add a question to.')
-        if len(plan['items']) + len(texts) > QUESTIONS:
-            raise WorkspaceError(f'A plan holds at most {QUESTIONS} questions.')
+        if len(plan['items']) + len(texts) > worker_tools.QUESTIONS:
+            raise WorkspaceError(f'A plan holds at most {worker_tools.QUESTIONS} '
+                                 'questions.')
         taken = [item.get('id') for item in plan['items'] if isinstance(item, dict)]
         added = []
         for text in texts:

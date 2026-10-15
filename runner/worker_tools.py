@@ -127,6 +127,7 @@ HEADLINE = 25           # words in a finding's headline
 HEADLINE_UNITS = 300    # harness-research's limit on a headline, in UTF-16 code units
 NOTES = 4000
 QUESTION = 1000
+QUESTIONS = 30          # questions harness-research takes in one plan
 PASSAGES = 20
 ADDRESS = 2000
 ICONS = 8               # the most icons one search returns
@@ -393,8 +394,8 @@ def check_research_plan(plan) -> dict:
         problems.append('Leave out "input_files"; registering intake there makes '
                         'harness-research discard its findings when intake is edited.')
     items = plan.get('items')
-    if not isinstance(items, list) or not 1 <= len(items) <= 30:
-        problems.append('"items" must hold 1 to 30 questions.')
+    if not isinstance(items, list) or not 1 <= len(items) <= QUESTIONS:
+        problems.append(f'"items" must hold 1 to {QUESTIONS} questions.')
         return result(name, problems)
     seen = set()
     for position, item in enumerate(items, start=1):

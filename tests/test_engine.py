@@ -577,7 +577,7 @@ class FindingMarkTests(StudioCase):
     def test_the_report_is_written_from_each_finding(self):
         root = self.researched()
         report = (root / 'research' / 'report.md').read_text()
-        for said in ('1 of 2 questions have an answer the sources support.',
+        for said in ('1 of 2 questions has an answer the sources support.',
                      'Not settled (1):', '## Instance min (`instance-min`)',
                      'The page answers instance-min.', 'Not known: Only one page was found.',
                      f'"{runner_support.QUOTE}"'):
@@ -588,7 +588,7 @@ class FindingMarkTests(StudioCase):
         self.engine.decide(root, 'gate:research', 'approve', None,
                            {'left_out': ['health-checks']})
         report = (root / 'research' / 'report.md').read_text()
-        self.assertIn('1 of 1 question have an answer the sources support.', report)
+        self.assertIn('1 of 1 question has an answer the sources support.', report)
         self.assertIn('Left out by you (1):\n- Health checks', report)
         self.assertNotIn('No page says', report)
         self.assertEqual(self.record(root)['research']['left_out'], ['health-checks'])
@@ -613,9 +613,25 @@ class FindingMarkTests(StudioCase):
         self.engine.decide(root, 'gate:research', 'changes', None,
                            {'add': ['What does a restart cost?']})
         self.assertEqual(self.asked(before), ['what-does-a-restart-cost'])
+        task = self.workers.of('question')[-1].task
+        self.assertIn('The person added your question after reading the research.', task)
+        self.assertNotIn('researched again', task)
         statuses = {item['id']: item['status'] for item in self.view(root)['gate']['items']}
         self.assertEqual(statuses, {'instance-min': 'supported', 'health-checks': 'insufficient',
                                     'what-does-a-restart-cost': 'supported'})
+
+    def test_findings_a_changed_plan_lost_are_researched_again(self):
+        from stand_ins import research as research_stand_in
+        root = self.researched()
+        before = len(self.workers.of('question'))
+        # As when a file the research rests on changed: harness-research keeps nothing.
+        with mock.patch.object(research_stand_in.StandIn, '_kept', lambda *given: {}):
+            self.engine.decide(root, 'gate:research', 'changes', None,
+                               {'add': ['What does a restart cost?']})
+        self.assertEqual(sorted(self.asked(before)),
+                         ['health-checks', 'instance-min', 'what-does-a-restart-cost'])
+        self.assertNotIn('pending', self.view(root)['gate']['verdicts'].values())
+        self.assertNotIn('Not researched', (root / 'research' / 'report.md').read_text())
 
     def test_a_left_out_question_is_not_researched_again_for_a_note(self):
         root = self.researched()
