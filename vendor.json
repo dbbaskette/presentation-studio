@@ -65,7 +65,7 @@
     {
       "path": "tests/runner_support.py",
       "from": "tests/runner_support.py",
-      "note": "trimmed to the process helpers",
+      "note": "the process helpers, the job case, the pretend web and the small slides and brand stand-ins",
       "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
     },
     {
@@ -93,6 +93,124 @@
       "path": "tests/test_runner_team.py",
       "from": "tests/test_runner_team.py",
       "note": "engine-free tests only; rewritten against the workspace",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "runner/agents.py",
+      "from": "runner/agents.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "runner/worker_tools.py",
+      "from": "runner/worker_tools.py",
+      "note": "training validators, design, assets and coverage removed; register() and outline rules added",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "runner/slides.py",
+      "from": "runner/slides.py",
+      "note": "pptx inspect/patch/compare, review --file, drive export and outline draft added",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "runner/brand.py",
+      "from": "runner/brand.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "runner/research.py",
+      "from": "runner/research.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "runner/documents.py",
+      "from": "runner/documents.py",
+      "note": "a deck folder (run.json); add_text and text_of added",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "runner/steps/build.py",
+      "from": "runner/deck.py",
+      "note": "the pure helpers worker_tools needs, without blueprint, objectives or design",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "skills/presentation-studio/scripts/gdrive.py",
+      "from": "skills/training-studio/scripts/gdocs.py",
+      "note": "GcloudTransport only, as Drive.export_text of plain text",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "tests/stand_ins/__init__.py",
+      "from": "tests/stand_ins/__init__.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "tests/stand_ins/slides.py",
+      "from": "tests/stand_ins/slides.py",
+      "note": "pptx, review --file, drive export and outline draft added",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "tests/stand_ins/brand.py",
+      "from": "tests/stand_ins/brand.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "tests/stand_ins/research.py",
+      "from": "tests/stand_ins/research.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "tests/stand_ins/assets.py",
+      "from": "tests/stand_ins/assets.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "tests/stand_ins/review.py",
+      "from": "tests/stand_ins/review.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "tests/stand_ins/design.py",
+      "from": "tests/stand_ins/design.py",
+      "note": "needed by assets and review",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "tests/fixtures/visual-contract",
+      "from": "tests/fixtures/visual-contract",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "tests/test_runner_agents.py",
+      "from": "tests/test_runner_agents.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "tests/test_runner_worker_tools.py",
+      "from": "tests/test_runner_worker_tools.py",
+      "note": "with the deck tool tests of tests/test_runner_deck.py, without design, assets or coverage",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "tests/test_runner_slides.py",
+      "from": "tests/test_runner_slides.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "tests/test_runner_brand.py",
+      "from": "tests/test_runner_brand.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "tests/test_runner_research.py",
+      "from": "tests/test_runner_research.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "tests/test_runner_documents.py",
+      "from": "tests/test_runner_documents.py",
       "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
     }
   ]
