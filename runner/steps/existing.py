@@ -294,10 +294,27 @@ def _cropped(picture, wide: int, high: int) -> float | None:
     return across / down if across > 0 and down > 0 else None
 
 
+SHAPES = ('sp', 'pic', 'graphicFrame', 'grpSp', 'cxnSp', 'contentPart')
+
+
+def _visible(shape) -> bool:
+    """Whether a shape of a slide's tree shows anything: a shape at all, not hidden, and
+    not a placeholder with no words in it."""
+    if shape.tag.rpartition('}')[2] not in SHAPES:
+        return False
+    props = next(shape.iter(f"{{{NS['p']}}}cNvPr"), None)
+    if props is not None and props.get('hidden') in ('1', 'true'):
+        return False
+    held = shape.find('p:nvSpPr/p:nvPr/p:ph', NS)
+    words = any((text.text or '').strip() for text in shape.iter(f"{{{NS['a']}}}t"))
+    return held is None or words
+
+
 def original_picture(root, number: int, folder) -> dict | None:
     """The picture of slide `number` of the original deck, copied into `folder`, when it is
-    all that slide shows: the inventory lists one object on it, a picture, and that picture
-    is a PNG or JPEG of at most 20 MB, not a video's or a sound's. Returns {'file': its
+    all that slide shows: leaving out hidden shapes and placeholders with no words (an
+    empty title, say), the slide has one object, a picture, and that picture is a PNG or
+    JPEG of at most 20 MB, not a video's or a sound's. Returns {'file': its
     path, 'alt': what the inventory says it shows or None, 'aspect': the width over the
     height of what the slide shows of it}; None when there is no such picture or the deck
     cannot be read. The deck is read with the standard library: the slides tool has no
@@ -307,9 +324,6 @@ def original_picture(root, number: int, folder) -> dict | None:
     slide = next((one for one in (outline.inventory_of(root) or {}).get('slides') or ()
                   if isinstance(one, dict) and one.get('number') == number), None)
     objects = [item for item in (slide or {}).get('objects') or () if isinstance(item, dict)]
-    if len(objects) != 1 or objects[0].get('type') != 'pic':
-        return None
-    ident = str(objects[0].get('id'))
     try:
         with zipfile.ZipFile(root / SOURCE) as deck:
             listed = _part(deck, 'ppt/presentation.xml').findall('p:sldIdLst/p:sldId', NS)
@@ -320,11 +334,12 @@ def original_picture(root, number: int, folder) -> dict | None:
             if not part:
                 return None
             tree = _part(deck, part).find('p:cSld/p:spTree', NS)
-            picture = next((shape for shape in tree if shape.tag == f"{{{NS['p']}}}pic"
-                            and shape.find('p:nvPicPr/p:cNvPr', NS) is not None
-                            and shape.find('p:nvPicPr/p:cNvPr', NS).get('id') == ident),
-                           None) if tree is not None else None
-            if picture is None or any(
+            shown = [shape for shape in (tree if tree is not None else ())
+                     if _visible(shape)]
+            if len(shown) != 1 or shown[0].tag != f"{{{NS['p']}}}pic":
+                return None
+            picture = shown[0]
+            if any(
                     element.tag.rpartition('}')[2] in MEDIA
                     for element in picture.find('p:nvPicPr', NS).iter()):
                 return None
@@ -342,8 +357,11 @@ def original_picture(root, number: int, folder) -> dict | None:
             aspect = _cropped(picture, *size) if size else None
             if aspect is None:
                 return None
-            said = objects[0].get('alt') \
-                or picture.find('p:nvPicPr/p:cNvPr', NS).get('descr')
+            props = picture.find('p:nvPicPr/p:cNvPr', NS)
+            ident = props.get('id') if props is not None else None
+            said = next((item.get('alt') for item in objects
+                         if str(item.get('id')) == ident and item.get('alt')), None) \
+                or (props.get('descr') if props is not None else None)
             folder.mkdir(parents=True, exist_ok=True)
             path = folder / f'slide-{number}{kind}'
             path.write_bytes(data)

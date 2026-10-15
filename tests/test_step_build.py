@@ -429,6 +429,11 @@ R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
 REL = 'http://schemas.openxmlformats.org/package/2006/relationships'
 SHAPE = ('<p:sp><p:nvSpPr><p:cNvPr id="5" name="Arrow"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr>'
          '<p:spPr/></p:sp>')
+EMPTY_TITLE = ('<p:sp><p:nvSpPr><p:cNvPr id="2" name="Title 1"/><p:cNvSpPr/><p:nvPr>'
+               '<p:ph type="title"/></p:nvPr></p:nvSpPr><p:spPr/><p:txBody><a:p/></p:txBody>'
+               '</p:sp>')
+HIDDEN = ('<p:sp><p:nvSpPr><p:cNvPr id="6" name="Note" hidden="1"/><p:cNvSpPr/><p:nvPr/>'
+          '</p:nvSpPr><p:spPr/></p:sp>')
 
 
 def picture_xml(ident: int, rel: str, crop: str = '', video: bool = False) -> str:
@@ -575,6 +580,18 @@ class WordlessTests(Deck):
         original(self.root / existing.SOURCE, self.count, 3, target='/ppt/media/image1.png')
         self.carried()
 
+    def test_a_picture_under_an_empty_title_placeholder_is_carried(self):
+        self.objects([{'id': '2', 'type': 'sp', 'text': '', 'runs': []}, self.PICTURE])
+        original(self.root / existing.SOURCE, self.count, 3,
+                 shapes=EMPTY_TITLE + picture_xml(4, 'rId2'))
+        self.carried()
+
+    def test_a_picture_beside_a_hidden_shape_is_carried(self):
+        self.objects([self.PICTURE, {'id': '6', 'type': 'sp', 'text': '', 'runs': []}])
+        original(self.root / existing.SOURCE, self.count, 3,
+                 shapes=picture_xml(4, 'rId2') + HIDDEN)
+        self.carried()
+
     def test_the_composer_is_told_the_layout_and_may_not_change_it(self):
         self.at('brand-only')
         build.start(self.root, self.run_, self.slides, self.contract)
@@ -633,6 +650,12 @@ class WordlessTests(Deck):
             wrong = copy.deepcopy(handed)
             wrong['slides'][at]['canvas'] = canvas
             self.assertTrue(build.kept(wrong, spec), canvas)
+
+    def test_a_picture_under_an_empty_title_without_a_fitting_slot_keeps_it(self):
+        self.objects([{'id': '2', 'type': 'sp', 'text': '', 'runs': []}, self.PICTURE])
+        original(self.root / existing.SOURCE, self.count, 3, data=png(9, 16),
+                 shapes=EMPTY_TITLE + picture_xml(4, 'rId2'))
+        self.falls_back()
 
     def test_without_image_nodes_the_note_says_it_is_drawn_afresh(self):
         original(self.root / existing.SOURCE, self.count, 3, data=png(9, 16))

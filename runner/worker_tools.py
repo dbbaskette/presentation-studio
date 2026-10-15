@@ -525,8 +525,11 @@ def check_section(text: str, spec: dict, slides,
         return [str(refusal)], [], [], text
     ours, found = build.kept(section, spec), []
     if spec.get('pictures') and Path(spec['pictures']).is_dir():   # named from the draft
-        shutil.copytree(spec['pictures'], Path(scratch) / build.PICTURES,
-                        dirs_exist_ok=True)
+        try:   # best effort: a picture that is missing is said by the compile
+            shutil.copytree(spec['pictures'], Path(scratch) / build.PICTURES,
+                            dirs_exist_ok=True)
+        except (OSError, shutil.Error):
+            pass
     if isinstance(section, dict):
         try:
             slides.compile(_draft(scratch, 'section', kept), spec['brand'])
