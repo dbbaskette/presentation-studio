@@ -654,3 +654,335 @@ def stand_in_brand():
     """The runner's Brand wrapper, with the stand-in for a brand skill's command behind it."""
     from stand_ins import brand
     return brand.stand_in()
+
+
+# --- the engine's stand-ins: scripted workers, a person and a team -------------------------
+
+URL = 'https://docs.example.com/restarts'
+QUOTE = 'Capacity holds only when more than one instance is running.'
+FORM = {'route': 'scratch', 'title': 'Rolling restarts', 'audience': 'Platform teams',
+        'goal': 'Show when capacity holds', 'minutes': 20, 'brand': 'example',
+        'variant': 'light', 'output': 'google', 'research': False}
+CLASSIFIED = {'kind': 'material', 'reason': 'Notes to build a talk from.', 'slides': None}
+
+
+def fails(detail: str = 'It stopped without finishing: the model gave up.',
+          reason: str = 'failed', cost: float | None = None):
+    """A worker that ends without handing anything back, as an agent that failed would."""
+    from runner.agents import Outcome
+    return lambda tools, job: Outcome(False, reason, detail, cost=cost)
+
+
+def asks(question: str):
+    """A worker that asks the person a question, which ends its job."""
+    def act(tools, job):
+        tools.ask_person(question)
+    return act
+
+
+class Workers:
+    """Scripted workers for a deck. Each kind of job does the right thing unless a test
+    queues something else for it with `then`. `jobs` lists every job that was started, as
+    (kind, job, spec)."""
+
+    def __init__(self):
+        self.jobs, self.queued, self.cost = [], {}, None
+        self.outline_said, self.classified, self.plan = OUTLINE, CLASSIFIED, PLAN
+        self.found = []     # what each review in turn finds; nothing, once this runs out
+
+    def then(self, kind: str, *acts) -> None:
+        """Queue what the next jobs of one kind do: `classification`, `research-plan`,
+        `question`, `outline`, `look`, `section`, `review`, `patch`."""
+        self.queued.setdefault(kind, []).extend(acts)
+
+    def of(self, kind: str) -> list:
+        return [job for seen, job, spec in self.jobs if seen.partition(':')[0] == kind]
+
+    def __call__(self, tools, job):
+        from runner.agents import Outcome
+        spec = tools.job
+        kind = (f"question:{spec['finding']}" if spec.get('finding') else
+                'review' if spec.get('review') else next(iter(spec['artifacts'])))
+        self.jobs.append((kind, job, spec))
+        queued = self.queued.get(kind) or self.queued.get(kind.partition(':')[0])
+        act = queued.pop(0) if queued else getattr(
+            self, kind.partition(':')[0].replace('-', '_'))
+        returned = act(tools, job)
+        if isinstance(returned, Outcome) or self.cost is None:
+            return returned
+        return Outcome(True, text=returned or '', cost=self.cost,
+                       tokens={'input': 1000, 'cached': 800, 'output': 200}, seconds=1.5)
+
+    @staticmethod
+    def _ok(outcome):
+        assert outcome[0], outcome[1]
+
+    def classification(self, tools, job):
+        self._ok(tools.submit_artifact('classification', json.dumps(self.classified)))
+        tools.submit_review('It reads as notes, not as slides.')
+
+    def research_plan(self, tools, job):
+        self._ok(tools.submit_artifact('research-plan', json.dumps(self.plan)))
+        tools.submit_review('Two questions.')
+
+    def question(self, tools, job):
+        tools.save_source(URL)
+        ident = tools.job['finding']
+        self._ok(tools.submit_finding(ident, 'supported', f'What the page says about {ident}.',
+                                      evidence=[{'source_id': 's1', 'quote': QUOTE}]))
+
+    def outline(self, tools, job):
+        said = json.dumps(self.outline_said)
+        checked = tools.check_outline(said)
+        assert checked[1].startswith('Nothing to put right'), checked[1]
+        self._ok(tools.submit_outline(said))
+        tools.submit_review('Six slides. The check slide is the one I am least sure of.')
+
+    def look(self, tools, job):
+        from stand_ins.slides import sketch
+        wanted = tools.job['artifacts']['look']['slide']
+        first = next(slide for slide in self.outline_said['slides'] if slide['id'] == wanted)
+        options = [{'name': name, 'direction': direction, 'why': f'{name} suits the room.',
+                    'composition': sketch(first, 'l1_')}
+                   for name, direction in (
+                       ('Calm grid', {'focal': 'headingPrimary', 'neutral': 'canvasSecondary'}),
+                       ('Bold rule', {'focal': 'accentAqua', 'neutral': 'canvasPrimary'}))]
+        self._ok(tools.submit_artifact('look', json.dumps({'options': options})))
+
+    def section(self, tools, job):
+        from stand_ins.slides import sketch
+        spec = tools.job['artifacts']['section']
+        by_id = {slide['id']: slide for slide in self.outline_said['slides']}
+        made = json.dumps({'version': 1, 'title': spec['title'], 'direction': spec['direction'],
+                           'slides': [sketch(by_id[slide['id']], spec['prefix'])
+                                      for slide in spec['slides']]})
+        self._ok(tools.preview_section(made))
+        self._ok(tools.submit_section(made, 'Nothing: it read well at once.'))
+
+    def review(self, tools, job):
+        listed = tools.job['review']['slides']
+        for slide in listed:
+            self._ok(tools.look_at_slide(slide['number']))
+        found = self.found.pop(0)(listed) if self.found else []
+        self._ok(tools.submit_assessment(json.dumps(found), '[]'))
+
+
+class StudioCase(unittest.TestCase):
+    """A person with a data folder and a git identity of their own, a workspace, scripted
+    workers, a pretend web and the stand-ins for the slides tool, a brand skill and
+    harness-research. Nothing real is started and nothing leaves this computer."""
+
+    BACKGROUND = False
+
+    def setUp(self):
+        from dataclasses import replace
+        from unittest import mock
+        from runner import engine as engines, gitstate, settings
+        from runner.agents import Scripted
+        from stand_ins import research as research_stand_in
+        holder = tempfile.TemporaryDirectory()
+        self.addCleanup(holder.cleanup)
+        self.base = Path(holder.name).resolve()
+        (self.base / 'no-templates').mkdir()
+        helpers.gitconfig(
+            self.base / 'gitconfig',
+            '[user]\n\tname = Alex\n\temail = alex@example.com\n[init]\n\tdefaultBranch = '
+            f"main\n\ttemplateDir = {self.base / 'no-templates'}\n")
+        self.web = Web()
+        self.web.page(URL, PAGE)
+        self.notifier = Notifier()
+        self.slides, self.brand = stand_in_slides(), stand_in_brand()
+        self.real = (engines.slides_tool.Slides, engines.brand_skill.Brand)
+        patches = [
+            mock.patch.dict(os.environ, {'PRESENTATION_STUDIO_DATA': str(self.base / 'data'),
+                                         'GIT_CONFIG_GLOBAL': str(self.base / 'gitconfig'),
+                                         'GIT_CONFIG_NOSYSTEM': '1'}),
+            mock.patch.object(worker_tools, 'fetch_once', self.web.opener),
+            mock.patch.object(worker_tools, 'resolve', self.web.resolver),
+            # The engine and a worker's tools both find the slides tool and a brand skill
+            # through these two, so no test can reach a real one.
+            mock.patch.object(engines.slides_tool, 'Slides', self.the_slides),
+            mock.patch.object(engines.brand_skill, 'Brand', self.the_brand),
+            mock.patch.object(engines.team, 'Notifier', lambda *given, **named: self.notifier),
+            mock.patch.object(engines.brand_skill, 'found',
+                              lambda *asked, **named: [{'name': self.brand.name,
+                                                        'runtime': str(self.brand.runtime),
+                                                        'brands': self.brand.brands()}]),
+            mock.patch.object(engines.slides_tool, 'ready', lambda slides=None, which=None,
+                              drive=True, look=engines.slides_tool.ready: look(
+                                  slides, which=self.which, drive=drive))]
+        for patch in patches:
+            patch.start()
+            self.addCleanup(patch.stop)
+        for name in ('GIT_DIR', 'GIT_WORK_TREE', 'GIT_INDEX_FILE'):
+            os.environ.pop(name, None)
+        settings.save(replace(settings.load(), previews='local'))
+        self.engines, self.gitstate, self.settings = engines, gitstate, settings
+        self.research = research_stand_in.stand_in()
+        self.workers = Workers()
+        self.adapters = {'claude': Scripted(self.workers), 'codex': Scripted(self.workers)}
+        self.space = self.set_up()
+        self.engine = self.make()
+
+    @staticmethod
+    def which(program: str) -> str | None:
+        return f'/usr/bin/{Path(program).name}'
+
+    def the_slides(self, runtime=None, run=None, read=None):
+        return self.slides
+
+    def the_brand(self, runtime=None, run=None):
+        return self.brand
+
+    def set_up(self):
+        """The workspace: a folder with no remote, unless a test wants another."""
+        return self.gitstate.local(self.base / 'team-work')
+
+    def make(self, **options):
+        options = {'adapters': self.adapters, 'research': lambda: self.research,
+                   'background': self.BACKGROUND, **options}
+        engine = self.engines.Engine(**options)
+        self.addCleanup(engine.close)
+        return engine
+
+    def start(self, uploads=None, engine=None, **changes) -> Path:
+        return Path((engine or self.engine).start({**FORM, **changes}, uploads)['path'])
+
+    def view(self, root: Path) -> dict:
+        return self.engine.view(root)
+
+    def state(self, root: Path) -> str:
+        return self.view(root)['state']
+
+    def waiting(self, root: Path) -> str | None:
+        gate = self.view(root)['gate']
+        return gate and gate['name']
+
+    def decide(self, root: Path, gate: str | None = None, decision: str = 'approve',
+               note: str | None = None, extra: dict | None = None, engine=None) -> dict:
+        engine = engine or self.engine
+        gate = gate or engine.view(root)['gate']['name']
+        if gate == 'gate:look' and decision == 'approve' and not extra:
+            extra = {'choice': engine.view(root)['gate']['options'][0]['name']}
+        return engine.decide(root, gate, decision, note, extra)
+
+    def to_gate(self, root: Path, gate: str) -> None:
+        """Approve what is waiting until `gate` is the one waiting."""
+        for _ in range(20):
+            waiting = self.waiting(root)
+            self.assertIsNotNone(waiting, self.view(root)['sentence'])
+            if waiting == gate:
+                return
+            self.decide(root, waiting)
+        self.fail(f'{gate} never came up')
+
+    def to_end(self, root: Path) -> list[str]:
+        """Approve everything put to the person until nothing is, and say what that was."""
+        approved = []
+        for _ in range(20):
+            waiting = self.waiting(root)
+            if waiting is None:
+                return approved
+            self.decide(root, waiting)
+            approved.append(waiting)
+        self.fail('The deck never stopped asking')
+
+    def git(self, *args: str, repo: Path | None = None) -> str:
+        import subprocess
+        done = subprocess.run(['git', *args], cwd=repo or self.space.repo,
+                              capture_output=True, text=True, check=True)
+        return done.stdout.strip()
+
+    def log(self) -> list[str]:
+        """What each commit says happened, oldest first."""
+        return self.git('log', '--reverse', '--format=%s').splitlines()
+
+    def record(self, root: Path) -> dict:
+        return json.loads((root / 'run.json').read_text())
+
+
+class Notifier:
+    """Stands in for the computer's own notifications: `sent` lists each title told."""
+
+    def __init__(self):
+        self.sent, self.way = [], None
+
+    def can(self) -> tuple:
+        return (self.way is None, self.way)
+
+    def send(self, title: str) -> bool:
+        if self.way is not None:
+            return False
+        self.sent.append(title)
+        return True
+
+
+class Person:
+    """One of two people who share a workspace: a data folder, a git identity, a clone of
+    the workspace and an engine of their own."""
+
+    def __init__(self, name: str, env: dict):
+        self.name, self.env = name, env
+        self.space = self.engine = None
+
+
+class TeamCase(StudioCase):
+    """Two people on one computer, standing in for two: each has a data folder and a git
+    identity, and both have joined one bare repository. `self.engine` is Alex's. Anything
+    done as one of them is done inside `with self.be(person):`."""
+
+    def set_up(self):
+        self.remote = self.base / 'team-repo.git'
+        self.remote.mkdir()
+        self.git('init', '--quiet', '--bare', repo=self.remote)
+        self.git('symbolic-ref', 'HEAD', 'refs/heads/main', repo=self.remote)
+        return self.gitstate.join(str(self.remote))
+
+    def setUp(self):
+        super().setUp()
+        self.alex = Person('Alex', {name: os.environ[name] for name in (
+            'PRESENTATION_STUDIO_DATA', 'GIT_CONFIG_GLOBAL')})
+        self.alex.space, self.alex.engine = self.space, self.engine
+        with self.be(self.alex):
+            self.engine.share()     # the workspace's own files, so a teammate finds them
+        self.blake = self.person('Blake')
+
+    def person(self, name: str) -> Person:
+        """Someone else, who joins the same repository from a computer of their own."""
+        from dataclasses import replace
+        from unittest import mock
+        folder = self.base / name.lower()
+        folder.mkdir()
+        helpers.gitconfig(
+            folder / 'gitconfig',
+            f'[user]\n\tname = {name}\n\temail = {name.lower()}@example.com\n[init]\n\t'
+            f"defaultBranch = main\n\ttemplateDir = {self.base / 'no-templates'}\n")
+        made = Person(name, {'PRESENTATION_STUDIO_DATA': str(folder / 'data'),
+                             'GIT_CONFIG_GLOBAL': str(folder / 'gitconfig')})
+        with mock.patch.dict(os.environ, made.env):
+            self.settings.save(replace(self.settings.load(), previews='local'))
+            made.space = self.gitstate.join(str(self.remote))
+            made.engine = self.make()
+        return made
+
+    def be(self, person: Person):
+        """Act as one of them: their data folder and their git identity."""
+        from unittest import mock
+        return mock.patch.dict(os.environ, person.env)
+
+    def as_(self, person: Person, action, *args, **named):
+        with self.be(person):
+            return action(*args, **named)
+
+    def theirs(self, person: Person, root: Path) -> Path:
+        """The same deck in someone else's copy of the workspace."""
+        return person.space.deck(Path(root).name)
+
+    def shared(self) -> list[str]:
+        """What the team's repository has been sent, newest first."""
+        if not self.git('for-each-ref', 'refs/heads/main', repo=self.remote):
+            return []
+        return self.git('log', '--format=%s', 'main', repo=self.remote).splitlines()
+
+    def tags(self) -> list[str]:
+        return self.git('tag', '--list', repo=self.remote).splitlines()

@@ -17,7 +17,9 @@ What a caller needs to know
 - classify.json is the inventory the outline step reads: the deck's sha256 and source name,
   and for each slide its number, id, title, hidden flag and objects (id, type, text, runs,
   alt, title, contentHash). Boxes and structure hashes are left out. classify.md is the same
-  as a table. Pictures of the original go to work/original/, with a shots.json.
+  as a table. Pictures of the original go to work/original/, with a shots.json, taken as
+  the build's previews are: one at a time on this computer, and through the deck's one
+  preview file in Drive.
 - The patch is handed back as `patch`, a kind checked by `check_patch` and registered
   here: {"sourceSha256", "operations": [{"slide": number, "object", "expectedHash", and one
   of "text", "runs", "alt", "title"}]}. A slide the person did not name, an unknown object,
@@ -153,9 +155,18 @@ def _table(shared: dict) -> str:
     return '\n'.join(lines) + '\n'
 
 
-def inventory(root, run: dict, slides, renderer: str) -> dict:
+def _build():
+    """The build step, which holds the computer's one way of picturing a deck."""
+    from runner.steps import build
+    return build
+
+
+def inventory(root, run: dict, slides, renderer) -> dict:
     """Read the fetched deck: write classify.json and classify.md, draw its slides into
-    work/original/, and put the inventory in front of the person."""
+    work/original/, and put the inventory in front of the person. The slides are pictured
+    as the build's are: under the computer's one turn at the renderer and through the
+    deck's one preview file in Drive (`build.picture_deck`); `renderer` is what
+    `build.how` takes."""
     root = Path(root)
     deck = root / SOURCE
     if not deck.is_file():
@@ -164,7 +175,7 @@ def inventory(root, run: dict, slides, renderer: str) -> dict:
     folder = root / ORIGINAL_SHOTS
     if folder.exists():
         shutil.rmtree(folder)
-    drawn = slides.pictures_of(deck, folder, renderer)
+    drawn = _build().picture_deck(root, run, deck, folder, slides, renderer)
     shots = [{'number': one['number'],
               'image': os.path.relpath(one['image'], folder)} for one in drawn['slides']]
     write_atomic(folder / SHOTS, json.dumps({'slides': shots}, indent=2) + '\n')

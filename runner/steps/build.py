@@ -14,6 +14,7 @@ What a caller needs to know
     build.repair_sections(found)                              # the sections they send back
     deck = build.render(root, run, slides, brand=None, renderer='local')   # work/deck.pptx
     shown = build.gate_view(root, run)                        # what gate:build shows
+    build.picture_deck(root, run, deck, folder, slides, renderer)    # any deck, pictured
 
     spec = build.fixed(whole, ids, number)      # what a section's composer may not change
     build.kept(section, spec)                   # what the runner refuses in a section
@@ -908,22 +909,30 @@ def audited(report) -> dict:
             'warnings': len(report.get('warnings') or ()), 'messages': messages}
 
 
+def picture_deck(root, run: dict, deck: Path, folder: Path, slides, renderer) -> dict:
+    """A picture of every slide of `deck`, drawn into the new `folder`, under the computer's
+    one turn at the renderer and through the deck's one preview file in Drive, which is
+    remembered as `how` says. Returns what the slides tool's `pictures_of` returned."""
+    tools, settings = _tools(), how(root, run, renderer)
+    kept = Path(settings['kept'])
+    with tools.one_at_a_time(Path(settings['lock'])):
+        known = home.read_json(kept, {})
+        known = known if isinstance(known, dict) else {}
+        made = slides.pictures_of(deck, folder, _drawer(settings), file_id=known.get('id'))
+        if made.get('fileId') and made['fileId'] != known.get('id'):
+            home.write_json(kept, {**(settings.get('named') or {}),
+                                   'id': made['fileId'], 'url': made.get('url')})
+    return made
+
+
 def _patched_pictures(root: Path, run: dict, deck: Path, slides, renderer) -> None:
     """Picture the patched deck into the last round's folder, under the computer's one turn
     at the renderer and through the deck's one preview file in Drive."""
-    tools, settings = _tools(), how(root, run, renderer)
+    tools = _tools()
     folder, scratch = shots(root), root / BUILD / f'patched-{secrets.token_hex(3)}'
-    kept = Path(settings['kept'])
     shutil.rmtree(folder, ignore_errors=True)
     try:
-        with tools.one_at_a_time(Path(settings['lock'])):
-            known = home.read_json(kept, {})
-            known = known if isinstance(known, dict) else {}
-            made = slides.pictures_of(deck, scratch, _drawer(settings),
-                                      file_id=known.get('id'))
-            if made.get('fileId') and made['fileId'] != known.get('id'):
-                home.write_json(kept, {**(settings.get('named') or {}),
-                                       'id': made['fileId'], 'url': made.get('url')})
+        made = picture_deck(root, run, deck, scratch, slides, renderer)
         folder.mkdir(parents=True)
         listed = []
         for one in made['slides']:

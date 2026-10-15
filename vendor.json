@@ -248,6 +248,36 @@
       "from": "runner/briefs/deck-review.md",
       "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
       "note": "adapted"
+    },
+    {
+      "path": "runner/engine.py",
+      "from": "runner/engine.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
+      "note": "its machinery (threads, files lock, turns, halting, claims, sharing, fetch on a timer, notifications, publish, delete, bring); the training pipeline replaced by stages and runner/steps"
+    },
+    {
+      "path": "runner/jobs.py",
+      "from": "runner/engine.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
+      "note": "the engine's record helpers, turns, and one job for one worker with its tries, questions and limits, split out of the engine"
+    },
+    {
+      "path": "runner/research_steps.py",
+      "from": "runner/engine.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
+      "note": "the engine's research steps (plan, questions, report), split out of the engine"
+    },
+    {
+      "path": "tests/test_engine.py",
+      "from": "tests/test_runner_engine.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
+      "note": "rewritten for the deck pipeline"
+    },
+    {
+      "path": "tests/test_engine_team.py",
+      "from": "tests/test_runner_team.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
+      "note": "the engine-driven team tests, with the claim and take-over cases of tests/test_runner_engine.py"
     }
   ]
 }

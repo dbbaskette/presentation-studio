@@ -17,6 +17,7 @@ What a caller needs to know
     gitstate.theirs(workspace, 'quarterly-review/intake.md')   # as the remote last had it
     gitstate.moved(workspace, 'quarterly-review')    # the remote changed it since we parted
     gitstate.arrived(workspace)                      # every path it changed since then
+    gitstate.made_apart(workspace, 'quarterly-review')   # neither side had it when they parted
     gitstate.set_aside(workspace, 'quarterly-review')   # unshared commits, out of the branch
     gitstate.kept(workspace, 'quarterly-review')     # the refs that keep what was set aside
     gitstate.undo(workspace, 'quarterly-review')     # take back the last, unshared commit
@@ -548,6 +549,15 @@ def arrived(workspace: Workspace, at: str | None = None) -> set[str]:
     done = hub.run(workspace.repo, 'diff', '-z', '--name-only', '--no-renames', base,
                    at or tracking(workspace), '--', workspace.folder)
     return set(hub.names(done.stdout)) if done.returncode == 0 else set()
+
+
+def made_apart(workspace: Workspace, path, at: str | None = None) -> bool:
+    """True when the last commit this copy and the shared repository both have, as of the
+    last fetch, has nothing at a path under the folder: whatever is there on either side
+    was made after they parted."""
+    base = _parted(workspace, at)
+    return base is not None and not hub.passes(workspace.repo, 'cat-file', '-e',
+                                               f'{base}:{inside(workspace, path)}')
 
 
 def unshared(workspace: Workspace, path, at: str | None = None) -> list[str]:

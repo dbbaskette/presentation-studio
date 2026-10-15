@@ -97,6 +97,35 @@ class InventoryTests(Case):
         existing.inventory(self.root, self.run_, self.slides, 'local')
         self.assertEqual(self.run_['gates']['gate:classify']['round'], 2)
 
+    def test_pictures_take_the_computers_turn_and_the_decks_one_drive_file(self):
+        from contextlib import contextmanager
+        from unittest import mock
+        from runner.steps import build
+        held, real = [], worker_tools.one_at_a_time
+
+        @contextmanager
+        def turn(lock, *args, **named):
+            with real(lock, *args, **named):
+                held.append(Path(lock))
+                yield
+
+        existing.fetch(self.root, {'kind': 'upload', 'name': 'old.pptx', 'data': DECK},
+                       self.slides, False)
+        with mock.patch.object(worker_tools, 'one_at_a_time', turn):
+            existing.inventory(self.root, self.run_, self.slides, 'drive')
+            settings = build.how(self.root, self.run_, 'drive')
+            self.assertEqual(held, [Path(settings['lock'])])
+            kept = json.loads(Path(settings['kept']).read_text())
+            self.assertEqual(kept['name'], 'Preview: Old')
+            first = kept['id']
+            existing.inventory(self.root, self.run_, self.slides, 'drive')
+        self.assertEqual(len(held), 2)
+        drawn = [call for call in self.slides.run.calls if call[:2] == ['review', '--file']]
+        self.assertEqual(json.loads(Path(settings['kept']).read_text())['id'], first)
+        self.assertTrue(drawn)
+        self.assertIn(['--file-id', first], [call[i:i + 2] for call in drawn
+                                             for i in range(len(call) - 1)])
+
 
 class PatchTests(Case):
     def setUp(self):

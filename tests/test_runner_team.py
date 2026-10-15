@@ -4,12 +4,13 @@ the workspace as numbered revision tags, and bringing a deck's folder in.
 Two people are two data folders and two git identities on one computer, joined to one bare
 repository. Nothing here needs the engine.
 
-Deferred to Task 11 (they drive the engine and the page, which are not ported yet): starting a
-deck takes it and shares the claim first; a teammate reads a deck and cannot change it; a
-second claim the repository refuses is dropped; taking over and handing over; a deck started
-while the repository is away; the status list and its turns; adopting a teammate's decks on a
-timer and when the runner starts; notifications on the page; a slow remote never holding up a
-decision; the page's publish and published routes; and bringing a deck in through the page.
+The engine-driven team tests (starting a deck takes it and shares the claim first; a teammate
+reads a deck and cannot change it; a second claim the repository refuses is dropped; taking
+over and handing over; a deck started while the repository is away; the status list and its
+turns; adopting a teammate's decks on a timer and when the runner starts; a slow remote never
+holding up a decision; publishing, deleting and bringing a deck in) are in test_engine_team.py.
+Deferred to Task 12 (they drive the page): notifications on the page, the page's publish and
+published routes, and bringing a deck in through the page.
 """
 import json
 import subprocess
