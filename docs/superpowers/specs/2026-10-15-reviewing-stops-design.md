@@ -67,9 +67,10 @@ Approve acts at once, as it does since the one-click change: no second question.
 ## The research findings stop
 
 - **Headline.** The worker researching a question also hands back a headline: the answer in
-  one sentence of at most 25 words. harness-research's record has no place for it, so the
-  runner keeps headlines in `research/headlines.json` ({id: text}), which is shared. A
-  finding with no headline (made before this change) shows its summary's first sentence.
+  one sentence of at most 25 words. It is kept with the finding in harness-research's own
+  record, which takes a `headline` from 0.8.1 (its design:
+  `~/projects/harness-research-skill/docs/superpowers/specs/2026-10-15-keep-findings-and-headlines-design.md`).
+  A finding with no headline (made before this change) shows its summary's first sentence.
 - **Cards.** A finding whose status is not `supported` (`insufficient`, `unavailable`,
   `contradicted`, or `pending` when no worker could answer it) is a card, under "Look at
   these first", with its status in its own words ("Not settled", "Not found",
@@ -84,12 +85,18 @@ Approve acts at once, as it does since the one-click change: no second question.
 - **Leave-outs go with Approve** as `{"left_out": [ids]}`. The runner records them on the run
   (`research.left_out`), writes `research/report.md` again without them and with a "Left out
   by you" list of their titles, and approves. The outline worker reads that report, so the
-  outline is drafted without them.
+  outline is drafted without them. The report is written from each question's data (title,
+  status, headline, summary, what is not known, quoted passages) rather than by cutting
+  sections out of harness-research's own report.
 - **Research again and Add a question are changes,** `{"left_out": [...], "again": {id:
   line}, "add": [text]}`. The runner records the leave-outs, adds each new question to the
   plan as typed (with no search words), and reopens the research for the named and new
   questions only, as it does now for IDs named in a note. Each worker researching again is
   given the person's line for its question. The stop comes back when they are done.
+- Adding a question changes the plan, and harness-research starts a new run for a changed
+  plan. From 0.8.1 that run keeps the findings of every unchanged question (when the topic,
+  scope and sources are unchanged), so only the new question is researched. Presentation
+  Studio pins 0.8.1 for this.
 
 ## The outline stop
 
@@ -119,9 +126,12 @@ Approve acts at once, as it does since the one-click change: no second question.
   `left_out` and `sources` [{`title`, `origin`, `quote`}], read from harness-research's
   record. A path on this computer is never sent.
 - **`submit_finding`** takes a `headline`, required, at most 25 words; one longer is
-  refused with the count. The research-question brief says to give it. The runner writes it
-  to `research/headlines.json` when the finding is kept.
-- **The research report** leaves out what the person left out, and lists their titles.
+  refused with the count. The research-question brief says to give it. `Research.record`
+  hands it to harness-research with the rest of the finding.
+- **The research report** is written from each question's data, leaves out what the person
+  left out, and lists their titles.
+- **harness-research is pinned at 0.8.1,** and the tests' stand-in keeps unchanged findings
+  across a plan change and takes a headline, as 0.8.1 does.
 
 ## What changes on the page
 
@@ -149,4 +159,5 @@ Approve acts at once, as it does since the one-click change: no second question.
 
 - The build rounds view and local-only set-up (separate designs).
 - The classify, brand and build stops, which already have short content or per-slide marks.
-- Changing harness-research's record or its commands.
+- Changing harness-research's record or its commands here: that is its own piece of work,
+  in its own repository, released as 0.8.1 before this one.
