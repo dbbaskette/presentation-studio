@@ -123,6 +123,11 @@ class WordTests(unittest.TestCase):
                 self.assertNotIn('Training Studio', text)
         self.assertIn('<title>Presentation Studio</title>', read('index.html'))
 
+    def test_shared_values_are_never_sent_for_all_studios_by_a_switch(self):
+        script = read('app.js')
+        self.assertNotIn('for_all_studios', script)
+        self.assertIn('shared by every studio on this computer', script)
+
     def test_no_brand_is_named(self):
         # Any brand: the brands offered are only those the brand skill on this computer has.
         for name in ('app.js', 'index.html', 'deck.css'):

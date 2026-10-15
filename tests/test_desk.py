@@ -198,7 +198,6 @@ class ScreenTests(ScriptedPage, PageCase):
         result = self.run_page(answers, [
             {'snapshot': 'first'},
             {'fill': 'Your name', 'value': 'Alex Doe'},
-            {'click': 'Use these for all my studios'},
             {'click': 'Check this computer'},
             {'click': 'Save and go on'}, {'snapshot': 'saved'}])
         first = result['snapshots']['first']
@@ -206,7 +205,8 @@ class ScreenTests(ScriptedPage, PageCase):
                          ('Set up Presentation Studio', False))
         self.assertEqual(first['filled'], ['Save and go on'])
         for shown in ('Check this computer', 'Workspace: where your decks are kept', 'Defaults',
-                      'This is ready to use.', 'Delivered as'):
+                      'This is ready to use.', 'Delivered as',
+                      'shared by every studio on this computer'):
             self.assertIn(shown, first['text'])
         self.assertEqual(first['fields']['The repository’s address'],
                          'git@example.com:team/decks.git')
@@ -220,12 +220,14 @@ class ScreenTests(ScriptedPage, PageCase):
                  'variant': described['brand']['brands'][0]['variants'][0]}
         self.assertEqual({key: saved[key] for key in ('repository', 'branch', 'folder', 'name',
                                                       'share_when', 'person', 'brand',
-                                                      'variant', 'output', 'for_all_studios')},
+                                                      'variant', 'output')},
                          {'repository': 'git@example.com:team/decks.git', 'branch': 'decks',
                           'folder': 'presentations', 'name': 'decks',
                           'share_when': 'when-asked', 'person': 'Alex Doe',
                           'brand': brand['brand'], 'variant': brand['variant'],
-                          'output': 'google', 'for_all_studios': True})
+                          'output': 'google'})
+        # Shared values go to the studios config by the server's own rule, never by a switch.
+        self.assertNotIn('for_all_studios', saved)
         self.assertIn('deck_dollars', saved['limits'])
         self.assertEqual(result['snapshots']['saved']['heading'], 'Home')
 

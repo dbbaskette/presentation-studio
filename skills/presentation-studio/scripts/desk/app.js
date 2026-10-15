@@ -1770,7 +1770,6 @@ function setupForm() {
     person: (held.person && held.person.name) || '',
     brand: brand.brand || '', variant: brand.variant || '',
     output: held.output === 'pptx' ? 1 : 0,
-    everywhere: false,
     minutes: seconds ? String(Math.round(seconds / 6) / 10) : '', seconds,
     dollars: given(limits.deck_dollars) ? String(limits.deck_dollars) : '',
     parallel: given(limits.parallel) ? String(limits.parallel) : '',
@@ -2263,11 +2262,8 @@ function defaultsSetupCard(form) {
       (index) => {
         form.output = index;
       }, 'setup-output'),
-    add(make('div', 'field'), chip('Use these for all my studios', form.everywhere, (on) => {
-      form.everywhere = on;
-    }, 'everywhere'), make('p', 'quiet field-hint', 'Also writes the team repository, your '
-      + 'name, the agent, the brand and the output into the settings every studio on this '
-      + 'computer reads, so the next one you set up starts with them.')));
+    make('p', 'quiet', 'Your team’s repository, your name, the agent, the brand and the '
+      + 'output are shared by every studio on this computer.'));
 }
 
 // Which brand skill decks are made with. It is a choice only where more than one was found.
@@ -2365,15 +2361,6 @@ function limit(id, text, whole) {
   return fine ? value : null;
 }
 
-// What was written for the other studios as well, said once the set-up is saved.
-function everywhereSays(found) {
-  if (!found) return '';
-  if (found.problem) return ' The settings your other studios read were not changed: '
-    + found.problem;
-  return list(found.written).length ? ' Your other studios start with these too.'
-    : ' Your other studios already start with these.';
-}
-
 async function saveSetup(pressed) {
   const form = view.form;
   if (form.saving) return;
@@ -2452,7 +2439,6 @@ async function saveSetup(pressed) {
   if (brandSkills().length > 1 && form.brandSkill) body.brand_skill = form.brandSkill;
   // The computer's own notification is switched in Settings, and is saved as it stands.
   if (view.setup.notify) body.notify = Boolean(view.setup.notify.on);
-  if (form.everywhere) body.for_all_studios = true;
   const first = !view.setup.configured;
   let saved;
   try {
@@ -2465,8 +2451,7 @@ async function saveSetup(pressed) {
   tookSetup(saved);
   form.saving = false;
   frame();
-  toast((first ? 'You are set up. Now start your first deck.' : 'The set-up is saved.')
-    + everywhereSays(saved.for_all_studios));
+  toast(first ? 'You are set up. Now start your first deck.' : 'The set-up is saved.');
   if (first || view.pushed === 0) show(first ? 'home' : 'settings', null, true);
   else back();
 }
