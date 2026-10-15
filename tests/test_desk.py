@@ -471,6 +471,18 @@ class ScreenTests(ScriptedPage, PageCase):
         for picture in shot['pictures']:
             self.assertIn('kind=original&number=1', picture['of'])
 
+    def test_the_build_gate_shows_a_slide_s_note(self):
+        path = self.started()
+        self.to_gate(Path(path), 'gate:build')
+        view = self.run_of(path)
+        said = ("This slide is drawn with a title because its picture can't be carried onto "
+                'a layout without one.')
+        view['gate']['slides'][0]['note'] = said
+        answers = self.answers(**{'GET /api/run': [ok(view)]})
+        result = self.run_page(answers, [{'click': 'Review Rolling restarts'},
+                                         {'see': said}, {'snapshot': 'build'}])
+        self.assertIn(said, result['snapshots']['build']['text'])
+
     def test_a_deck_built_from_an_existing_one_shows_each_slide_before_and_after(self):
         # The stand-in workers cannot rebuild the stand-in deck, so the build gate of a deck
         # from scratch is given the before and after an existing deck's gate has.

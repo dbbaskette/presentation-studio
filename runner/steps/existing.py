@@ -23,6 +23,12 @@ What a caller needs to know
   as a table. Pictures of the original go to work/original/, with a shots.json, taken as
   the build's previews are: one at a time on this computer, and through the deck's one
   preview file in Drive.
+- `original_picture(root, number, folder)` copies the picture of one slide of
+  sources/original.pptx into `folder` when it is all the slide shows (a PNG or JPEG, not a
+  video's), with its alt text from the inventory and its shape as the slide crops it, for a
+  slide that had no words at brand only and polish (`build.start`). `template_slot` reads
+  the size of a template layout's picture slot. Both are best effort: a file that cannot be
+  read carries nothing.
 - The patch is handed back as `patch`, a kind checked by `check_patch` and registered
   here: {"sourceSha256", "operations": [{"slide": number, "object", "expectedHash", and one
   of "text", "runs", "alt", "title"}]}. A slide the person did not name, an unknown object,
@@ -37,10 +43,15 @@ from __future__ import annotations
 
 import json
 import os
+import posixpath
 import re
 import secrets
 import shutil
+import struct
+import zipfile
+import zlib
 from pathlib import Path
+from xml.etree import ElementTree
 
 import runner  # noqa: F401  puts the core on the import path
 import gdrive
@@ -212,6 +223,185 @@ def inventory(root, run: dict, slides, renderer) -> dict:
     shared = read_deck(root, slides)
     draw_original(root, run, slides, renderer)
     return keep_inventory(root, run, shared)
+
+
+# --- a picture of the original ---------------------------------------------------------------
+
+NS = {'p': 'http://schemas.openxmlformats.org/presentationml/2006/main',
+      'a': 'http://schemas.openxmlformats.org/drawingml/2006/main',
+      'r': 'http://schemas.openxmlformats.org/officeDocument/2006/relationships',
+      'rel': 'http://schemas.openxmlformats.org/package/2006/relationships'}
+PICTURE_TYPES = {'.png': b'\x89PNG\r\n\x1a\n', '.jpg': b'\xff\xd8\xff', '.jpeg': b'\xff\xd8\xff'}
+PICTURE_MOST = 20 * 1024 * 1024    # bytes: the largest picture the slides tool takes
+PART_MOST = 8 * 1024 * 1024        # bytes: the largest XML part read to find one
+MEDIA = ('videoFile', 'audioFile', 'quickTimeFile', 'wavAudioFile', 'media')
+# Reading a deck is best effort: whatever a damaged or unusual file raises, nothing is carried.
+UNREADABLE = (OSError, KeyError, ValueError, IndexError, TypeError, EOFError, RuntimeError,
+              NotImplementedError, zlib.error, zipfile.BadZipFile, ElementTree.ParseError)
+
+
+def _part(deck: zipfile.ZipFile, name: str):
+    info = deck.getinfo(name)
+    if info.file_size > PART_MOST:
+        raise ValueError(f'{name} is too large to read')
+    return ElementTree.fromstring(deck.read(info))
+
+
+def _relations(deck: zipfile.ZipFile, part: str) -> list[tuple[str, str, str]]:
+    """The relationships of one part inside the package: (ID, type, the part it points
+    to). A target that starts with / is named from the package's root."""
+    folder, name = posixpath.split(part)
+    rels = posixpath.join(folder, '_rels', name + '.rels')
+    if rels not in deck.namelist():
+        return []
+    found = []
+    for one in _part(deck, rels).findall('rel:Relationship', NS):
+        target = one.get('Target') or ''
+        if one.get('TargetMode') == 'External' or not target:
+            continue
+        where = target.lstrip('/') if target.startswith('/') \
+            else posixpath.join(folder, target)
+        found.append((one.get('Id'), one.get('Type') or '', posixpath.normpath(where)))
+    return found
+
+
+def _targets(deck: zipfile.ZipFile, part: str) -> dict:
+    """The relationships of one part, by ID, each as the part it points to."""
+    return {ident: target for ident, _, target in _relations(deck, part)}
+
+
+def _size(data: bytes) -> tuple[int, int] | None:
+    """A PNG's or JPEG's width and height in pixels, or None."""
+    if data.startswith(PICTURE_TYPES['.png']) and len(data) >= 24:
+        return struct.unpack('>II', data[16:24])
+    at = 2
+    while at + 9 < len(data) and data[at] == 0xFF:
+        marker, length = data[at + 1], struct.unpack('>H', data[at + 2:at + 4])[0]
+        if 0xC0 <= marker <= 0xCF and marker not in (0xC4, 0xC8, 0xCC):
+            high, wide = struct.unpack('>HH', data[at + 5:at + 9])
+            return wide, high
+        at += 2 + length
+    return None
+
+
+def _cropped(picture, wide: int, high: int) -> float | None:
+    """The width over the height of what a picture shows on its slide: its pixels, less
+    what the slide crops off (a:srcRect, in thousandths of a percent)."""
+    crop = picture.find('p:blipFill/a:srcRect', NS)
+    cut = {side: int(crop.get(side, 0)) / 100000 if crop is not None else 0.0
+           for side in 'ltrb'}
+    across, down = wide * (1 - cut['l'] - cut['r']), high * (1 - cut['t'] - cut['b'])
+    return across / down if across > 0 and down > 0 else None
+
+
+SHAPES = ('sp', 'pic', 'graphicFrame', 'grpSp', 'cxnSp', 'contentPart')
+
+
+def _visible(shape) -> bool:
+    """Whether a shape of a slide's tree shows anything: a shape at all, not hidden, and
+    not a placeholder with no words in it."""
+    if shape.tag.rpartition('}')[2] not in SHAPES:
+        return False
+    props = next(shape.iter(f"{{{NS['p']}}}cNvPr"), None)
+    if props is not None and props.get('hidden') in ('1', 'true'):
+        return False
+    held = shape.find('p:nvSpPr/p:nvPr/p:ph', NS)
+    words = any((text.text or '').strip() for text in shape.iter(f"{{{NS['a']}}}t"))
+    return held is None or words
+
+
+def original_picture(root, number: int, folder) -> dict | None:
+    """The picture of slide `number` of the original deck, copied into `folder`, when it is
+    all that slide shows: leaving out hidden shapes and placeholders with no words (an
+    empty title, say), the slide has one object, a picture, and that picture is a PNG or
+    JPEG of at most 20 MB, not a video's or a sound's. Returns {'file': its
+    path, 'alt': what the inventory says it shows or None, 'aspect': the width over the
+    height of what the slide shows of it}; None when there is no such picture or the deck
+    cannot be read. The deck is read with the standard library: the slides tool has no
+    command that hands a picture out."""
+    from runner.steps import outline   # it reaches this step through worker_tools
+    root, folder = Path(root), Path(folder)
+    slide = next((one for one in (outline.inventory_of(root) or {}).get('slides') or ()
+                  if isinstance(one, dict) and one.get('number') == number), None)
+    objects = [item for item in (slide or {}).get('objects') or () if isinstance(item, dict)]
+    try:
+        with zipfile.ZipFile(root / SOURCE) as deck:
+            listed = _part(deck, 'ppt/presentation.xml').findall('p:sldIdLst/p:sldId', NS)
+            if not 1 <= number <= len(listed):
+                return None
+            part = _targets(deck, 'ppt/presentation.xml').get(
+                listed[number - 1].get(f"{{{NS['r']}}}id"))
+            if not part:
+                return None
+            tree = _part(deck, part).find('p:cSld/p:spTree', NS)
+            shown = [shape for shape in (tree if tree is not None else ())
+                     if _visible(shape)]
+            if len(shown) != 1 or shown[0].tag != f"{{{NS['p']}}}pic":
+                return None
+            picture = shown[0]
+            if any(
+                    element.tag.rpartition('}')[2] in MEDIA
+                    for element in picture.find('p:nvPicPr', NS).iter()):
+                return None
+            blip = picture.find('p:blipFill/a:blip', NS)
+            target = _targets(deck, part).get(blip.get(f"{{{NS['r']}}}embed")) \
+                if blip is not None else None
+            kind = posixpath.splitext(target or '')[1].lower()
+            if kind not in PICTURE_TYPES:
+                return None
+            info = deck.getinfo(target)
+            if info.file_size > PICTURE_MOST:
+                return None
+            data = deck.read(info)
+            size = _size(data) if data.startswith(PICTURE_TYPES[kind]) else None
+            aspect = _cropped(picture, *size) if size else None
+            if aspect is None:
+                return None
+            props = picture.find('p:nvPicPr/p:cNvPr', NS)
+            ident = props.get('id') if props is not None else None
+            said = next((item.get('alt') for item in objects
+                         if str(item.get('id')) == ident and item.get('alt')), None) \
+                or (props.get('descr') if props is not None else None)
+            folder.mkdir(parents=True, exist_ok=True)
+            path = folder / f'slide-{number}{kind}'
+            path.write_bytes(data)
+    except UNREADABLE:
+        return None
+    return {'file': path, 'aspect': aspect,
+            'alt': ' '.join(said.split()) if isinstance(said, str) and said.strip() else None}
+
+
+def template_slot(template, default_part: str, name: str) -> tuple[int, int] | None:
+    """The width and height of the first picture slot of the template layout called `name`,
+    among the layouts of the default layout's master, as the slides tool finds them; None
+    when it has none, its size is not written on it, or the template cannot be read."""
+    tidy = ' '.join(str(name).split())
+    try:
+        with zipfile.ZipFile(template) as deck:
+            def master_of(part):
+                return next((target for _, kind, target in _relations(deck, part)
+                             if kind.endswith('/slideMaster')), None)
+            family = master_of(default_part)
+            for part in sorted(deck.namelist(), key=lambda one: (len(one), one)):
+                if not re.fullmatch(r'ppt/slideLayouts/slideLayout\d+\.xml', part) \
+                        or master_of(part) != family:
+                    continue
+                layout = _part(deck, part)
+                named = layout.find('p:cSld', NS)
+                if named is None or ' '.join((named.get('name') or '').split()) != tidy:
+                    continue
+                for shape in layout.iter(f"{{{NS['p']}}}sp"):
+                    slot = shape.find('p:nvSpPr/p:nvPr/p:ph', NS)
+                    if slot is None or slot.get('type') != 'pic':
+                        continue
+                    extent = shape.find('p:spPr/a:xfrm/a:ext', NS)
+                    wide, high = (int(extent.get('cx', 0)), int(extent.get('cy', 0))) \
+                        if extent is not None else (0, 0)
+                    return (wide, high) if wide > 0 and high > 0 else None
+                return None
+    except UNREADABLE:
+        return None
+    return None
 
 
 def _inventory(root: Path) -> dict:
