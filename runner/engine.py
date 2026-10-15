@@ -254,16 +254,16 @@ def _refs(repo: Path, branch: str) -> tuple | None:
     folder = repo / '.git'
     if not folder.is_dir() or (folder / 'reftable').exists():
         return None
-    marks: list = [str(repo), branch]
+    stamps: list = [str(repo), branch]
     for name in ('HEAD', f'refs/heads/{branch}', f'refs/remotes/origin/{branch}',
                  'packed-refs'):
         try:
             found = (folder / name).stat()
         except OSError:
-            marks.append(None)
+            stamps.append(None)
             continue
-        marks.append((found.st_mtime_ns, found.st_size, found.st_ino))
-    return tuple(marks)
+        stamps.append((found.st_mtime_ns, found.st_size, found.st_ino))
+    return tuple(stamps)
 
 
 class Elsewhere(WorkspaceError):

@@ -101,8 +101,13 @@ class Researching:
         record = home.read_json(root / RECORD, None)
         results = (record or {}).get('results') if isinstance(record, dict) else None
         results = results if isinstance(results, dict) else {}
-        return {ident: (results.get(ident) or {}).get('status', 'pending')
-                for ident in self._questions(root)}
+        return {ident: self._status(results.get(ident)) for ident in self._questions(root)}
+
+    @staticmethod
+    def _status(result) -> str:
+        """A kept finding's verdict, or 'pending' where it has none a person can read."""
+        status = result.get('status') if isinstance(result, dict) else None
+        return status if isinstance(status, str) and status else 'pending'
 
     def _findings_shown(self, root: Path, record: dict) -> list[dict]:
         """Each question of the plan with what the research found, for the page: its title,
@@ -117,10 +122,11 @@ class Researching:
             result = results.get(ident) if isinstance(results.get(ident), dict) else {}
             summary, limits = str(result.get('summary') or ''), str(result.get('limits') or '')
             headline = result.get('headline') if isinstance(result.get('headline'), str) else ''
-            known = limits.strip().lower() in ('', 'none')
+            evidence = result.get('evidence')
+            known = limits.strip().rstrip('.').lower() in ('', 'none')
             shown.append({
                 'id': ident, 'title': marks.title(ident), 'question': question,
-                'status': result.get('status') or 'pending',
+                'status': self._status(result),
                 'headline': headline or marks.first_sentence(summary), 'summary': summary,
                 'limits': '' if known else limits,
                 'unknown': '' if known else marks.first_sentence(limits),
@@ -128,7 +134,7 @@ class Researching:
                 'sources': [{'title': str(passage.get('title') or ''),
                              'origin': str(passage.get('origin') or ''),
                              'quote': str(passage.get('quote') or '')}
-                            for passage in result.get('evidence') or ()
+                            for passage in (evidence if isinstance(evidence, list) else ())
                             if isinstance(passage, dict)]})
         return shown
 

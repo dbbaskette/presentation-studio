@@ -454,6 +454,7 @@ class ResearchTests(StudioCase):
                          {'id': 'instance-min', 'title': 'Instance min', 'status': 'supported',
                           'headline': 'The page answers instance-min.', 'left_out': False,
                           'unknown': ''})
+        self.assertEqual(set(first['sources'][0]), {'title', 'origin', 'quote'})
         self.assertEqual(first['sources'][0]['quote'], runner_support.QUOTE)
         self.assertEqual(first['sources'][0]['origin'], runner_support.URL)
         self.assertNotIn(str(root), json.dumps(found))
@@ -462,6 +463,8 @@ class ResearchTests(StudioCase):
         kept = root / '.harness-research' / 'research.json'
         record = json.loads(kept.read_text())
         del record['results']['instance-min']['headline']
+        record['results']['instance-min']['summary'] = (
+            'What the page says about instance-min. More besides.')
         kept.write_text(json.dumps(record))
         self.assertEqual(self.view(root)['gate']['items'][0]['headline'],
                          'What the page says about instance-min.')
