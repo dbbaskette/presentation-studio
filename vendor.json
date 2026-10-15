@@ -212,6 +212,36 @@
       "path": "tests/test_runner_documents.py",
       "from": "tests/test_runner_documents.py",
       "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "runner/briefs/__init__.py",
+      "from": "runner/briefs/__init__.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "runner/briefs/research-plan.md",
+      "from": "runner/briefs/research-plan.md",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "runner/briefs/research-question.md",
+      "from": "runner/briefs/research-question.md",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "runner/briefs/section.md",
+      "from": "runner/briefs/deck-section.md",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "runner/briefs/section-repair.md",
+      "from": "runner/briefs/deck-repair.md",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "runner/briefs/review.md",
+      "from": "runner/briefs/deck-review.md",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
     }
   ]
 }
