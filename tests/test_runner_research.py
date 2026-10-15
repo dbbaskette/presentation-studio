@@ -285,6 +285,19 @@ class StandInTests(DeckCase):
         self.assertNotEqual(rewritten['run'], added['run'])
         self.assertEqual((rewritten['completed'], rewritten['carried']), (0, []))
 
+    def test_a_claim_file_is_pinned_so_changing_it_keeps_no_finding(self):
+        self.write('claims/restart.txt', 'Two instances keep capacity.\n')
+        claimed = {'file': 'claims/restart.txt'}
+        self.plan_file.write_text(json.dumps({**PLAN, 'items': [
+            {**PLAN['items'][0], 'claim': claimed}, PLAN['items'][1]]}))
+        run = self.planned()
+        self.research.record(self.root, run, 'instance-min', self.finding())
+        self.assertEqual(research_record(self.root)['input_files'], ['claims/restart.txt'])
+        self.write('claims/restart.txt', 'Three instances keep capacity.\n')
+        changed = self.research.plan(self.root, self.plan_file)
+        self.assertNotEqual(changed['run'], run)
+        self.assertEqual((changed['completed'], changed['carried']), (0, []))
+
     def test_a_finding_keeps_its_headline_and_the_report_gives_it(self):
         run = self.planned()
         status = self.research.record(self.root, run, 'instance-min',

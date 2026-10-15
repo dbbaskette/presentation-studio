@@ -426,7 +426,7 @@
       "path": "installer/companions.json",
       "from": "installer/companions.json",
       "revision": "01ee5f61c3c460013fd6a3226f112d6c80ec0ee9",
-      "note": "identical: harness-research 0.8.0 and harness-slides 0.14.1 at the same commits and digests"
+      "note": "ported as is (harness-research 0.8.0, harness-slides 0.14.1); harness-research since pinned at 0.8.1"
     },
     {
       "path": "bootstrap/presentation-studio/SKILL.md",
