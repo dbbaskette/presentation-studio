@@ -90,3 +90,70 @@
 .card > .thumb {
   max-width: 16rem;
 }
+
+/* A stop reviewed item by item: its counts, its items, and the button that says what it
+   does. */
+.review-counts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(9rem, 1fr));
+  gap: 0.6rem;
+  margin: 0.4rem 0 0.8rem;
+}
+
+.review-count {
+  padding: 0.6rem 0.8rem;
+  background: var(--well);
+  border-radius: 12px;
+}
+
+.review-number {
+  display: block;
+  font-size: 1.4rem;
+  font-weight: 650;
+}
+
+.review-list > li + li {
+  margin-top: 0.6rem;
+}
+
+.review-row {
+  padding: 0.7rem 0.9rem;
+  border: 1px solid var(--hair);
+  border-radius: 12px;
+}
+
+.review-row > * + * {
+  margin-top: 0.35rem;
+}
+
+.review-off {
+  color: var(--quiet);
+}
+
+.review-off .row-title {
+  text-decoration: line-through;
+}
+
+.review-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 0.6rem;
+}
+
+.review-headline {
+  font-weight: 560;
+}
+
+.review-quote {
+  margin: 0.3rem 0 0.6rem;
+  padding-left: 0.8rem;
+  border-left: 2px solid var(--hair);
+  color: var(--quiet);
+}
+
+.review-bar {
+  margin-top: 1rem;
+  padding-top: 0.8rem;
+  border-top: 1px solid var(--hair);
+}

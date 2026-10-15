@@ -246,8 +246,9 @@ const view = {
   // comes into view.
   slide: 0, viewer: null, pictures: new Map(), wanted: [], fetching: false, watcher: null,
   // What the person has chosen at the gate of the open deck, before it is sent: whether the
-  // classification is wrong, the outline as edited, the slides marked for changes, and
-  // another brand. Each is kept for its deck and its gate's round, so a refresh loses nothing.
+  // classification is wrong, the outline as edited, the slides marked for changes, another
+  // brand, and the marks at a stop reviewed item by item. Each is kept for its deck and its
+  // gate's round, so a refresh loses nothing.
   chosen: {},
   // What a team adds: every run and who runs what, what is published, what publishing just
   // answered, and a look for teammates' work and what it brought.
@@ -2939,7 +2940,8 @@ async function startDeck(pressed) {
 function chosenFor(gate) {
   const key = [view.path, gate ? gate.name : 'deliver', gate ? gate.round : ''].join('\n');
   if (!view.chosen[key]) view.chosen[key] = { wrong: false, work: null, edited: false,
-    marked: [], adding: '', brand: '', variant: '' };
+    marked: [], adding: '', brand: '', variant: '', dropped: [], reword: {}, again: {},
+    leftOut: null, added: [], asking: '', slideNotes: {} };
   return view.chosen[key];
 }
 
@@ -3788,20 +3790,221 @@ function costCard(run) {
     make('p', 'quiet', 'Drafted by ' + agent + modelWords(run.model, run.effort) + '.'));
 }
 
+// --- one deck: a stop reviewed item by item -------------------------------------------------
+// The research plan, the research and the outline are shown as items the person marks one
+// by one: what needs them first, the rest a line each, and one button that says what it
+// will do. Marks are kept with the stop's other choices (`chosenFor`), so a refresh loses
+// nothing, and nothing is sent until the button is pressed.
+
+const REVIEWED = ['gate:research-plan', 'gate:research', 'gate:outline'];
+const FINDING_WORDS = { supported: ['done', 'Answered'], insufficient: ['late', 'Not settled'],
+  unavailable: ['late', 'Not found'], contradicted: ['review', 'Contradicted'],
+  pending: ['out', 'Not answered'] };
+
+function sized(value) {
+  return Array.isArray(value) ? value.length : Object.keys(value || {}).length;
+}
+
+function owns(object, key) {
+  return Object.prototype.hasOwnProperty.call(object, key);
+}
+
+// The lines typed against items, trimmed, keeping those that say something. `unchanged`
+// leaves out a line that is what the item says already.
+function filled(lines, unchanged) {
+  const kept = {};
+  for (const [id, text] of Object.entries(lines || {})) {
+    const said = String(text || '').trim();
+    if (said && (!unchanged || said !== unchanged(id))) kept[id] = said;
+  }
+  return kept;
+}
+
+// The findings the person leaves out: as the runner has them until they change it here.
+function leftOut(gate) {
+  const held = chosenFor(gate);
+  if (!held.leftOut) {
+    held.leftOut = list(gate.items).filter((item) => item.left_out).map((item) => item.id);
+  }
+  return held.leftOut;
+}
+
+// What the person has marked at a reviewed stop, as the runner takes it.
+function marksOf(gate) {
+  const held = chosenFor(gate);
+  if (gate.name === 'gate:research-plan') {
+    const asked = new Map(list(gate.questions).map((item) => [item.id, item.question]));
+    return { dropped: held.dropped.slice(),
+      reword: filled(held.reword, (id) => asked.get(id)), add: held.added.slice() };
+  }
+  if (gate.name === 'gate:research') {
+    const again = {};
+    for (const [id, text] of Object.entries(held.again)) again[id] = String(text || '').trim();
+    return { left_out: leftOut(gate).slice(), again, add: held.added.slice() };
+  }
+  if (gate.name === 'gate:outline') {
+    const here = new Set(outlineWork(gate).map((one) => one.id));
+    const slides = filled(held.slideNotes);
+    for (const id of Object.keys(slides)) if (!here.has(id)) delete slides[id];
+    return { slides };
+  }
+  return {};
+}
+
+// What a reviewed stop's button does now: its words, whether it approves, what goes with
+// it, and a tally of the marks.
+function reviewOf(gate) {
+  const held = chosenFor(gate);
+  const marks = marksOf(gate);
+  if (gate.name === 'gate:research-plan') {
+    const dropped = sized(marks.dropped);
+    const asked = sized(marks.reword) + sized(marks.add);
+    const tally = [count(dropped, 'dropped', 'dropped'),
+      count(sized(marks.reword), 'reworded', 'reworded'),
+      count(sized(marks.add), 'added', 'added')].join(' · ');
+    if (asked) {
+      return { label: 'Send ' + count(asked + dropped, 'change', 'changes'), approve: false,
+        extra: marks, tally };
+    }
+    if (dropped) {
+      return { label: 'Approve without ' + count(dropped, 'question', 'questions'),
+        approve: true, extra: { dropped: marks.dropped }, tally };
+    }
+    return { label: 'Approve', approve: true, extra: null, tally };
+  }
+  if (gate.name === 'gate:research') {
+    const before = list(gate.items).filter((item) => item.left_out).map((item) => item.id);
+    const moved = marks.left_out.filter((id) => !before.includes(id)).length
+      + before.filter((id) => !marks.left_out.includes(id)).length;
+    const asked = sized(marks.again) + sized(marks.add);
+    const tally = [count(sized(marks.again), 'to research again', 'to research again'),
+      count(marks.left_out.length, 'left out', 'left out'),
+      count(sized(marks.add), 'added', 'added')].join(' · ');
+    if (asked) {
+      return { label: 'Send ' + count(asked + moved, 'change', 'changes'), approve: false,
+        extra: marks, tally };
+    }
+    if (moved) {
+      return { label: marks.left_out.length ? 'Approve, leaving out '
+        + count(marks.left_out.length, 'finding', 'findings') : 'Approve with every finding',
+      approve: true, extra: { left_out: marks.left_out }, tally };
+    }
+    return { label: 'Approve', approve: true, extra: null, tally };
+  }
+  const slides = sized(marks.slides);
+  const edited = held.edited ? { edited: held.work } : null;
+  const tally = count(slides, 'slide to change', 'slides to change')
+    + (held.edited ? ' · edited here' : '');
+  if (slides) {
+    return { label: 'Send ' + count(slides, 'change', 'changes'), approve: false,
+      extra: { ...marks, ...(edited || {}) }, tally };
+  }
+  return { label: 'Approve', approve: true, extra: edited, tally };
+}
+
+function sendReview(gate, pressed) {
+  const made = reviewOf(gate);
+  decide(made.approve ? 'approve' : 'changes', '', null, pressed, made.extra);
+}
+
+// Two to four numbers in a row, each with what it counts.
+function reviewCounts(pairs) {
+  const node = make('div', 'review-counts');
+  for (const [number, words] of pairs) {
+    add(node, add(make('p', 'review-count'), make('span', 'review-number', String(number)),
+      ' ', make('span', 'quiet', words)));
+  }
+  return node;
+}
+
+// The full text a stop was drawn from, folded.
+function fullText(summary, label, text, key) {
+  const node = make('details', 'card-part');
+  node.dataset.key = key;
+  return add(node, make('summary', '', summary), documentPart(label, text));
+}
+
+// The tally of the marks and the button that sends them, at the foot of the items.
+function reviewBar(gate) {
+  const node = make('div', 'review-bar');
+  node.id = 'review-bar';
+  paintReviewBar(gate, node);
+  return node;
+}
+
+function paintReviewBar(gate, node) {
+  if (!node) return;
+  const made = reviewOf(gate);
+  const tally = make('p', 'quiet', made.tally);
+  tally.setAttribute('role', 'status');
+  const go = capsule(made.label, '', () => sendReview(gate, go), 'review-send');
+  node.replaceChildren(tally, add(make('div', 'bar'), go));
+}
+
+// A mark changed: the tally, this button and the toolbar's say so at once.
+function reviewChanged(gate) {
+  paintReviewBar(gate, byId('review-bar'));
+  if (view.screen === 'deck' && view.run) paintDeck(false);
+}
+
+// New questions the person adds, each with the way to take it back, and a box for one more.
+function addedPart(gate) {
+  const node = make('div', 'review-added');
+  node.id = 'review-added';
+  paintAdded(gate, node);
+  return node;
+}
+
+function paintAdded(gate, node) {
+  if (!node) return;
+  const held = chosenFor(gate);
+  const items = make('ul', 'plain review-list');
+  held.added.forEach((text, index) => {
+    const take = capsule('Take it back', 'quiet', () => {
+      held.added.splice(index, 1);
+      paintAdded(gate, byId('review-added'));
+      reviewChanged(gate);
+      focusKey('added-question');
+    }, 'unadd ' + index);
+    take.setAttribute('aria-label', 'Take back “' + text + '”');
+    items.append(add(make('li', 'review-row'), make('p', '', text),
+      add(make('div', 'bar'), take)));
+  });
+  const box = field('added-question', 'A question to add', held, 'asking',
+    { long: true, limit: 1000 });
+  const go = capsule('Add the question', 'quiet', () => {
+    const text = String(held.asking || '').trim();
+    if (!text) {
+      refuse('added-question', 'Write the question first.');
+      focusKey('added-question');
+      return;
+    }
+    held.added.push(text);
+    held.asking = '';
+    paintAdded(gate, byId('review-added'));
+    reviewChanged(gate);
+    focusKey('added-question');
+  }, 'add-question');
+  node.replaceChildren(...(held.added.length ? [make('h3', 'row-title', 'Questions you added'),
+    items] : []), box, add(make('div', 'bar'), go));
+}
+
 // --- one deck: deciding and steering -------------------------------------------------------
 
 // What comes with a decision at the gate, from what the person chose there.
 function extraFor(gate, decision) {
   const held = chosenFor(gate);
+  if (REVIEWED.includes(gate.name)) {
+    if (decision === 'approve') return reviewOf(gate).extra;
+    const marks = marksOf(gate);
+    return gate.name === 'gate:outline' && held.edited ? { ...marks, edited: held.work } : marks;
+  }
   if (gate.name === 'gate:classify' && decision === 'approve' && held.wrong
       && gate.kind === 'document') {
     return { kind: gate.verdict === 'spec' ? 'material' : 'spec' };
   }
   if (gate.name === 'gate:look' && decision === 'changes') {
     return { brand: held.brand, variant: held.variant || null };
-  }
-  if (gate.name === 'gate:outline' && decision === 'approve' && held.edited) {
-    return { edited: held.work };
   }
   if (gate.name === 'gate:build' && decision === 'changes' && held.marked.length) {
     return { slides: markedSlides() };
@@ -3854,7 +4057,7 @@ function undoSheet() {
       'cancel'))];
 }
 
-async function decide(decision, note, problem, pressed) {
+async function decide(decision, note, problem, pressed, extra) {
   if (view.busy) return;
   const turn = view.turn;
   const run = view.run;
@@ -3862,8 +4065,8 @@ async function decide(decision, note, problem, pressed) {
   const noted = noteKey(decision);
   const body = { path: view.path, gate: gate ? gate.name : 'gate:build', decision };
   if (note) body.note = note;
-  const extra = gate ? extraFor(gate, decision) : null;
-  if (extra) body.extra = extra;
+  const more = extra !== undefined ? extra : gate ? extraFor(gate, decision) : null;
+  if (more) body.extra = more;
   view.busy = true;
   pressed.disabled = true;
   let answered;
@@ -3945,9 +4148,12 @@ function deckActions(run, lead) {
     actions.push(node);
   };
   if (run.gate && !run.question) {
-    // Approve acts at once: what it does is said beside the gate before it is pressed.
-    const approve = capsule('Approve', lead === 'approve' ? 'filled' : '',
-      () => decide('approve', '', null, approve), 'approve');
+    // Approve acts at once: what it does is said beside the gate before it is pressed. At
+    // a stop reviewed item by item it says what it will do with the marks.
+    const reviewed = REVIEWED.includes(run.gate.name);
+    const approve = capsule(reviewed ? reviewOf(run.gate).label : 'Approve',
+      lead === 'approve' ? 'filled' : '', () => (reviewed ? sendReview(run.gate, approve)
+        : decide('approve', '', null, approve)), 'approve');
     const brand = run.gate.name === 'gate:look';
     actions.push(approve, capsule(brand ? 'Choose another brand' : 'Ask for changes', '',
       openSheet(brand ? 'rebrand' : 'changes', 'changes'), 'changes'));
@@ -3983,7 +4189,8 @@ function paintDeck(fresh) {
   const gate = run.gate;
   placeParts({ title, above, back: true, actions: deckActions(run, lead),
     mark: [title, route, run.state, lead, gate && [gate.name, gate.round], read, driver,
-      Boolean(run.question), run.problem] }, [
+      Boolean(run.question), run.problem,
+      gate && REVIEWED.includes(gate.name) && !read ? reviewOf(gate).label : ''] }, [
     ['intro', [run.state, run.sentence, run.queue, view.steered, read, Boolean(run.problem)],
       () => deckIntro(run)],
     ['timeline', [run.timeline, gate && gate.name], () => timelinePart(run)],
