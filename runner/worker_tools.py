@@ -24,8 +24,9 @@ checked here before anything is kept. Each job has a folder that only the runner
   whole plan.
 - A later part of the runner adds a kind with `register(kind, check)`: `check(text, spec)`
   returns (problems, the checks that ran, warnings, the text to keep), and the draft is
-  handed back with `submit_artifact`. The module that registered it is named in job.json,
-  so the server, which runs apart from the runner, imports it and has the same check.
+  handed back with `submit_artifact`. The check must be a function a module under runner
+  defines at its top level: job.json names it, and the server, which runs apart from the
+  runner, imports it by that name and registers it there too.
 - A check that cannot run for want of what it needs is recorded as unavailable, for the
   gate. It is not held against the worker.
 - `finding` is the ID of the one research question the job answers. An accepted finding is in
@@ -94,6 +95,7 @@ import ssl
 import subprocess
 import sys
 import time
+import types
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -569,25 +571,46 @@ VALIDATORS = {'research-plan': check_plan, 'outline': check_outline,
               'section': check_section}
 DRAWN = ('outline', 'section')      # the kinds whose check asks the slides tool
 EXTENSIONS = {'research-plan': '.json', 'outline': '.json', 'section': '.json'}
-REGISTERED: dict[str, str] = {}     # a kind added by register, and the module that added it
+REGISTERED: dict[str, dict] = {}    # a kind added by register: {'call', 'extension'}
+
+
+def _named(check) -> str | None:
+    """'module:name' for a function a module under runner defines at its top level, which
+    the server, a process of its own, can import again; None for anything else."""
+    module, name = getattr(check, '__module__', None), getattr(check, '__qualname__', '')
+    if not isinstance(check, types.FunctionType) or not isinstance(module, str) \
+            or not module.startswith('runner.') or not name or '<' in name or '.' in name:
+        return None
+    try:
+        found = getattr(importlib.import_module(module), name, None)
+    except ImportError:
+        return None
+    return f'{module}:{name}' if found is check else None
 
 
 def register(kind: str, check, extension: str = '.json') -> None:
     """Add a kind of draft that is handed back with submit_artifact. `check(text, spec)`
-    returns (problems, the checks that ran, warnings, the text to keep). The module the
-    check is defined in is imported again by the server, which must find it registered."""
-    if not isinstance(kind, str) or not kind or kind in DRAWN or not callable(check):
-        raise WorkspaceError(f'"{kind}" cannot be registered as a kind of draft.')
+    returns (problems, the checks that ran, warnings, the text to keep). It must be a
+    function a module under runner defines at its top level: job.json names it, and the
+    server, which runs apart, imports it by that name."""
+    call = _named(check)
+    if not isinstance(kind, str) or not kind or kind in DRAWN or call is None:
+        raise WorkspaceError(f'"{kind}" cannot be registered as a kind of draft: its check '
+                             'must be a function a module under runner defines at its top '
+                             'level.')
     VALIDATORS[kind] = check
     EXTENSIONS[kind] = extension
-    REGISTERED[kind] = check.__module__
+    REGISTERED[kind] = {'call': call, 'extension': extension}
 
 
-def validator(kind: str, modules: dict | None = None):
-    """The check for a kind, importing the module job.json names for it when this process
-    has not registered it yet. None when there is none."""
-    if kind not in VALIDATORS and (modules or {}).get(kind):
-        importlib.import_module(modules[kind])
+def validator(kind: str, registered: dict | None = None):
+    """The check for a kind. One this process has not registered is registered here from
+    the name job.json gives it. None when there is none."""
+    named = (registered or {}).get(kind)
+    if kind not in VALIDATORS and isinstance(named, dict):
+        module, _, name = str(named.get('call')).partition(':')
+        register(kind, getattr(importlib.import_module(module), name),
+                 named.get('extension') or '.json')
     return VALIDATORS.get(kind)
 
 
@@ -1697,4 +1720,7 @@ def main(argv: list[str] | None = None) -> int:
 
 
 if __name__ == '__main__':
-    sys.exit(main())
+    # Started by its path, this file is __main__. The server runs as runner.worker_tools,
+    # the one module every check and every registration uses.
+    from runner import worker_tools as served  # noqa: E402
+    sys.exit(served.main())

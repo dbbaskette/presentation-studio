@@ -749,8 +749,9 @@ class Slides:
 
     def outline_draft(self, outline: Path, brand: Path, output: Path) -> Path:
         """Write the tool's page of an outline's wording and structure, which is no design."""
-        self._json('outline', 'draft', '--file', str(outline), '--brand', str(brand),
-                   '--output', str(output))
+        with _new(output):
+            self._json('outline', 'draft', '--file', str(outline), '--brand', str(brand),
+                       '--output', str(output))
         return Path(output)
 
 

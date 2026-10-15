@@ -931,13 +931,6 @@ class ServerTests(JobCase):
 
 # --- kinds a later part of the runner adds ------------------------------------------------
 
-def check_note(text: str, spec: dict):
-    """A kind of draft for these tests: a note that must name the word the spec gives."""
-    problems = [] if spec.get('word', 'deck') in text else ['Say "deck" somewhere.']
-    ran = [worker_tools.result('note.word', problems)]
-    return problems, ran, [], worker_tools.as_kept(text)
-
-
 def no_word(outline: dict, word: str = 'faster') -> list[str]:
     """An outline rule for these tests: no slide's title holds `word`."""
     return [f"{slide['id']}: the title says {word}." for slide in build.slides_of(outline)
@@ -945,6 +938,11 @@ def no_word(outline: dict, word: str = 'faster') -> list[str]:
 
 
 class RegisterTests(JobCase):
+    """A kind is registered with a check a module under runner defines at its top level.
+    These tests register the research plan's own check under a second kind, `plan-copy`:
+    a real function of the runner, so no module exists for the tests' sake alone, and the
+    kind is one only this registration makes."""
+
     def setUp(self):
         super().setUp()
         for kept in (worker_tools.VALIDATORS, worker_tools.EXTENSIONS, worker_tools.REGISTERED):
@@ -952,53 +950,84 @@ class RegisterTests(JobCase):
             patcher.start()
             self.addCleanup(patcher.stop)
 
-    def test_only_the_runners_own_kinds_are_there_until_one_is_registered(self):
-        self.assertEqual(list(worker_tools.VALIDATORS), ['research-plan', 'outline', 'section'])
-        worker_tools.register('note', check_note)
-        self.assertIn('note', worker_tools.VALIDATORS)
-        for wrong in (('', check_note), ('outline', check_note), ('look', 'not callable')):
-            with self.assertRaisesRegex(WorkspaceError, 'cannot be registered'):
-                worker_tools.register(*wrong)
-
-    def test_a_registered_kind_is_handed_back_with_submit_artifact_and_checked_by_its_check(self):
-        worker_tools.register('note', check_note, '.md')
-        tools = self.tools(artifacts={'note': {'kind': 'note', 'word': 'deck'}})
-        self.assertEqual(self.names(tools), ['list_inputs', 'read_input', 'submit_artifact',
-                                             'submit_review', 'ask_person'])
-        self.assertIn('Say "deck" somewhere.',
-                      self.refused(tools.submit_artifact('note', 'Nothing here.')))
-        self.assertEqual(self.ok(tools.submit_artifact('note', 'A deck note.')),
-                         'Accepted: note.')
-        kept = worker_tools.collect(self.job)['artifacts']['note']
-        self.assertEqual((kept['kind'], kept['text'], kept['path'].name,
-                          kept['checks'][0]['check']), ('note', 'A deck note.\n', 'note.md',
-                                                        'note.word'))
-        job = json.loads((self.job / 'job.json').read_text())
-        self.assertEqual(job['checks'], {'note': __name__})
+    def copied(self) -> dict:
+        worker_tools.register('plan-copy', worker_tools.check_plan, '.json')
+        return {'plan-copy': {'kind': 'plan-copy', 'scope': 'public-web'}}
 
     def names(self, tools) -> list[str]:
         return [entry['name'] for entry in tools.offered()]
 
-    def test_a_process_that_has_not_registered_the_kind_imports_the_module_that_does(self):
-        """As the server does: it runs apart, and finds the check by the module job.json
-        names."""
-        with tempfile.TemporaryDirectory() as folder:
-            (Path(folder) / 'registers_a_note.py').write_text(
-                'from runner import worker_tools\n'
-                'def check(text, spec):\n'
-                '    found = [] if "deck" in text else ["Say deck."]\n'
-                '    return found, [worker_tools.result("note", found)], [], text\n'
-                'worker_tools.register("note", check)\n')
-            sys.path.insert(0, folder)
-            self.addCleanup(sys.path.remove, folder)
-            self.addCleanup(sys.modules.pop, 'registers_a_note', None)
-            __import__('registers_a_note')
-            worker_tools.prepare(self.job, artifacts={'note': {'kind': 'note'}})
-            del worker_tools.VALIDATORS['note']
-            sys.modules.pop('registers_a_note')
-            tools = worker_tools.WorkerTools(self.job)
-            self.assertEqual(self.ok(tools.submit_artifact('note', 'A deck.')), 'Accepted: note.')
-            self.assertIn('note', worker_tools.VALIDATORS)
+    def test_only_the_runners_own_kinds_are_there_until_one_is_registered(self):
+        self.assertEqual(list(worker_tools.VALIDATORS), ['research-plan', 'outline', 'section'])
+        self.copied()
+        self.assertEqual(worker_tools.REGISTERED['plan-copy'], {
+            'call': 'runner.worker_tools:check_plan', 'extension': '.json'})
+
+    def test_a_check_the_server_could_not_import_again_is_refused_when_registered(self):
+        def nested(text, spec):
+            return [], [], [], text
+
+        elsewhere = functools.partial(no_word)
+        loose = types_copy(worker_tools.check_plan, '__main__')
+        for kind, check in (('', worker_tools.check_plan), ('outline', worker_tools.check_plan),
+                            ('note', 'not callable'), ('note', lambda text, spec: None),
+                            ('note', nested), ('note', no_word), ('note', elsewhere),
+                            ('note', functools.partial(worker_tools.check_plan)),
+                            ('note', loose)):
+            with self.subTest(kind=kind, check=check):
+                with self.assertRaisesRegex(WorkspaceError, 'cannot be registered'):
+                    worker_tools.register(kind, check)
+        self.assertNotIn('note', worker_tools.VALIDATORS)
+
+    def test_a_registered_kind_is_handed_back_with_submit_artifact_and_checked_by_its_check(self):
+        tools = self.tools(artifacts=self.copied())
+        self.assertEqual(self.names(tools), ['list_inputs', 'read_input', 'submit_artifact',
+                                             'submit_review', 'ask_person'])
+        self.assertIn('not valid JSON', self.refused(tools.submit_artifact('plan-copy', 'no')))
+        self.assertEqual(self.ok(tools.submit_artifact('plan-copy', json.dumps(PLAN))),
+                         'Accepted: plan-copy.')
+        kept = worker_tools.collect(self.job)['artifacts']['plan-copy']
+        self.assertEqual((kept['kind'], kept['path'].name), ('plan-copy', 'plan-copy.json'))
+        job = json.loads((self.job / 'job.json').read_text())
+        self.assertEqual(job['checks'], {'plan-copy': {
+            'call': 'runner.worker_tools:check_plan', 'extension': '.json'}})
+
+    def test_a_process_that_has_not_registered_the_kind_registers_it_by_its_name(self):
+        worker_tools.prepare(self.job, artifacts=self.copied())
+        for kept in (worker_tools.VALIDATORS, worker_tools.EXTENSIONS, worker_tools.REGISTERED):
+            del kept['plan-copy']
+        tools = worker_tools.WorkerTools(self.job)
+        self.assertEqual(self.ok(tools.submit_artifact('plan-copy', json.dumps(PLAN))),
+                         'Accepted: plan-copy.')
+        self.assertEqual(worker_tools.EXTENSIONS['plan-copy'], '.json')
+
+    def test_the_real_server_finds_a_registered_kind_and_checks_with_it(self):
+        """The server as an agent starts it: its own process, started by its path. It has
+        registered nothing, and must find the check by the name job.json gives."""
+        worker_tools.prepare(self.job, artifacts=self.copied())
+        asked = '\n'.join(json.dumps({'jsonrpc': '2.0', 'id': number, 'method': 'tools/call',
+                                      'params': {'name': 'submit_artifact', 'arguments': {
+                                          'name': 'plan-copy', 'text': text}}})
+                          for number, text in ((1, 'Here are my questions'),
+                                               (2, json.dumps(PLAN)))) + '\n'
+        done = subprocess.run(worker_tools.command(self.job), input=asked.encode('utf-8'),
+                              capture_output=True, cwd=self.base, timeout=60,
+                              env={'PATH': '/usr/bin:/bin', 'LC_ALL': 'C'})
+        self.assertEqual((done.returncode, done.stderr), (0, b''))
+        replies = [json.loads(line)['result'] for line in done.stdout.decode().splitlines()]
+        self.assertTrue(replies[0]['isError'])
+        self.assertIn('The plan is not valid JSON', replies[0]['content'][0]['text'])
+        self.assertEqual((replies[1]['isError'], replies[1]['content'][0]['text']),
+                         (False, 'Accepted: plan-copy.'))
+        kept = worker_tools.collect(self.job)['artifacts']['plan-copy']
+        self.assertEqual(json.loads(kept['text'])['topic'], PLAN['topic'])
+
+
+def types_copy(function, module: str):
+    """The same function, said to be defined in another module."""
+    made = type(function)(function.__code__, function.__globals__, function.__name__)
+    made.__module__, made.__qualname__ = module, function.__qualname__
+    return made
 
 
 # --- a deck's tools ------------------------------------------------------------------------

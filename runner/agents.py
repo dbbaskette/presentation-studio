@@ -4,7 +4,7 @@ What a caller needs to know
 ---------------------------
     folder = agents.staging() / 'rolling-restarts-outline-1'
     worker_tools.prepare(folder, inputs={...}, artifacts={...})
-    job = Job(guidance=briefs.guidance('outline'), task='...', folder=folder,
+    job = Job(guidance='How to write an outline...', task='...', folder=folder,
               profile='write', tools=worker_tools.command(folder),
               limits=Limits(seconds=600, dollars=2.0))
     outcome = Claude().run(job, activity=print)
