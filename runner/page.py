@@ -90,7 +90,7 @@ import home
 import server
 from workspace import WorkspaceError
 
-from runner import decks, gitstate, settings, setup
+from runner import decks, gitstate, marks, settings, setup
 from runner import engine as engines
 
 READS = ('/api/capabilities', '/api/setup', '/api/agents', '/api/models', '/api/decks',
@@ -376,8 +376,8 @@ class RunnerPage(server.Page):
         return self.engine.act(self.deck(path), action)
 
     def decide(self, sent: dict) -> dict:
-        """A person's decision at a gate: approve, or ask for changes with a note. At the
-        brand's gate the change is another brand, and needs no note."""
+        """A person's decision at a gate: approve, or ask for changes with a note, marks, or
+        both. At the brand's gate the change is another brand, and needs no note."""
         path, gate = server.text(sent, 'path'), server.text(sent, 'gate')
         decision, note = server.text(sent, 'decision'), server.text(sent, 'note', False)
         extra = sent.get('extra')
@@ -390,7 +390,8 @@ class RunnerPage(server.Page):
         if extra is not None and not isinstance(extra, dict):
             raise server.Refusal(HTTPStatus.BAD_REQUEST, 'Send what comes with a decision as '
                                  'one JSON object.')
-        if decision == 'changes' and gate != 'gate:look' and not (note or '').strip():
+        if decision == 'changes' and gate != 'gate:look' and not (note or '').strip() \
+                and not (gate in marks.REVIEWED and marks.asks(extra or {})):
             raise server.Refusal(HTTPStatus.BAD_REQUEST, engines.NO_NOTE)
         return self.engine.decide(self.deck(path), gate, decision, note, extra)
 

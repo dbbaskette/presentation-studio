@@ -246,8 +246,9 @@ const view = {
   // comes into view.
   slide: 0, viewer: null, pictures: new Map(), wanted: [], fetching: false, watcher: null,
   // What the person has chosen at the gate of the open deck, before it is sent: whether the
-  // classification is wrong, the outline as edited, the slides marked for changes, and
-  // another brand. Each is kept for its deck and its gate's round, so a refresh loses nothing.
+  // classification is wrong, the outline as edited, the slides marked for changes, another
+  // brand, and the marks at a stop reviewed item by item. Each is kept for its deck and its
+  // gate's round, so a refresh loses nothing.
   chosen: {},
   // What a team adds: every run and who runs what, what is published, what publishing just
   // answered, and a look for teammates' work and what it brought.
@@ -1193,8 +1194,14 @@ function noteSheet(kind) {
     view.notes[key] = box.value;
   });
   const marked = markedSlides();
+  // At a stop reviewed item by item, what is marked in its list goes with the note too.
+  const gate = view.run && view.run.gate;
+  const listed = !gate || !REVIEWED.includes(gate.name) || !reviewOf(gate).extra ? ''
+    : gate.name === 'gate:outline' ? ' What you marked or edited in the outline goes with '
+      + 'your note.' : ' What you marked in the list goes with your note.';
   const hint = make('p', 'quiet', spec.hint + (marked.length ? ' The parts of the deck '
-    + 'that hold ' + slidesNamed(marked) + ', which you marked, are drawn again.' : ''));
+    + 'that hold ' + slidesNamed(marked) + ', which you marked, are drawn again.' : '')
+    + listed);
   hint.id = 'note-hint';
   const problem = problemLine();
   const submit = submitButton(spec.send, 'send');
@@ -2939,7 +2946,8 @@ async function startDeck(pressed) {
 function chosenFor(gate) {
   const key = [view.path, gate ? gate.name : 'deliver', gate ? gate.round : ''].join('\n');
   if (!view.chosen[key]) view.chosen[key] = { wrong: false, work: null, edited: false,
-    marked: [], adding: '', brand: '', variant: '' };
+    marked: [], adding: '', brand: '', variant: '', dropped: [], reword: {}, again: {},
+    leftOut: null, added: [], asking: '', slideNotes: {} };
   return view.chosen[key];
 }
 
@@ -3306,31 +3314,193 @@ function classifyPanel(gate, readonly) {
   return add(node, ...gateSaid(gate));
 }
 
-function researchPlanPanel(gate) {
+// The research plan: each question with the way to drop or reword it, and a box for one
+// more. Drops go with Approve; rewording and new questions go back to be redrafted.
+function researchPlanPanel(gate, readonly) {
   const node = card('The research plan');
   const questions = list(gate.questions);
-  if (questions.length) {
-    const items = make('ol', 'questions');
-    for (const item of questions) {
-      add(items, add(make('li'), make('span', '', item.question),
-        make('span', 'question-id', item.id)));
-    }
-    add(node, make('p', '', 'It will look up ' + count(questions.length, 'question',
-      'questions') + ':'), items);
+  const searched = questions.filter((item) => item.search).length;
+  add(node, reviewCounts([[questions.length, questions.length === 1 ? 'question'
+    : 'questions'], [searched, 'searched on the web']]));
+  if (!readonly) {
+    add(node, make('p', '', 'Drop a question, or reword it. A drop takes effect when you '
+      + 'approve; rewording and new questions go back to be redrafted, and come back here.'));
   }
-  return add(node, documentPart('The research plan', gate.text), ...gateSaid(gate));
+  const items = make('ol', 'plain review-list');
+  items.id = 'plan-list';
+  add(node, items);
+  paintPlan(gate, items, readonly);
+  if (!readonly) add(node, addedPart(gate), reviewBar(gate));
+  return add(node, fullText('Read the full plan', 'The research plan', gate.text, 'plan-text'),
+    ...gateSaid(gate));
 }
 
-function researchPanel(gate) {
-  const node = card('What the research found');
-  const verdicts = Object.values(gate.verdicts || {});
-  if (verdicts.length) {
-    const counted = {};
-    for (const said of verdicts) counted[said] = (counted[said] || 0) + 1;
-    add(node, make('p', '', series(Object.entries(counted).map(([said, number]) => number
-      + ' ' + lower(spoken(said))))));
+// The plan's questions. They are drawn again together, since dropping one can leave
+// another the last, which cannot be dropped.
+function paintPlan(gate, holder, readonly) {
+  if (!holder) return;
+  holder.replaceChildren(...list(gate.questions).map((item) => planRow(gate, item,
+    readonly)));
+}
+
+function planRow(gate, item, readonly) {
+  const held = chosenFor(gate);
+  const title = item.title || item.id;
+  const dropped = held.dropped.includes(item.id);
+  const rewording = !dropped && owns(held.reword, item.id);
+  // The runner refuses a plan with every question dropped: research needs one to look up.
+  const last = !dropped && list(gate.questions)
+    .filter((one) => !held.dropped.includes(one.id)).length < 2;
+  const row = make('li', 'review-row' + (dropped && !readonly ? ' review-off' : ''));
+  add(row, make('p', 'row-title', title), make('p', '', item.question),
+    item.search ? make('p', 'quiet', 'Searched for: ' + item.search) : null);
+  if (readonly) return row;
+  if (dropped) add(row, make('p', 'quiet', 'Dropped: it is not researched.'));
+  if (rewording) {
+    add(row, field('reword-' + item.id, 'New wording for “' + title + '”', held.reword,
+      item.id, { long: true, limit: LINE, typed: () => reviewChanged(gate) }));
   }
-  return add(node, documentPart('The research report', gate.text), ...gateSaid(gate));
+  const redraw = (key) => {
+    paintPlan(gate, byId('plan-list'), false);
+    reviewChanged(gate);
+    focusKey(key);
+  };
+  const drop = capsule(dropped ? 'Keep' : 'Drop', 'quiet', () => {
+    held.dropped = dropped ? held.dropped.filter((id) => id !== item.id)
+      : [...held.dropped, item.id];
+    delete held.reword[item.id];
+    redraw('drop ' + item.id);
+  }, 'drop ' + item.id);
+  drop.setAttribute('aria-label', (dropped ? 'Keep “' : 'Drop “') + title + '”');
+  const why = last ? switchedOff(drop, 'drop-why-' + item.id, 'The last question left '
+    + 'cannot be dropped: research needs something to look up.') : null;
+  const reword = dropped ? null : capsule(rewording ? 'Keep the wording' : 'Reword', 'quiet',
+    () => {
+      if (rewording) delete held.reword[item.id];
+      else held.reword[item.id] = item.question;
+      redraw(rewording ? 'reword ' + item.id : 'reword-' + item.id);
+    }, 'reword ' + item.id);
+  if (reword) {
+    reword.setAttribute('aria-label', (rewording ? 'Keep the wording of “' : 'Reword “')
+      + title + '”');
+  }
+  return add(row, why, add(make('div', 'bar'), drop, reword));
+}
+
+// What the research found: the findings that need a look first, as cards, and the answered
+// ones a line each that opens into the same card. Each can be researched again or left out,
+// and a question added.
+function researchPanel(gate, readonly) {
+  const node = card('What the research found');
+  const items = list(gate.items);
+  // Without findings to show, as when the plan cannot be read, the report is all there is.
+  if (!items.length) {
+    return add(node, documentPart('The research report', gate.text), ...gateSaid(gate));
+  }
+  const settled = items.filter((item) => item.status === 'supported').length;
+  add(node, reviewCounts([[items.length, items.length === 1 ? 'question' : 'questions'],
+    [settled, 'answered by the sources'], [items.length - settled, 'to look at']]));
+  const findings = make('div', '');
+  findings.id = 'findings';
+  add(node, findings);
+  paintFindings(gate, findings, readonly);
+  if (!readonly) add(node, addedPart(gate), reviewBar(gate));
+  return add(node, fullText('Read the full report', 'The research report', gate.text,
+    'report-text'), ...gateSaid(gate));
+}
+
+// The findings, those that need a look first and then the answered ones. They are drawn
+// again together, since leaving one out can leave another the last, which cannot be left
+// out. What was open stays open.
+function paintFindings(gate, holder, readonly) {
+  if (!holder) return;
+  const opened = Array.from(holder.querySelectorAll('details')).filter((node) => node.open)
+    .map((node) => node.dataset.key);
+  const items = list(gate.items);
+  const parts = [];
+  for (const [heading, folded] of [['Look at these first', false], ['Answered', true]]) {
+    const shown = items.filter((item) => (item.status === 'supported') === folded);
+    if (!shown.length) continue;
+    parts.push(make('h3', 'row-title', heading), add(make('ul', 'plain review-list'),
+      ...shown.map((item) => findingCard(gate, item, readonly, folded))));
+  }
+  holder.replaceChildren(...parts);
+  for (const node of holder.querySelectorAll('details')) {
+    if (opened.includes(node.dataset.key)) node.open = true;
+  }
+}
+
+// The quoted passages behind a finding, folded, each with where it came from.
+function sourcesPart(item) {
+  const sources = list(item.sources);
+  if (!sources.length) return make('p', 'quiet', 'No passage is quoted for it.');
+  const node = make('details', 'card-part');
+  node.dataset.key = 'sources ' + item.id;
+  const quotes = make('ul', 'plain review-sources');
+  for (const one of sources) {
+    quotes.append(add(make('li', ''), outLink(one.origin, one.title || one.origin
+      || 'A source'), make('blockquote', 'review-quote', one.quote)));
+  }
+  return add(node, make('summary', '', 'Sources for “' + (item.title || item.id) + '” ('
+    + sources.length + ')'), quotes);
+}
+
+// A finding: a card, or a line that opens into one. Read only, it is as the runner has it.
+function findingCard(gate, item, readonly, folded) {
+  const held = chosenFor(gate);
+  const title = item.title || item.id;
+  const outs = readonly ? leftBefore(gate) : leftOut(gate);
+  const out = outs.includes(item.id);
+  const again = !readonly && !out && owns(held.again, item.id);
+  const [shape, words] = FINDING_WORDS[item.status] || FINDING_WORDS.pending;
+  const said = out ? 'Left out' : again ? 'To research again' : words;
+  const body = [make('p', 'quiet', item.question),
+    item.headline ? make('p', 'review-headline', item.headline) : null,
+    item.unknown ? make('p', 'quiet', 'Not known: ' + item.unknown) : null,
+    sourcesPart(item)];
+  if (!readonly) {
+    if (again) {
+      body.push(field('again-' + item.id, 'What was wrong with “' + title + '” (optional)',
+        held.again, item.id, { long: true, limit: LINE, typed: () => reviewChanged(gate) }));
+    }
+    // The runner refuses every finding left out: the outline is drafted from them.
+    const last = !out && list(gate.items).filter((one) => !outs.includes(one.id)).length < 2;
+    const redraw = (key) => {
+      paintFindings(gate, byId('findings'), false);
+      reviewChanged(gate);
+      focusKey(key);
+    };
+    const leave = capsule(out ? 'Bring it back' : 'Leave out', 'quiet', () => {
+      held.leftOut = out ? outs.filter((id) => id !== item.id) : [...outs, item.id];
+      delete held.again[item.id];
+      redraw('leave ' + item.id);
+    }, 'leave ' + item.id);
+    leave.setAttribute('aria-label', (out ? 'Bring it back: “' : 'Leave out “') + title + '”');
+    const why = last ? switchedOff(leave, 'leave-why-' + item.id, 'The last finding kept '
+      + 'cannot be left out: the outline is drafted from the findings.') : null;
+    const redo = out ? null : capsule(again ? 'Don’t research it again' : 'Research again',
+      'quiet', () => {
+        if (again) delete held.again[item.id];
+        else held.again[item.id] = '';
+        redraw(again ? 'again ' + item.id : 'again-' + item.id);
+      }, 'again ' + item.id);
+    if (redo) {
+      redo.setAttribute('aria-label', (again ? 'Don’t research it again: “'
+        : 'Research again: “') + title + '”');
+    }
+    body.push(why, add(make('div', 'bar'), redo, leave));
+  }
+  // Read only, `out` is what the runner left out, so it is shown as left out there too.
+  const row = make('li', 'review-row' + (out ? ' review-off' : ''));
+  if (folded) {
+    const fold = make('details', 'review-fold');
+    fold.dataset.key = 'finding ' + item.id;
+    return add(row, add(fold, add(make('summary', ''), make('span', 'review-name', title),
+      ' · ' + said + ' · ' + count(list(item.sources).length, 'source', 'sources')),
+    ...body));
+  }
+  return add(row, add(make('div', 'review-top'), make('p', 'row-title', title),
+    state(out ? 'off' : again ? 'review' : shape, said)), ...body);
 }
 
 // The outline as it stands here: the server's, or the person's edit of it.
@@ -3343,6 +3513,7 @@ function outlineWork(gate) {
 function outlineEdited(gate) {
   chosenFor(gate).edited = true;
   paintOutline(gate, byId('outline-list'), byId('outline-said'));
+  reviewChanged(gate);
 }
 
 // A name for a slide that is added, unlike every other slide's.
@@ -3366,20 +3537,47 @@ function outlineRow(gate, slides, index, readonly) {
   else {
     add(node, field('outline-title-' + index, 'Title of slide ' + (index + 1), one, 'title',
       { limit: 300, typed: () => {
-        chosenFor(gate).edited = true;
-        paintOutlineSaid(gate, byId('outline-said'));
+        // The line that says the outline is edited is drawn, and read out, once.
+        const chosen = chosenFor(gate);
+        if (!chosen.edited) {
+          chosen.edited = true;
+          paintOutlineSaid(gate, byId('outline-said'));
+        }
+        reviewChanged(gate);
       } }));
   }
-  for (const text of [one.subtitle, one.understand]) {
-    if (text) add(node, make('p', 'outline-said', text));
-  }
+  // What the slide must make clear stays in view; the rest opens under it.
+  if (one.understand) add(node, make('p', 'outline-said', one.understand));
   const points = list(one.points).filter((point) => point && (point.label || point.text));
-  if (points.length) {
-    add(node, bullets(points.map((point) => (point.label && point.text
-      ? point.label + ': ' + point.text : point.label || point.text)), 'outline-points'));
+  const more = [one.subtitle ? make('p', 'outline-said', one.subtitle) : null,
+    points.length ? bullets(points.map((point) => (point.label && point.text
+      ? point.label + ': ' + point.text : point.label || point.text)), 'outline-points') : null,
+    one.notes ? make('p', 'outline-notes quiet', 'Notes: ' + one.notes) : null]
+    .filter(Boolean);
+  if (more.length) {
+    const fold = make('details', 'card-part');
+    fold.dataset.key = 'slide-more ' + one.id;
+    const top = make('summary', '', 'Points and notes');
+    top.setAttribute('aria-label', 'Points and notes of slide ' + (index + 1));
+    add(node, add(fold, top, ...more));
   }
-  if (one.notes) add(node, make('p', 'outline-notes quiet', 'Notes: ' + one.notes));
   if (readonly) return node;
+  // A mark asks for changes to this slide, with a line on what should change.
+  const held = chosenFor(gate);
+  const asking = owns(held.slideNotes, one.id);
+  if (asking) {
+    add(node, field('slide-note-' + one.id, 'What should change on “' + title + '”',
+      held.slideNotes, one.id, { long: true, limit: LINE, typed: () => reviewChanged(gate) }));
+  }
+  const ask = capsule(asking ? 'Keep it as it is' : 'Ask for changes', 'quiet', () => {
+    if (asking) delete held.slideNotes[one.id];
+    else held.slideNotes[one.id] = '';
+    paintOutline(gate, byId('outline-list'), byId('outline-said'));
+    reviewChanged(gate);
+    focusKey(asking ? 'slide-ask ' + one.id : 'slide-note-' + one.id);
+  }, 'slide-ask ' + one.id);
+  ask.setAttribute('aria-label', (asking ? 'Keep it as it is: “' : 'Ask for changes to “')
+    + title + '”');
   const move = (by) => () => {
     const [taken] = slides.splice(index, 1);
     slides.splice(index + by, 0, taken);
@@ -3389,40 +3587,49 @@ function outlineRow(gate, slides, index, readonly) {
   const up = capsule('Move up', 'quiet', move(-1), 'outline up ' + one.id);
   const down = capsule('Move down', 'quiet', move(1), 'outline down ' + one.id);
   const remove = capsule('Remove', 'quiet', () => {
+    // Its mark goes with it, so a slide put back as drafted comes back unmarked.
+    delete held.slideNotes[one.id];
     slides.splice(index, 1);
     outlineEdited(gate);
     if (!focusKey('outline-add')) byId('title').focus({ preventScroll: true });
   }, 'outline remove ' + one.id);
-  up.setAttribute('aria-label', 'Move “' + title + '” up');
-  down.setAttribute('aria-label', 'Move “' + title + '” down');
+  up.setAttribute('aria-label', 'Move up: “' + title + '”');
+  down.setAttribute('aria-label', 'Move down: “' + title + '”');
   remove.setAttribute('aria-label', 'Remove “' + title + '”');
   up.disabled = index === 0;
   down.disabled = index === slides.length - 1;
   remove.disabled = slides.length < 2;
-  return add(node, add(make('div', 'bar'), up, down, remove));
+  return add(node, add(make('div', 'bar'), ask, up, down, remove));
 }
 
 // Whether the outline here differs from the one the deck holds, in a line.
 function paintOutlineSaid(gate, holder) {
   if (!holder) return;
   const held = chosenFor(gate);
-  holder.replaceChildren(...(held.edited ? [state('review', 'Edited here. Your edits are sent '
-    + 'with your approval, and checked first.'), capsule('Put it back as drafted', 'quiet', () => {
+  holder.replaceChildren(...(held.edited ? [state('review', 'Edited here. Your edits go with '
+    + 'your decision, and are checked first.'), capsule('Put it back as drafted', 'quiet', () => {
     held.work = null;
     held.edited = false;
     paintOutline(gate, byId('outline-list'), holder);
+    reviewChanged(gate);
     focusKey('outline-add');
   }, 'outline-reset')] : []));
 }
 
+// The slides, drawn again after an edit or a mark. What was open stays open.
 function paintOutline(gate, holder, said) {
   if (!holder) return;
   const readonly = holder.dataset.readonly === 'true';
   const slides = readonly ? list(gate.slides) : outlineWork(gate);
   const active = document.activeElement;
   const focused = active && active.dataset && holder.contains(active) ? active.dataset.key : '';
+  const opened = Array.from(holder.querySelectorAll('details')).filter((node) => node.open)
+    .map((node) => node.dataset.key);
   holder.replaceChildren(...slides.map((one, index) => outlineRow(gate, slides, index,
     readonly)));
+  for (const node of holder.querySelectorAll('details')) {
+    if (opened.includes(node.dataset.key)) node.open = true;
+  }
   if (focused) focusKey(focused);
   paintOutlineSaid(gate, said);
 }
@@ -3430,9 +3637,10 @@ function paintOutline(gate, holder, said) {
 function outlinePanel(gate, readonly) {
   const node = card('The outline');
   const slides = list(gate.slides);
-  add(node, make('p', '', count(slides.length, 'slide', 'slides') + ', each with its title, '
-    + 'what it says and its notes.' + (readonly ? '' : ' Retitle, move, add or remove '
-    + 'slides here; your edits are sent with your approval.')));
+  add(node, make('p', '', count(slides.length, 'slide', 'slides') + ', each with its title '
+    + 'and what it must make clear; its points and notes open under it.' + (readonly ? ''
+    : ' Retitle, move, add or remove slides here, or ask for changes to one; your edits go '
+      + 'with your decision.')));
   const said = make('div', 'bar');
   said.id = 'outline-said';
   said.setAttribute('role', 'status');
@@ -3482,6 +3690,7 @@ function outlinePanel(gate, readonly) {
     add(make('div', 'bar'), go)));
   }
   if (!slides.length) add(node, documentPart('The outline', gate.text));
+  if (!readonly) add(node, reviewBar(gate));
   return add(node, ...gateSaid(gate));
 }
 
@@ -3610,8 +3819,8 @@ function gatePanel(run) {
   const gate = run.gate;
   const readonly = theirs(run);
   if (gate.name === 'gate:classify') return classifyPanel(gate, readonly);
-  if (gate.name === 'gate:research-plan') return researchPlanPanel(gate);
-  if (gate.name === 'gate:research') return researchPanel(gate);
+  if (gate.name === 'gate:research-plan') return researchPlanPanel(gate, readonly);
+  if (gate.name === 'gate:research') return researchPanel(gate, readonly);
   if (gate.name === 'gate:outline') return outlinePanel(gate, readonly);
   if (gate.name === 'gate:look') return lookPanel(gate, readonly);
   return buildPanel(gate, readonly);
@@ -3788,20 +3997,283 @@ function costCard(run) {
     make('p', 'quiet', 'Drafted by ' + agent + modelWords(run.model, run.effort) + '.'));
 }
 
+// --- one deck: a stop reviewed item by item -------------------------------------------------
+// The research plan, the research and the outline are shown as items the person marks one
+// by one: what needs them first, the rest a line each, and one button that says what it
+// will do. Marks are kept with the stop's other choices (`chosenFor`), so a refresh loses
+// nothing, and nothing is sent until the button is pressed.
+
+const REVIEWED = ['gate:research-plan', 'gate:research', 'gate:outline'];
+// As runner/marks.py has them: ADDED questions added at once, and LINE characters in a line
+// written against an item. The runner refuses more.
+const ADDED = 10;
+const LINE = 1000;
+const FINDING_WORDS = { supported: ['done', 'Answered'], insufficient: ['late', 'Not settled'],
+  unavailable: ['late', 'Not found'], contradicted: ['review', 'Contradicted'],
+  pending: ['out', 'Not answered'] };
+
+function sized(value) {
+  return Array.isArray(value) ? value.length : Object.keys(value || {}).length;
+}
+
+function owns(object, key) {
+  return Object.prototype.hasOwnProperty.call(object, key);
+}
+
+// A line with its spaces made single, as the runner keeps it.
+function spaced(text) {
+  return String(text || '').trim().split(/\s+/).join(' ');
+}
+
+// A text cut to about `size` characters, to name a control by.
+function clipped(text, size) {
+  const said = spaced(text);
+  return said.length > size ? said.slice(0, size - 1).trimEnd() + '…' : said;
+}
+
+// A mark the runner would refuse: its control switched off, and a quiet line beside it that
+// says why, which a screen reader gives with the control. Returns the line.
+function switchedOff(control, id, reason) {
+  control.disabled = true;
+  const why = make('p', 'quiet', reason);
+  why.id = id;
+  control.setAttribute('aria-describedby', id);
+  return why;
+}
+
+// The lines typed against items, as the runner keeps them, keeping those that say
+// something. `unchanged` leaves out a line that is what the item says already.
+function filled(lines, unchanged) {
+  const kept = {};
+  for (const [id, text] of Object.entries(lines || {})) {
+    const said = spaced(text);
+    if (said && (!unchanged || said !== spaced(unchanged(id)))) kept[id] = said;
+  }
+  return kept;
+}
+
+// The findings the runner leaves out now.
+function leftBefore(gate) {
+  return list(gate.items).filter((item) => item.left_out).map((item) => item.id);
+}
+
+// The findings the person leaves out: as the runner has them until they change it here.
+function leftOut(gate) {
+  const held = chosenFor(gate);
+  if (!held.leftOut) held.leftOut = leftBefore(gate);
+  return held.leftOut;
+}
+
+// How many findings are left out or brought back here, against what the runner has.
+function movedOut(gate, ids) {
+  const before = leftBefore(gate);
+  return ids.filter((id) => !before.includes(id)).length
+    + before.filter((id) => !ids.includes(id)).length;
+}
+
+// What the person has marked at a reviewed stop, as the runner takes it.
+function marksOf(gate) {
+  const held = chosenFor(gate);
+  if (gate.name === 'gate:research-plan') {
+    const asked = new Map(list(gate.questions).map((item) => [item.id, item.question]));
+    return { dropped: held.dropped.slice(),
+      reword: filled(held.reword, (id) => asked.get(id)), add: held.added.slice() };
+  }
+  if (gate.name === 'gate:research') {
+    const again = {};
+    for (const [id, text] of Object.entries(held.again)) again[id] = spaced(text);
+    return { left_out: leftOut(gate).slice(), again, add: held.added.slice() };
+  }
+  if (gate.name === 'gate:outline') {
+    const here = new Set(outlineWork(gate).map((one) => one.id));
+    const slides = filled(held.slideNotes);
+    for (const id of Object.keys(slides)) if (!here.has(id)) delete slides[id];
+    return { slides };
+  }
+  return {};
+}
+
+// What a request for changes at a reviewed stop carries, whether its button or the sheet
+// sends it: the marks, the findings left out only when that changed here, so one left out
+// in an earlier round is not asked for again, and the outline as edited.
+function changesOf(gate) {
+  const held = chosenFor(gate);
+  const marks = marksOf(gate);
+  if (gate.name === 'gate:research' && !movedOut(gate, marks.left_out)) {
+    return { again: marks.again, add: marks.add };
+  }
+  if (gate.name === 'gate:outline' && held.edited) return { ...marks, edited: held.work };
+  return marks;
+}
+
+// What a reviewed stop's button does now: its words, whether it approves, what goes with
+// it, and a tally of the marks. What goes with it is nothing only where nothing is marked.
+function reviewOf(gate) {
+  const held = chosenFor(gate);
+  const marks = marksOf(gate);
+  if (gate.name === 'gate:research-plan') {
+    const dropped = sized(marks.dropped);
+    const asked = sized(marks.reword) + sized(marks.add);
+    const tally = [count(dropped, 'dropped', 'dropped'),
+      count(sized(marks.reword), 'reworded', 'reworded'),
+      count(sized(marks.add), 'added', 'added')].join(' · ');
+    if (asked) {
+      return { label: 'Send ' + count(asked + dropped, 'change', 'changes'), approve: false,
+        extra: changesOf(gate), tally };
+    }
+    if (dropped) {
+      return { label: 'Approve without ' + count(dropped, 'question', 'questions'),
+        approve: true, extra: { dropped: marks.dropped }, tally };
+    }
+    return { label: 'Approve', approve: true, extra: null, tally };
+  }
+  if (gate.name === 'gate:research') {
+    const moved = movedOut(gate, marks.left_out);
+    const asked = sized(marks.again) + sized(marks.add);
+    const tally = [count(sized(marks.again), 'to research again', 'to research again'),
+      count(marks.left_out.length, 'left out', 'left out'),
+      count(sized(marks.add), 'added', 'added')].join(' · ');
+    if (asked) {
+      return { label: 'Send ' + count(asked + moved, 'change', 'changes'), approve: false,
+        extra: changesOf(gate), tally };
+    }
+    if (moved) {
+      return { label: marks.left_out.length ? 'Approve, leaving out '
+        + count(marks.left_out.length, 'finding', 'findings') : 'Approve with every finding',
+      approve: true, extra: { left_out: marks.left_out }, tally };
+    }
+    return { label: 'Approve', approve: true, extra: null, tally };
+  }
+  const slides = sized(marks.slides);
+  const edited = held.edited ? { edited: held.work } : null;
+  const tally = count(slides, 'slide to change', 'slides to change')
+    + (held.edited ? ' · edited here' : '');
+  if (slides) {
+    return { label: 'Send ' + count(slides, 'change', 'changes'), approve: false,
+      extra: changesOf(gate), tally };
+  }
+  return { label: 'Approve', approve: true, extra: edited, tally };
+}
+
+// Do what a reviewed stop's button says. What refuses it is said in `problem` where one is
+// given, or else at the head of the deck.
+function sendReview(gate, pressed, problem) {
+  const made = reviewOf(gate);
+  decide(made.approve ? 'approve' : 'changes', '', problem || null, pressed, made.extra);
+}
+
+// Two to four numbers in a row, each with what it counts.
+function reviewCounts(pairs) {
+  const node = make('div', 'review-counts');
+  for (const [number, words] of pairs) {
+    add(node, add(make('p', 'review-count'), make('span', 'review-number', String(number)),
+      ' ', make('span', 'quiet', words)));
+  }
+  return node;
+}
+
+// The full text a stop was drawn from, folded.
+function fullText(summary, label, text, key) {
+  const node = make('details', 'card-part');
+  node.dataset.key = key;
+  return add(node, make('summary', '', summary), documentPart(label, text));
+}
+
+// The tally of the marks and the button that sends them, at the foot of the items. The
+// tally is made once and only its words change, so what it says is read out as it changes.
+// What refuses the decision is said beside the button.
+function reviewBar(gate) {
+  const node = make('div', 'review-bar');
+  node.id = 'review-bar';
+  const tally = make('p', 'quiet');
+  tally.id = 'review-tally';
+  tally.setAttribute('role', 'status');
+  add(node, tally, alertLine('review-problem'), make('div', 'bar'));
+  paintReviewBar(gate, node);
+  return node;
+}
+
+function paintReviewBar(gate, node) {
+  if (!node) return;
+  const made = reviewOf(gate);
+  const problem = node.querySelector('#review-problem');
+  const tally = node.querySelector('#review-tally');
+  // Only a tally that changed is read out again: typing in a box against an item changes
+  // nothing it counts.
+  if (tally.textContent !== made.tally) tally.textContent = made.tally;
+  // What was refused before is not what the marks say now.
+  say(problem, '');
+  const go = capsule(made.label, '', () => sendReview(gate, go, problem), 'review-send');
+  node.querySelector('.bar').replaceChildren(go);
+}
+
+// A mark changed: the tally, this button and the toolbar's say so at once.
+function reviewChanged(gate) {
+  paintReviewBar(gate, byId('review-bar'));
+  if (view.screen === 'deck' && view.run) paintDeck(false);
+}
+
+// New questions the person adds, each with the way to take it back, and a box for one more.
+function addedPart(gate) {
+  const node = make('div', 'review-added');
+  node.id = 'review-added';
+  paintAdded(gate, node);
+  return node;
+}
+
+function paintAdded(gate, node) {
+  if (!node) return;
+  const held = chosenFor(gate);
+  const items = make('ul', 'plain review-list');
+  held.added.forEach((text, index) => {
+    const take = capsule('Take it back', 'quiet', () => {
+      held.added.splice(index, 1);
+      paintAdded(gate, byId('review-added'));
+      reviewChanged(gate);
+      focusKey('added-question');
+    }, 'unadd ' + index);
+    take.setAttribute('aria-label', 'Take it back: “' + clipped(text, 60) + '”');
+    items.append(add(make('li', 'review-row'), make('p', '', text),
+      add(make('div', 'bar'), take)));
+  });
+  // The runner refuses more than ADDED at once, so no more are taken here.
+  const full = held.added.length >= ADDED;
+  const box = field('added-question', 'A question to add', held, 'asking',
+    { long: true, limit: LINE, hint: full ? 'You have added ' + ADDED + ', as many as can '
+      + 'be added at once. Send these, and add more next time round.' : '' });
+  const go = capsule('Add the question', 'quiet', () => {
+    const text = String(held.asking || '').trim();
+    if (!text) {
+      refuse('added-question', 'Write the question first.');
+      focusKey('added-question');
+      return;
+    }
+    held.added.push(text);
+    held.asking = '';
+    paintAdded(gate, byId('review-added'));
+    reviewChanged(gate);
+    focusKey('added-question');
+  }, 'add-question');
+  go.disabled = full;
+  if (full) go.setAttribute('aria-describedby', 'added-question-hint');
+  node.replaceChildren(...(held.added.length ? [make('h3', 'row-title', 'Questions you added'),
+    items] : []), box, add(make('div', 'bar'), go));
+}
+
 // --- one deck: deciding and steering -------------------------------------------------------
 
 // What comes with a decision at the gate, from what the person chose there.
 function extraFor(gate, decision) {
   const held = chosenFor(gate);
+  if (REVIEWED.includes(gate.name)) {
+    return decision === 'approve' ? reviewOf(gate).extra : changesOf(gate);
+  }
   if (gate.name === 'gate:classify' && decision === 'approve' && held.wrong
       && gate.kind === 'document') {
     return { kind: gate.verdict === 'spec' ? 'material' : 'spec' };
   }
   if (gate.name === 'gate:look' && decision === 'changes') {
     return { brand: held.brand, variant: held.variant || null };
-  }
-  if (gate.name === 'gate:outline' && decision === 'approve' && held.edited) {
-    return { edited: held.work };
   }
   if (gate.name === 'gate:build' && decision === 'changes' && held.marked.length) {
     return { slides: markedSlides() };
@@ -3854,7 +4326,7 @@ function undoSheet() {
       'cancel'))];
 }
 
-async function decide(decision, note, problem, pressed) {
+async function decide(decision, note, problem, pressed, extra) {
   if (view.busy) return;
   const turn = view.turn;
   const run = view.run;
@@ -3862,8 +4334,8 @@ async function decide(decision, note, problem, pressed) {
   const noted = noteKey(decision);
   const body = { path: view.path, gate: gate ? gate.name : 'gate:build', decision };
   if (note) body.note = note;
-  const extra = gate ? extraFor(gate, decision) : null;
-  if (extra) body.extra = extra;
+  const more = extra !== undefined ? extra : gate ? extraFor(gate, decision) : null;
+  if (more) body.extra = more;
   view.busy = true;
   pressed.disabled = true;
   let answered;
@@ -3876,7 +4348,8 @@ async function decide(decision, note, problem, pressed) {
       say(problem, failure.message + ' Nothing was decided.');
       return;
     }
-    // Approve has no sheet: what refused it is said at the head of the deck.
+    // A decision pressed in the toolbar has no sheet, whether it approves or sends what was
+    // marked: what refused it is said at the head of the deck.
     if (turn !== view.turn) return;
     view.steered = failure.message + ' Nothing was decided.';
     paintDeck(false);
@@ -3945,9 +4418,15 @@ function deckActions(run, lead) {
     actions.push(node);
   };
   if (run.gate && !run.question) {
-    // Approve acts at once: what it does is said beside the gate before it is pressed.
-    const approve = capsule('Approve', lead === 'approve' ? 'filled' : '',
-      () => decide('approve', '', null, approve), 'approve');
+    // Approve acts at once: what it does is said beside the gate before it is pressed. At
+    // a stop reviewed item by item it says what it will do with the marks. Pressed, it
+    // acts on the gate as it is then, as `decide` does.
+    const approve = capsule(REVIEWED.includes(run.gate.name) ? reviewOf(run.gate).label
+      : 'Approve', lead === 'approve' ? 'filled' : '', () => {
+      const gate = view.run.gate;
+      if (gate && REVIEWED.includes(gate.name)) sendReview(gate, approve);
+      else decide('approve', '', null, approve);
+    }, 'approve');
     const brand = run.gate.name === 'gate:look';
     actions.push(approve, capsule(brand ? 'Choose another brand' : 'Ask for changes', '',
       openSheet(brand ? 'rebrand' : 'changes', 'changes'), 'changes'));
@@ -3983,7 +4462,8 @@ function paintDeck(fresh) {
   const gate = run.gate;
   placeParts({ title, above, back: true, actions: deckActions(run, lead),
     mark: [title, route, run.state, lead, gate && [gate.name, gate.round], read, driver,
-      Boolean(run.question), run.problem] }, [
+      Boolean(run.question), run.problem,
+      gate && REVIEWED.includes(gate.name) && !read ? reviewOf(gate).label : ''] }, [
     ['intro', [run.state, run.sentence, run.queue, view.steered, read, Boolean(run.problem)],
       () => deckIntro(run)],
     ['timeline', [run.timeline, gate && gate.name], () => timelinePart(run)],

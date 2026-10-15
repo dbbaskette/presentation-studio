@@ -123,8 +123,11 @@ TIMEOUT = 40            # seconds for one request
 SUBMISSIONS = 6         # times one draft or finding may be handed back
 QUOTE = (20, 900)       # the shortest and longest quote, in characters
 SUMMARY = 1500
+HEADLINE = 25           # words in a finding's headline
+HEADLINE_UNITS = 300    # harness-research's limit on a headline, in UTF-16 code units
 NOTES = 4000
 QUESTION = 1000
+QUESTIONS = 30          # questions harness-research takes in one plan
 PASSAGES = 20
 ADDRESS = 2000
 ICONS = 8               # the most icons one search returns
@@ -391,8 +394,8 @@ def check_research_plan(plan) -> dict:
         problems.append('Leave out "input_files"; registering intake there makes '
                         'harness-research discard its findings when intake is edited.')
     items = plan.get('items')
-    if not isinstance(items, list) or not 1 <= len(items) <= 30:
-        problems.append('"items" must hold 1 to 30 questions.')
+    if not isinstance(items, list) or not 1 <= len(items) <= QUESTIONS:
+        problems.append(f'"items" must hold 1 to {QUESTIONS} questions.')
         return result(name, problems)
     seen = set()
     for position, item in enumerate(items, start=1):
@@ -1487,7 +1490,7 @@ class WorkerTools:
     # --- findings ---
 
     @tool
-    def submit_finding(self, item, status, summary, limits='', evidence=None):
+    def submit_finding(self, item, status, summary, limits='', evidence=None, headline=None):
         """Hand back the finding for the job's question, with exact quotes."""
         wanted = self.job['finding']
         if not wanted:
@@ -1497,6 +1500,18 @@ class WorkerTools:
         self._allowed('finding', 'This finding')
         passages = self._passages(evidence)
         problems, kept = [], []
+        # U+FEFF is whitespace to harness-research's trim but not to split(), so it goes first.
+        parts = headline.replace('\ufeff', ' ').split() if isinstance(headline, str) else []
+        headline, words = ' '.join(parts), len(parts)
+        units = len(headline.encode('utf-16-le', 'surrogatepass')) // 2
+        if not words:
+            problems.append('The headline is empty: give the answer in one sentence.')
+        elif words > HEADLINE:
+            problems.append(f'The headline is {words} words. Give the answer in one sentence '
+                            f'of at most {HEADLINE} words.')
+        elif units > HEADLINE_UNITS:
+            problems.append(f'The headline is {units:,} characters. Give the answer in one '
+                            f'sentence of at most {HEADLINE_UNITS} characters.')
         if status not in STATUSES:
             problems.append('status must be one of: ' + ', '.join(STATUSES) + '.')
         if not isinstance(summary, str) or not summary.strip():
@@ -1520,8 +1535,8 @@ class WorkerTools:
         if problems:
             return self._refused(problems, left)
         home.write_json(self.folder / 'accepted' / 'finding.json', {
-            'item': wanted, 'status': status, 'summary': summary.strip(), 'limits': limits,
-            'evidence': kept})
+            'item': wanted, 'status': status, 'summary': summary.strip(),
+            'headline': headline, 'limits': limits, 'evidence': kept})
         return True, (f'Accepted: the finding for {wanted}, with {len(kept)} quoted '
                       'passage(s).')
 
@@ -1654,11 +1669,11 @@ TOOLS = [
                'quote must be copied exactly from a saved source; its place is worked out '
                'for you.',
                {'item': TEXT, 'status': {'type': 'string', 'enum': list(STATUSES)},
-                'summary': TEXT, 'limits': TEXT,
+                'headline': TEXT, 'summary': TEXT, 'limits': TEXT,
                 'evidence': {'type': 'array', 'items': {
                     'type': 'object', 'properties': {'source_id': TEXT, 'quote': TEXT},
                     'required': ['source_id', 'quote']}}},
-               ['item', 'status', 'summary']),
+               ['item', 'status', 'headline', 'summary']),
     _described('ask_person', 'Ask the person one question you cannot work without an '
                'answer to. This ends your job: stop as soon as you have asked.',
                {'question': TEXT}, ['question']),

@@ -671,6 +671,7 @@ class FindingTests(JobCase):
     def submit(self, tools, quote=QUOTE, **changes):
         given = {'item': 'instance-min', 'status': 'supported',
                  'summary': 'An app keeps capacity when it runs more than one instance.',
+                 'headline': 'Capacity holds when more than one instance runs.',
                  'limits': 'One page from the platform\'s own documentation.',
                  'evidence': [{'source_id': 's1', 'quote': quote}], **changes}
         return tools.submit_finding(**given)
@@ -687,6 +688,47 @@ class FindingTests(JobCase):
             'file': source['file'], 'title': 'Rolling restarts', 'origin': DOCS, 'quote': QUOTE,
             'start': start, 'locator': f'characters {start} to {start + len(QUOTE)}'})
         self.assertEqual(self.text[start:start + len(QUOTE)], QUOTE)
+
+    def test_an_accepted_finding_keeps_its_headline(self):
+        tools = self.research()
+        self.ok(self.submit(tools, headline='  Capacity holds   with two instances. '))
+        finding = worker_tools.collect(self.job)['finding']
+        self.assertEqual(finding['headline'], 'Capacity holds with two instances.')
+
+    def test_a_finding_without_a_headline_or_with_a_long_one_is_refused(self):
+        tools = self.research()
+        said = self.refused(self.submit(tools, headline=''))
+        self.assertIn('The headline is empty: give the answer in one sentence.', said)
+        said = self.refused(self.submit(tools, headline=' '.join(['word'] * 26)))
+        self.assertIn('The headline is 26 words. Give the answer in one sentence of at most '
+                      '25 words.', said)
+        self.assertIsNone(worker_tools.collect(self.job)['finding'])
+
+    def test_a_headline_over_the_command_s_length_is_refused_while_it_can_be_fixed(self):
+        tools = self.research()
+        long = ' '.join(['extraordinarily'] * 25)
+        said = self.refused(self.submit(tools, headline=long))
+        self.assertIn(f'The headline is {len(long):,} characters. Give the answer in one '
+                      'sentence of at most 300 characters.', said)
+        self.assertIsNone(worker_tools.collect(self.job)['finding'])
+
+    def test_a_headline_of_exactly_the_most_words_is_kept(self):
+        tools = self.research()
+        self.ok(self.submit(tools, headline=' '.join(['word'] * 25)))
+        self.assertEqual(worker_tools.collect(self.job)['finding']['headline'],
+                         ' '.join(['word'] * 25))
+
+    def test_a_missing_or_blank_headline_is_empty(self):
+        tools = self.research()
+        for headline in (None, '\ufeff', ' \ufeff \n'):
+            said = self.refused(self.submit(tools, headline=headline))
+            self.assertIn('The headline is empty: give the answer in one sentence.', said)
+        self.assertIsNone(worker_tools.collect(self.job)['finding'])
+
+    def test_a_headline_over_two_lines_is_kept_as_one(self):
+        tools = self.research()
+        self.ok(self.submit(tools, headline='Two\nlines'))
+        self.assertEqual(worker_tools.collect(self.job)['finding']['headline'], 'Two lines')
 
     def test_a_quote_that_is_not_there_is_refused(self):
         tools = self.research()
@@ -795,6 +837,7 @@ class FindingTests(JobCase):
             'file': 'sources/handbook.txt', 'supplied': 'handbook'}])
         self.assertIn('This job cannot fetch pages', self.refused(tools.save_source(DOCS)))
         self.ok(tools.submit_finding('instance-min', 'supported', 'Two instances are kept.',
+                                     headline='Two instances are kept.',
                                      evidence=[{'source_id': 's1', 'quote': 'Keep two '
                                                 'instances running throughout.'}]))
         passage = worker_tools.collect(self.job)['finding']['evidence'][0]

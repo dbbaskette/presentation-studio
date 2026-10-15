@@ -9,10 +9,10 @@ from pathlib import Path
 from unittest import mock
 
 import runner_support
-from runner_support import OUTLINE, StudioCase, asks, fails
+from runner_support import OUTLINE, StudioCase, asks, fails, unsettled
 from workspace import WorkspaceError
 
-from runner import decks, stages
+from runner import decks, marks, stages
 from runner.steps import build
 
 
@@ -161,6 +161,23 @@ class ScratchTests(StudioCase):
         self.assertEqual([slide['id'] for slide in kept['slides']],
                          [slide['id'] for slide in moved])
         self.assertEqual(self.waiting(root), 'gate:look')
+
+    def test_an_edited_outline_is_kept_before_its_worker_is_asked_for_changes(self):
+        root = self.start()
+        slides = self.view(root)['gate']['slides']
+        moved = [*slides[:2], slides[3], slides[2], *slides[4:]]
+        seen = []
+
+        def again(tools, job):
+            kept = json.loads((root / 'outline.json').read_text())
+            seen.append([slide['id'] for slide in kept['slides']])
+            return self.workers.outline(tools, job)
+
+        self.workers.then('outline', again)
+        self.engine.decide(root, 'gate:outline', 'changes', 'Shorten the close.',
+                           {'edited': moved})
+        self.assertEqual(seen, [[slide['id'] for slide in moved]])
+        self.assertIn('Shorten the close.', self.workers.of('outline')[-1].task)
 
     def test_changes_to_the_deck_draw_only_the_sections_of_the_named_slides(self):
         root = self.start()
@@ -429,6 +446,274 @@ class ResearchTests(StudioCase):
         self.assertEqual(asked[-1], 'health-checks')
         self.assertEqual(len(asked), 3)
         self.assertEqual(self.waiting(root), 'gate:research')
+
+    def test_marks_at_the_research_are_kept_on_its_stop_and_a_note_alone_clears_them(self):
+        root = self.start(research=True)
+        self.to_gate(root, 'gate:research')
+        self.engine.decide(root, 'gate:research', 'changes', 'Find a second page.',
+                           {'again': {'health-checks': ''}})
+        gate = self.record(root)['gates']['gate:research']
+        self.assertEqual((gate['again'], gate['free']),
+                         ({'health-checks': ''}, 'Find a second page.'))
+        self.assertEqual(gate['note'],
+                         '- Research `health-checks` again.\n\nFind a second page.')
+        self.assertEqual(self.waiting(root), 'gate:research')
+        self.engine.decide(root, 'gate:research', 'changes', 'Look again at health-checks.',
+                           None)
+        gate = self.record(root)['gates']['gate:research']
+        self.assertEqual((gate['again'], gate['free'], gate['note']),
+                         (None, None, 'Look again at health-checks.'))
+
+    def test_each_finding_s_headline_is_kept_with_the_research(self):
+        root = self.start(research=True)
+        self.to_gate(root, 'gate:research')
+        record = json.loads((root / '.harness-research' / 'research.json').read_text())
+        self.assertEqual({ident: result.get('headline')
+                          for ident, result in record['results'].items()},
+                         {'instance-min': 'The page answers instance-min.',
+                          'health-checks': 'The page answers health-checks.'})
+
+    def test_the_research_stops_list_each_question_and_finding(self):
+        root = self.start(research=True)
+        plan = self.view(root)['gate']
+        self.assertEqual(plan['questions'][0], {
+            'id': 'instance-min', 'title': 'Instance min',
+            'question': 'How many instances keep capacity during a restart?',
+            'search': 'rolling restart minimum instances'})
+        self.decide(root, 'gate:research-plan')
+        found = self.view(root)['gate']
+        first = found['items'][0]
+        self.assertEqual({key: first[key] for key in ('id', 'title', 'status', 'headline',
+                                                      'left_out', 'unknown')},
+                         {'id': 'instance-min', 'title': 'Instance min', 'status': 'supported',
+                          'headline': 'The page answers instance-min.', 'left_out': False,
+                          'unknown': ''})
+        self.assertEqual(set(first['sources'][0]), {'title', 'origin', 'quote'})
+        self.assertEqual(first['sources'][0]['quote'], runner_support.QUOTE)
+        self.assertEqual(first['sources'][0]['origin'], runner_support.URL)
+        self.assertNotIn(str(root), json.dumps(found))
+        # A finding kept before headlines were asked for is given its summary's first
+        # sentence.
+        kept = root / '.harness-research' / 'research.json'
+        record = json.loads(kept.read_text())
+        del record['results']['instance-min']['headline']
+        record['results']['instance-min']['summary'] = (
+            'What the page says about instance-min. More besides.')
+        kept.write_text(json.dumps(record))
+        self.assertEqual(self.view(root)['gate']['items'][0]['headline'],
+                         'What the page says about instance-min.')
+        # The report says that sentence once, in the summary.
+        self.engine.decide(root, 'gate:research', 'approve', None, {'left_out': []})
+        report = (root / 'research' / 'report.md').read_text()
+        self.assertEqual(report.count('What the page says about instance-min.'), 1)
+        self.assertIn('What the page says about instance-min. More besides.', report)
+
+
+class PlanMarkTests(StudioCase):
+    def questions(self, root):
+        return [item['id'] for item in
+                json.loads((root / 'research' / 'plan.json').read_text())['items']]
+
+    def test_dropped_questions_go_with_the_approval(self):
+        root = self.start(research=True)
+        self.engine.decide(root, 'gate:research-plan', 'approve', None,
+                           {'dropped': ['health-checks']})
+        self.assertEqual(self.questions(root), ['instance-min'])
+        self.assertNotIn('health-checks', (root / 'research' / 'plan.md').read_text())
+        self.assertEqual(len(self.workers.of('question')), 1)
+        self.assertEqual(self.waiting(root), 'gate:research')
+
+    def test_rewording_and_adding_go_back_to_the_planner_as_one_note(self):
+        root = self.start(research=True)
+        self.engine.decide(root, 'gate:research-plan', 'changes', 'Keep it short.', {
+            'dropped': ['health-checks'],
+            'reword': {'instance-min': 'How many instances keep capacity?'},
+            'add': ['What does a restart cost?']})
+        task = self.workers.of('research-plan')[-1].task
+        self.assertIn('- Reword `instance-min` as: How many instances keep capacity?', task)
+        self.assertIn('- Add a question: What does a restart cost?', task)
+        self.assertIn('Keep it short.', task)
+        # The drop was applied before the planner ran again.
+        self.assertIn('"id": "instance-min"', task)
+        self.assertNotIn('"id": "health-checks"', task)
+        gate = self.record(root)['gates']['gate:research-plan']
+        self.assertEqual((gate['state'], gate['round']), ('waiting', 2))
+
+    def test_marks_that_say_nothing_or_need_a_worker_with_approve_are_refused(self):
+        root = self.start(research=True)
+        for decision, extra, said in (
+                ('approve', {'add': ['Why?']}, marks.AS_CHANGES),
+                ('approve', {'dropped': ['instance-min', 'health-checks']}, marks.ALL_DROPPED),
+                ('changes', {'dropped': ['nowhere']}, 'There is no question nowhere here.'),
+                ('changes', {}, 'Say what should change.')):
+            with self.subTest(extra=extra):
+                with self.assertRaises(WorkspaceError) as caught:
+                    self.engine.decide(root, 'gate:research-plan', decision, None, extra)
+                self.assertIn(said, str(caught.exception))
+        self.assertEqual(self.questions(root), ['instance-min', 'health-checks'])
+        self.assertEqual(self.waiting(root), 'gate:research-plan')
+
+
+class FindingMarkTests(StudioCase):
+    def researched(self):
+        self.workers.then('question', unsettled(self.workers, 'health-checks'),
+                          unsettled(self.workers, 'health-checks'))
+        root = self.start(research=True)
+        self.decide(root, 'gate:research-plan')
+        self.assertEqual(self.waiting(root), 'gate:research')
+        return root
+
+    def asked(self, before):
+        """The questions researched since `before` question jobs had started."""
+        return [spec['finding'] for kind, job, spec in self.workers.jobs
+                if kind.startswith('question:')][before:]
+
+    def test_the_report_is_written_from_each_finding(self):
+        root = self.researched()
+        report = (root / 'research' / 'report.md').read_text()
+        for said in ('1 of 2 questions has an answer the sources support.',
+                     'Not settled (1):', '## Instance min (`instance-min`)',
+                     'The page answers instance-min.', 'Not known: Only one page was found.',
+                     f'"{runner_support.QUOTE}"'):
+            self.assertIn(said, report)
+
+    def test_left_out_findings_go_with_the_approval_and_leave_the_report(self):
+        root = self.researched()
+        self.engine.decide(root, 'gate:research', 'approve', None,
+                           {'left_out': ['health-checks']})
+        report = (root / 'research' / 'report.md').read_text()
+        self.assertIn('1 of 1 question has an answer the sources support.', report)
+        self.assertIn('Left out by you (1):\n- Health checks', report)
+        self.assertNotIn('No page says', report)
+        self.assertEqual(self.record(root)['research']['left_out'], ['health-checks'])
+        self.assertEqual(self.waiting(root), 'gate:outline')
+
+    def test_research_again_redoes_only_the_marked_question_with_its_line(self):
+        root = self.researched()
+        before = len(self.workers.of('question'))
+        self.engine.decide(root, 'gate:research', 'changes', 'Be brief.', {
+            'left_out': [], 'again': {'health-checks': 'Look for the platform docs.'}})
+        self.assertEqual(self.asked(before), ['health-checks'])
+        task = self.workers.of('question')[-1].task
+        self.assertIn('researched again. What they said about it:\n\nLook for the platform '
+                      'docs.', task)
+        self.assertIn('Be brief.', task)
+        gate = self.view(root)['gate']
+        self.assertEqual((gate['name'], gate['round']), ('gate:research', 2))
+        # What was marked is not kept once the research is approved.
+        self.engine.decide(root, 'gate:research', 'approve', None, None)
+        gate = self.record(root)['gates']['gate:research']
+        self.assertEqual((gate['again'], gate['added'], gate['free']), (None, None, None))
+
+    def test_a_question_added_after_the_research_keeps_the_other_findings(self):
+        root = self.researched()
+        before = len(self.workers.of('question'))
+        self.engine.decide(root, 'gate:research', 'changes', None,
+                           {'add': ['What does a restart cost?']})
+        self.assertEqual(self.asked(before), ['what-does-a-restart-cost'])
+        task = self.workers.of('question')[-1].task
+        self.assertIn('The person added your question after reading the research.', task)
+        self.assertNotIn('researched again', task)
+        statuses = {item['id']: item['status'] for item in self.view(root)['gate']['items']}
+        self.assertEqual(statuses, {'instance-min': 'supported', 'health-checks': 'insufficient',
+                                    'what-does-a-restart-cost': 'supported'})
+
+    def test_findings_a_changed_plan_lost_are_researched_again(self):
+        from stand_ins import research as research_stand_in
+        root = self.researched()
+        before = len(self.workers.of('question'))
+        # As when a file the research rests on changed: harness-research keeps nothing.
+        with mock.patch.object(research_stand_in.StandIn, '_kept', lambda *given: {}):
+            self.engine.decide(root, 'gate:research', 'changes', None,
+                               {'add': ['What does a restart cost?']})
+        self.assertEqual(sorted(self.asked(before)),
+                         ['health-checks', 'instance-min', 'what-does-a-restart-cost'])
+        self.assertNotIn('pending', [item['status'] for item in self.view(root)['gate']['items']])
+        self.assertNotIn('Not researched', (root / 'research' / 'report.md').read_text())
+
+    def test_a_left_out_question_is_not_researched_again_for_a_note(self):
+        root = self.researched()
+        before = len(self.workers.of('question'))
+        self.engine.decide(root, 'gate:research', 'changes', 'Be brief.',
+                           {'left_out': ['health-checks']})
+        # The note names no question, so each question kept is researched again, but never
+        # the one left out, though it is unsettled and the note the runner writes names it.
+        self.assertEqual(self.asked(before), ['instance-min'])
+        task = self.workers.of('question')[-1].task
+        self.assertIn('Be brief.', task)
+        self.assertNotIn('Leave out', task)
+        self.assertEqual(self.waiting(root), 'gate:research')
+        report = (root / 'research' / 'report.md').read_text()
+        self.assertIn('Left out by you (1):\n- Health checks', report)
+        self.assertNotIn('No page says', report)
+
+    def test_a_left_out_finding_is_not_researched_again_until_it_is_brought_back(self):
+        root = self.researched()
+        self.engine.decide(root, 'gate:research', 'changes', 'Be brief.',
+                           {'left_out': ['health-checks']})
+        before, kept = len(self.workers.of('question')), self.record(root)
+        with self.assertRaises(WorkspaceError) as caught:
+            self.engine.decide(root, 'gate:research', 'changes', None,
+                               {'again': {'health-checks': ''}})
+        self.assertEqual(str(caught.exception),
+                         'health-checks is left out: bring it back before researching it '
+                         'again.')
+        self.assertEqual(self.record(root), kept)
+        self.assertEqual(len(self.workers.of('question')), before)
+
+    def test_a_question_added_to_a_full_plan_is_refused_and_nothing_is_written(self):
+        root = self.researched()
+        plan = json.loads((root / 'research' / 'plan.json').read_text())
+        plan['items'] += [{'id': f'more-{number}', 'question': f'More {number}?',
+                           'public_query': None, 'claim': None} for number in range(28)]
+        (root / 'research' / 'plan.json').write_text(json.dumps(plan, indent=2))
+        kept = (root / 'research' / 'plan.json').read_text()
+        with self.assertRaises(WorkspaceError) as caught:
+            self.engine.decide(root, 'gate:research', 'changes', None,
+                               {'add': ['What does a restart cost?']})
+        self.assertEqual(str(caught.exception), 'A plan holds at most 30 questions.')
+        self.assertEqual((root / 'research' / 'plan.json').read_text(), kept)
+        self.assertEqual(self.waiting(root), 'gate:research')
+
+    def test_marks_that_need_a_worker_go_as_changes(self):
+        root = self.researched()
+        with self.assertRaises(WorkspaceError) as caught:
+            self.engine.decide(root, 'gate:research', 'approve', None,
+                               {'again': {'health-checks': ''}})
+        self.assertEqual(str(caught.exception), marks.AS_CHANGES)
+
+
+class OutlineMarkTests(StudioCase):
+    def test_slides_marked_for_changes_reach_the_outline_worker(self):
+        root = self.start()
+        slides = self.view(root)['gate']['slides']
+        moved = [slides[0], slides[2], slides[1], *slides[3:]]
+        # The scripted workers draw the outline they are given, as it now stands.
+        self.workers.outline_said = {**self.workers.outline_said, 'slides': moved}
+        read = []
+
+        def draw(tools, job):
+            read.append(json.loads(tools.read_input('The current outline')[1]))
+            self.workers.outline(tools, job)
+        self.workers.then('outline', draw)
+        self.engine.decide(root, 'gate:outline', 'changes', None, {
+            'edited': moved, 'slides': {slides[1]['id']: 'Split it in two.'}})
+        # The worker found the person's edit already kept when it began.
+        self.assertEqual([[one['id'] for one in outline['slides']] for outline in read],
+                         [[one['id'] for one in moved]])
+        kept = json.loads((root / 'outline.json').read_text())
+        self.assertEqual([one['id'] for one in kept['slides']], [one['id'] for one in moved])
+        task = self.workers.of('outline')[-1].task
+        self.assertIn(f"- Slide `{slides[1]['id']}`: Split it in two.", task)
+        self.assertEqual(self.record(root)['gates']['gate:outline']['round'], 2)
+
+    def test_a_slide_the_outline_does_not_have_is_refused(self):
+        root = self.start()
+        with self.assertRaises(WorkspaceError) as caught:
+            self.engine.decide(root, 'gate:outline', 'changes', None,
+                               {'slides': {'no-such-slide': 'Split it.'}})
+        self.assertEqual(str(caught.exception), 'There is no slide no-such-slide here.')
+        self.assertEqual(len(self.workers.of('outline')), 1)
 
 
 class DocumentTests(StudioCase):

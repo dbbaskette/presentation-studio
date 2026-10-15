@@ -16,9 +16,11 @@ from unittest import mock
 
 import helpers
 import runner_support
+from runner_support import QUOTE, URL, unsettled
 from test_runner_page import PageCase
 
 import server
+from runner import marks
 from runner.steps import build
 
 PAGE = helpers.SCRIPTS / 'desk'
@@ -397,13 +399,162 @@ class ScreenTests(ScriptedPage, PageCase):
         self.assertIn('/api/download?path=', ' '.join(
             request['address'] for request in result['requests']))
 
+    def test_a_question_dropped_on_the_page_goes_with_the_approval(self):
+        path = self.started(research=True)
+        result = self.deck_screen(path, [
+            {'snapshot': 'plan'}, {'click': 'Drop “Health checks”'}, {'snapshot': 'dropped'},
+            {'click': 'Approve without 1 question'}],
+            **{'POST /api/decide': [ok(self.run_of(path))]})
+        plan = result['snapshots']['plan']
+        for said in ('2 questions', 'Instance min', 'Searched for: rolling restart minimum '
+                     'instances', 'Read the full plan'):
+            self.assertIn(said, plan['text'])
+        dropped = result['snapshots']['dropped']
+        self.assertIn('1 dropped · 0 reworded · 0 added', dropped['text'])
+        # The focus stays on the row, on the way to undo the drop.
+        self.assertEqual(dropped['focus'], 'Keep “Health checks”')
+        # The last question left cannot be dropped too, and the row says why.
+        self.assertIn('Drop “Instance min”', dropped['off'])
+        self.assertIn('The last question left cannot be dropped', dropped['text'])
+        (_, body), = self.posts(result)
+        self.assertEqual((body['decision'], body['extra']),
+                         ('approve', {'dropped': ['health-checks']}))
+        self.post('decide', body)
+        self.assertEqual(self.run_of(path)['gate']['name'], 'gate:research')
+
+    def test_a_reworded_and_an_added_question_are_sent_as_changes(self):
+        path = self.started(research=True)
+        result = self.deck_screen(path, [
+            {'click': 'Reword “Instance min”'}, {'snapshot': 'rewording'},
+            {'hold': 'Keep the wording of “Instance min”'},
+            {'fill': 'New wording for “Instance min”',
+             'value': 'How many instances keep capacity?', 'stay': True},
+            {'snapshot': 'typing'},
+            {'fill': 'A question to add', 'value': 'What does a restart cost?'},
+            {'click': 'Add the question'}, {'snapshot': 'marked'},
+            {'click': 'Send 2 changes'}],
+            **{'POST /api/decide': [ok(self.run_of(path))]})
+        shots = result['snapshots']
+        # Pressing Reword takes the focus to the new wording, and typing in it leaves the
+        # questions as they are.
+        self.assertEqual(shots['rewording']['focus'], 'reword-instance-min')
+        self.assertEqual(shots['typing']['still'], ['Keep the wording of “Instance min”'])
+        self.assertEqual(shots['typing']['focus'], 'reword-instance-min')
+        self.assertIn('Questions you added', shots['marked']['text'])
+        (_, body), = self.posts(result)
+        self.assertNotIn('note', body)
+        self.assertEqual((body['decision'], body['extra']), ('changes', {
+            'dropped': [], 'reword': {'instance-min': 'How many instances keep capacity?'},
+            'add': ['What does a restart cost?']}))
+        self.post('decide', body)
+        self.assertEqual(self.run_of(path)['gate']['round'], 2)
+
+    def test_no_more_questions_are_added_than_the_runner_takes_at_once(self):
+        path = self.started(research=True)
+        steps = []
+        for number in range(1, marks.ADDED + 1):
+            steps += [{'fill': 'A question to add', 'value': f'Question {number}?'},
+                      {'click': 'Add the question'}]
+        sending = f'Send {marks.ADDED} changes'
+        result = self.deck_screen(path, [*steps, {'snapshot': 'full'}, {'click': sending}],
+                                  **{'POST /api/decide': [ok(self.run_of(path))]})
+        full = result['snapshots']['full']
+        self.assertIn('Add the question', full['off'])
+        self.assertIn('as many as can be added at once', full['text'])
+        self.assertIn(sending, full['buttons'])
+        (_, body), = self.posts(result)
+        self.assertEqual(len(body['extra']['add']), marks.ADDED)
+        # The runner takes exactly as many as the page lets the person add.
+        self.post('decide', body)
+        self.assertEqual(self.run_of(path)['gate']['round'], 2)
+
+    def test_a_line_takes_as_many_characters_as_the_runner_does(self):
+        path = self.started(research=True)
+        result = self.deck_screen(path, [{'click': 'Reword “Instance min”'},
+                                         {'snapshot': 'rewording'}])
+        limits = result['snapshots']['rewording']['limits']
+        for label in ('New wording for “Instance min”', 'A question to add'):
+            self.assertEqual(limits[label], marks.LINE)
+
+    def test_findings_that_need_a_look_come_first_and_marks_go_as_changes(self):
+        self.workers.then('question', unsettled(self.workers, 'health-checks'),
+                          unsettled(self.workers, 'health-checks'))
+        path = self.started(research=True)
+        self.decided(path, 'gate:research-plan')
+        self.assertEqual(self.run_of(path)['gate']['name'], 'gate:research')
+        result = self.deck_screen(path, [
+            {'snapshot': 'found'},
+            {'click': 'Research again: “Health checks”'}, {'snapshot': 'asking'},
+            {'fill': 'What was wrong with “Health checks” (optional)',
+             'value': 'Look for the platform docs.'},
+            {'click': 'Instance min'}, {'click': 'Sources for “Instance min” (1)'},
+            {'snapshot': 'opened'}, {'click': 'Leave out “Instance min”'},
+            {'snapshot': 'marked'}, {'click': 'Send 2 changes'}],
+            **{'POST /api/decide': [ok(self.run_of(path))]})
+        found = result['snapshots']['found']['text']
+        for said in ('Look at these first', 'Not settled',
+                     'No page says what starts the next batch.',
+                     'Not known: Only one page was found.', 'Answered', 'Read the full report'):
+            self.assertIn(said, found)
+        self.assertLess(found.index('Health checks'), found.index('Instance min'))
+        # Pressing Research again takes the focus to the box for what was wrong.
+        self.assertEqual(result['snapshots']['asking']['focus'], 'again-health-checks')
+        opened = result['snapshots']['opened']
+        self.assertIn(QUOTE, opened['text'])
+        self.assertTrue(any(link['href'] == URL for link in opened['links']))
+        self.assertIn('1 to research again · 1 left out · 0 added',
+                      result['snapshots']['marked']['text'])
+        (_, body), = self.posts(result)
+        self.assertEqual((body['decision'], body['extra']), ('changes', {
+            'left_out': ['instance-min'],
+            'again': {'health-checks': 'Look for the platform docs.'}, 'add': []}))
+
+    def test_the_last_finding_kept_cannot_be_left_out(self):
+        path = self.started(research=True)
+        self.decided(path, 'gate:research-plan')
+        result = self.deck_screen(path, [
+            {'click': 'Health checks'}, {'click': 'Leave out “Health checks”'},
+            {'snapshot': 'left out'}, {'click': 'Instance min'}, {'snapshot': 'one left'},
+            {'click': 'Approve, leaving out 1 finding'}],
+            **{'POST /api/decide': [ok(self.run_of(path))]})
+        # The focus stays on the row, now drawn again, on the way to bring it back.
+        self.assertEqual(result['snapshots']['left out']['focus'],
+                         'Bring it back: “Health checks”')
+        left = result['snapshots']['one left']
+        # The outline needs a finding, so the last one kept cannot be left out, and says why.
+        self.assertIn('Leave out “Instance min”', left['off'])
+        self.assertIn('The last finding kept cannot be left out', left['text'])
+        (_, body), = self.posts(result)
+        self.assertEqual((body['decision'], body['extra']),
+                         ('approve', {'left_out': ['health-checks']}))
+        self.post('decide', body)
+        self.assertEqual(self.run_of(path)['gate']['name'], 'gate:outline')
+
+    def test_a_finding_researched_again_is_sent_without_the_leave_outs(self):
+        path = self.started(research=True)
+        self.decided(path, 'gate:research-plan')
+        result = self.deck_screen(path, [
+            {'click': 'Health checks'}, {'click': 'Research again: “Health checks”'},
+            {'click': 'Don’t research it again: “Health checks”'}, {'snapshot': 'undone'},
+            {'click': 'Research again: “Health checks”'}, {'click': 'Send 1 change'}],
+            **{'POST /api/decide': [ok(self.run_of(path))]})
+        # Taking the mark back leaves the focus on the way to make it again.
+        self.assertEqual(result['snapshots']['undone']['focus'],
+                         'Research again: “Health checks”')
+        (_, body), = self.posts(result)
+        # Nothing was left out or brought back here, so no leave-out is asked for again.
+        self.assertEqual((body['decision'], body['extra']),
+                         ('changes', {'again': {'health-checks': ''}, 'add': []}))
+        self.post('decide', body)
+        self.assertEqual(self.run_of(path)['gate']['round'], 2)
+
     def test_a_slide_added_and_moved_on_the_page_is_an_outline_the_slides_tool_takes(self):
         path = self.started()
         drafted = self.run_of(path)['gate']['slides']
         title = 'Watch each batch of the restart closely'
         result = self.deck_screen(path, [
             {'fill': 'A new slide’s title', 'value': title}, {'click': 'Add the slide'},
-            {'click': f'Move “{title}” up'}, {'click': 'Approve'}],
+            {'click': f'Move up: “{title}”'}, {'click': 'Approve'}],
             **{'POST /api/decide': [ok(self.run_of(path))]})
         approval = [body for address, body in self.posts(result)
                     if address == '/api/decide'][-1]
@@ -451,6 +602,106 @@ class ScreenTests(ScriptedPage, PageCase):
             self.assertEqual(self.run_of(path)['gate']['name'], 'gate:look')
             kept = json.loads((Path(path) / 'outline.json').read_text())
             self.assertEqual(kept['slides'][-1]['notes'], said)
+
+    def test_a_slide_marked_on_the_page_is_sent_with_what_should_change(self):
+        path = self.started()
+        second = self.run_of(path)['gate']['slides'][1]
+        result = self.deck_screen(path, [
+            {'snapshot': 'outline'},
+            {'click': f"Ask for changes to “{second['title']}”"}, {'snapshot': 'asking'},
+            {'fill': f"What should change on “{second['title']}”", 'value': 'Split it in two.'},
+            {'snapshot': 'marked'}, {'click': 'Send 1 change'}],
+            **{'POST /api/decide': [ok(self.run_of(path))]})
+        self.assertIn('Points and notes', result['snapshots']['outline']['text'])
+        # Pressing Ask for changes takes the focus to the box for what should change, and
+        # the way to take the mark back names the slide.
+        asking = result['snapshots']['asking']
+        self.assertEqual(asking['focus'], f"slide-note-{second['id']}")
+        self.assertIn(f"Keep it as it is: “{second['title']}”", asking['buttons'])
+        self.assertIn('1 slide to change', result['snapshots']['marked']['text'])
+        (_, body), = self.posts(result)
+        self.assertEqual((body['decision'], body['extra']),
+                         ('changes', {'slides': {second['id']: 'Split it in two.'}}))
+        self.post('decide', body)
+        self.assertIn(f"- Slide `{second['id']}`: Split it in two.",
+                      self.workers.of('outline')[-1].task)
+
+    def test_typing_in_a_slide_s_box_or_its_title_leaves_the_rows_as_they_are(self):
+        path = self.started()
+        second = self.run_of(path)['gate']['slides'][1]
+        keep = f"Keep it as it is: “{second['title']}”"
+        result = self.deck_screen(path, [
+            {'click': f"Ask for changes to “{second['title']}”"}, {'hold': keep},
+            {'fill': f"What should change on “{second['title']}”", 'value': 'Split it.',
+             'stay': True},
+            {'snapshot': 'noting'},
+            {'fill': 'Title of slide 3', 'value': 'Capacity holds', 'stay': True},
+            {'hold': 'Put it back as drafted'},
+            {'fill': 'Title of slide 3', 'value': 'Capacity holds with several', 'stay': True},
+            {'snapshot': 'retitling'}])
+        shots = result['snapshots']
+        self.assertEqual(shots['noting']['still'], [keep])
+        self.assertEqual(shots['noting']['focus'], f"slide-note-{second['id']}")
+        # The line that says the outline is edited is drawn once, not again at every key.
+        self.assertEqual(shots['retitling']['still'], [keep, 'Put it back as drafted'])
+        self.assertEqual(shots['retitling']['focus'], 'outline-title-2')
+        self.assertIn('1 slide to change · edited here', shots['retitling']['text'])
+        self.assertEqual(self.posts(result), [])
+
+    def test_a_mark_follows_its_slide_and_goes_when_the_slide_is_removed(self):
+        path = self.started()
+        drafted = self.run_of(path)['gate']['slides']
+        second, fourth = drafted[1], drafted[3]
+        result = self.deck_screen(path, [
+            {'click': f"Ask for changes to “{second['title']}”"},
+            {'fill': f"What should change on “{second['title']}”", 'value': 'Shorter.'},
+            {'click': f"Ask for changes to “{fourth['title']}”"},
+            {'fill': f"What should change on “{fourth['title']}”", 'value': 'Drop it.'},
+            {'click': f"Move down: “{second['title']}”"}, {'snapshot': 'moved'},
+            {'click': f"Remove “{fourth['title']}”"}, {'snapshot': 'removed'},
+            {'click': 'Send 1 change'}],
+            **{'POST /api/decide': [ok(self.run_of(path))]})
+        moved = result['snapshots']['moved']
+        self.assertEqual(moved['focus'], f"Move down: “{second['title']}”")
+        self.assertEqual(moved['fields'][f"What should change on “{second['title']}”"],
+                         'Shorter.')
+        self.assertIn('2 slides to change · edited here', moved['text'])
+        removed = result['snapshots']['removed']
+        self.assertIn('1 slide to change · edited here', removed['text'])
+        self.assertNotIn(f"What should change on “{fourth['title']}”", removed['fields'])
+        (_, body), = self.posts(result)
+        self.assertEqual((body['decision'], body['extra']['slides']),
+                         ('changes', {second['id']: 'Shorter.'}))
+        self.assertEqual([one['id'] for one in body['extra']['edited']],
+                         [drafted[0]['id'], drafted[2]['id'], second['id'], drafted[4]['id'],
+                          drafted[5]['id']])
+        self.post('decide', body)
+        said = self.workers.of('outline')[-1].task
+        self.assertIn(f"- Slide `{second['id']}`: Shorter.", said)
+        self.assertNotIn(fourth['id'], said)
+
+    def test_an_outline_put_back_as_drafted_is_approved_as_it_was(self):
+        path = self.started()
+        second = self.run_of(path)['gate']['slides'][1]
+        result = self.deck_screen(path, [
+            {'click': f"Ask for changes to “{second['title']}”"},
+            {'fill': f"What should change on “{second['title']}”", 'value': 'Split it.'},
+            {'click': f"Remove “{second['title']}”"},
+            {'fill': 'Title of slide 2', 'value': 'Batches, one at a time'},
+            {'snapshot': 'edited'}, {'click': 'Put it back as drafted'}, {'snapshot': 'back'},
+            {'click': 'Approve'}],
+            **{'POST /api/decide': [ok(self.run_of(path))]})
+        edited = result['snapshots']['edited']['text']
+        self.assertIn('0 slides to change · edited here', edited)
+        self.assertIn('Your edits go with your decision', edited)
+        # The tally follows the outline put back, the slide removed with its mark comes back
+        # unmarked, and nothing edited goes with the approval.
+        back = result['snapshots']['back']
+        self.assertNotIn('edited here', back['text'])
+        self.assertIn(f"Ask for changes to “{second['title']}”", back['buttons'])
+        (_, body), = self.posts(result)
+        self.assertEqual(body['decision'], 'approve')
+        self.assertNotIn('extra', body)
 
     def test_a_deck_made_as_powerpoint_is_sent_to_google_slides_from_its_screen(self):
         path = self.started()

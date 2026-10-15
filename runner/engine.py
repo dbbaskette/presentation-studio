@@ -50,6 +50,11 @@ What a caller needs to know
   brand or variant ({'brand', 'variant'}, with no note needed): the deck's contract is
   exported again for it and its cover drawn again. Asking for changes at gate:build once
   the deck is delivered builds it again (deliver.again).
+- At a stop reviewed item by item (`marks.REVIEWED`) the marks are checked, once the stop
+  is waiting, before anything is written. Questions dropped at the plan and findings left
+  out at the research go with either decision, with no worker. A drop, rewording, new
+  question, research-again or slide mark is enough for changes without a note; a leave-out
+  is not. The marks, then the person's own words, are the note the stop's worker reads.
 - The brand is exported once, with the first step that needs it, and checked before every
   step that uses it: the outline, the sample of the brand, the patch, each step of the
   build and its render. A brand that changed since stops the deck with build's sentence.
@@ -113,7 +118,7 @@ import home
 import hub
 from workspace import WorkspaceError, write_atomic
 
-from runner import agents, companion, decks, documents, gitstate, settings, stages
+from runner import agents, companion, decks, documents, gitstate, marks, settings, stages
 from runner import team, worker_tools
 from runner import brand as brand_skill
 from runner import research as research_cli
@@ -121,7 +126,7 @@ from runner import slides as slides_tool
 from runner.jobs import (FED, KEPT_SO_FAR, Gone as _Gone, Halted as _Halted, Jobs,
                          Run as _Run, Slots as _Slots, attempts, first, gate_state,
                          last_error, spent, text_of, tries)
-from runner.research_steps import PLAN_MD, REPORT, Researching
+from runner.research_steps import PLAN, PLAN_MD, REPORT, Researching
 from runner.steps import build, deliver as delivering, existing, intake
 from runner.steps import look as looks
 from runner.steps import outline as outlines
@@ -254,16 +259,16 @@ def _refs(repo: Path, branch: str) -> tuple | None:
     folder = repo / '.git'
     if not folder.is_dir() or (folder / 'reftable').exists():
         return None
-    marks: list = [str(repo), branch]
+    stamps: list = [str(repo), branch]
     for name in ('HEAD', f'refs/heads/{branch}', f'refs/remotes/origin/{branch}',
                  'packed-refs'):
         try:
             found = (folder / name).stat()
         except OSError:
-            marks.append(None)
+            stamps.append(None)
             continue
-        marks.append((found.st_mtime_ns, found.st_size, found.st_ino))
-    return tuple(marks)
+        stamps.append((found.st_mtime_ns, found.st_size, found.st_ino))
+    return tuple(stamps)
 
 
 class Elsewhere(WorkspaceError):
@@ -1551,8 +1556,6 @@ class Engine(Jobs, Researching):
         rebrand = gate == 'gate:look' and decision == 'changes'
         if rebrand and not (isinstance(extra.get('brand'), str) and extra['brand'].strip()):
             raise WorkspaceError(NO_BRAND_CHOSEN)
-        if decision == 'changes' and not note and not rebrand:
-            raise WorkspaceError(NO_NOTE)
         brands = self.brands() if rebrand else None
         space, it = self.space(), WORDS[gate]
         by = gitstate.identity(space.repo)
@@ -1562,6 +1565,15 @@ class Engine(Jobs, Researching):
                 and decks.delivered(root) is not None
             if not after and gate_state(record, gate) != 'waiting':
                 raise WorkspaceError(NOT_WAITING.format(it=it))
+            marked = marks.check(gate, decision, extra, self._marked_ids(root, gate, extra))
+            if gate == 'gate:research' and 'left_out' not in marked:
+                out = (record.get('research') or {}).get('left_out') or ()
+                for ident in marked.get('again') or ():
+                    if ident in out:
+                        raise WorkspaceError(f'{ident} is left out: bring it back before '
+                                             'researching it again.')
+            if decision == 'changes' and not note and not rebrand and not marks.asks(marked):
+                raise WorkspaceError(NO_NOTE)
             at = home.now()
             if after:
                 named = self._numbers(extra)
@@ -1578,21 +1590,31 @@ class Engine(Jobs, Researching):
                 self._store(root, record)
                 said = f'ask for changes to the delivered {it}'
             elif decision == 'approve':
-                record = self._approve(root, record, gate, note, extra)
+                record = self._approve(root, record, gate, note, extra, marked)
                 gated = record['gates'].get(gate) or {}
+                # What the last request for changes marked is not kept past the approval.
+                cleared = {'again': None, 'added': None, 'free': None} \
+                    if gate == 'gate:research' else {}
                 record['gates'][gate] = {**gated, 'state': 'approved', 'note': note,
                                          'at': at, 'by': by,
-                                         'round': int(gated.get('round') or 1)}
+                                         'round': int(gated.get('round') or 1), **cleared}
                 self._store(root, record)
                 said = f'approve the {it}'
             else:
                 gated = record['gates'].get(gate) or {}
                 named = self._numbers(extra) if gate == 'gate:build' else None
+                more = {'again': None, 'added': None, 'free': None} \
+                    if gate == 'gate:research' else {}
                 if rebrand:
                     looks.rebrand(root, record, extra['brand'], extra.get('variant'), brands)
                     note = note or ('Make it in ' + decks.brand_words(record['form']) + '.')
+                if gate == 'gate:outline' and extra.get('edited') is not None:
+                    self._edit_outline(root, record, extra['edited'])
+                if marked:
+                    record, note, more = self._apply_marks(root, record, gate, marked, note)
                 record['gates'][gate] = {**gated, 'state': 'changes', 'note': note, 'at': at,
                                          'by': by, 'round': int(gated.get('round') or 1),
+                                         **more,
                                          **({'slides': named} if gate == 'gate:build' else {})}
                 try:
                     record = stages.reopen(record, gate)
@@ -1629,23 +1651,64 @@ class Engine(Jobs, Researching):
         build.write_state(root, state)
 
     def _approve(self, root: Path, record: dict, gate: str, note: str | None,
-                 extra: dict) -> dict:
-        """What approving one gate takes beside the approval. Returns the run."""
+                 extra: dict, marked: dict) -> dict:
+        """What approving one gate takes beside the approval: what the page chose there,
+        and the marks that need no worker. Returns the run."""
         if gate == 'gate:classify' and extra.get('kind') is not None:
             if record['route'] != 'document':
                 raise WorkspaceError('Only a document is a spec or material.')
             if extra['kind'] != record.get('classified'):
                 record = intake.correct(root, record, extra['kind'])
         elif gate == 'gate:outline' and extra.get('edited') is not None:
-            try:
-                contract = self._contract(root)
-            except _Halted:
-                raise WorkspaceError(self._load(root)['halted']['why']) from None
-            outlines.apply_edits(root, record, extra['edited'], self.slides(), contract)
+            self._edit_outline(root, record, extra['edited'])
+        elif gate == 'gate:research-plan' and marked.get('dropped'):
+            self._drop_questions(root, record, marked['dropped'])
+        elif gate == 'gate:research' and 'left_out' in marked:
+            record['research'] = {**(record.get('research') or {}),
+                                  'left_out': marked['left_out']}
+            write_atomic(root / REPORT, self._report_text(root, record))
         elif gate == 'gate:look':
             looks.approve(root, record, note)
             record = self._load(root)
         return record
+
+    def _edit_outline(self, root: Path, record: dict, edited) -> None:
+        """The outline as the person edited it on the page, checked and saved."""
+        try:
+            contract = self._contract(root)
+        except _Halted:
+            raise WorkspaceError(self._load(root)['halted']['why']) from None
+        outlines.apply_edits(root, record, edited, self.slides(), contract)
+
+    def _marked_ids(self, root: Path, gate: str, extra: dict) -> list[str]:
+        """What the marks at a reviewed stop may name: its questions, or its slides as the
+        person's edit has them."""
+        if gate in ('gate:research-plan', 'gate:research'):
+            return list(self._questions(root))
+        if gate == 'gate:outline':
+            edited = extra.get('edited')
+            slides = edited if isinstance(edited, list) \
+                else build.slides_of(home.read_json(root / outlines.OUTLINE, None))
+            return [str(one['id']) for one in slides if isinstance(one, dict) and one.get('id')]
+        return []
+
+    def _apply_marks(self, root: Path, record: dict, gate: str, marked: dict,
+                     note: str | None) -> tuple[dict, str | None, dict]:
+        """What the marks of a request for changes do before the stop is reopened: drop
+        questions from the plan or add them to it, keep what was left out, and set down
+        which questions the worker researches again. Returns the run, the note its worker
+        reads and what the gate keeps beside it."""
+        more = {}
+        if gate == 'gate:research-plan' and marked.get('dropped'):
+            self._drop_questions(root, record, marked['dropped'])
+        elif gate == 'gate:research':
+            if 'left_out' in marked:
+                record['research'] = {**(record.get('research') or {}),
+                                      'left_out': marked['left_out']}
+            added = self._add_questions(root, record, marked.get('add') or [])
+            again = {**(marked.get('again') or {}), **{ident: '' for ident in added}}
+            more = {'again': again, 'added': added, 'free': note}
+        return record, marks.note(gate, marked, note), more
 
     def act(self, path, action: str) -> dict:
         """Pause, resume, stop, try again or undo the last step, as the person asks."""
@@ -2045,12 +2108,17 @@ class Engine(Jobs, Researching):
                 'pictures': [{'kind': 'original', 'ref': number} for number in pictured]}
 
     def _show_research_plan(self, root: Path, record: dict) -> dict:
+        plan = home.read_json(root / PLAN, None)
+        items = plan.get('items') if isinstance(plan, dict) else None
         return {'text': text_of(root / PLAN_MD) or '',
-                'questions': [{'id': ident, 'question': question}
-                              for ident, question in self._questions(root).items()]}
+                'questions': [{'id': item['id'], 'title': marks.title(item['id']),
+                               'question': str(item.get('question') or ''),
+                               'search': item.get('public_query')}
+                              for item in items or ()
+                              if isinstance(item, dict) and isinstance(item.get('id'), str)]}
 
     def _show_research(self, root: Path, record: dict) -> dict:
-        return {'text': text_of(root / REPORT) or '', 'verdicts': self._verdicts(root)}
+        return {'text': text_of(root / REPORT) or '', 'items': self._findings_shown(root, record)}
 
     def _show_outline(self, root: Path, record: dict) -> dict:
         found = home.read_json(root / outlines.OUTLINE, None)

@@ -9,7 +9,9 @@ What a caller needs to know
 
 - Every call returns the command's own JSON: `run`, `status` (`not-started`,
   `in-progress`, `complete` or `stale`), `pending`, `unresolved`, `staleItems`,
-  `completed`, `total`, `sourceGaps`, and where the record and the `report` are.
+  `completed`, `total`, `sourceGaps`, and where the record and the `report` are; `plan`
+  also returns `carried`. It works with harness-research 0.8.0, only without carried
+  findings or headlines, which need 0.8.1 or newer.
 - A question with a finding of `insufficient` or `unavailable` counts as completed there.
   Whether that is enough is the caller's rule, not the command's.
 - When the command says no, Refused is raised: a WorkspaceError that carries the one line
@@ -117,14 +119,19 @@ class Research:
 
     def plan(self, project: Path, file: Path, allow_web: bool = False) -> dict:
         """Hand over an approved plan. The same plan again continues its run; a changed
-        one starts a new run with no results. `allow_web` permits a plan that widens
-        supplied-only research to the public web."""
+        one starts a new run that keeps the findings of unchanged questions, listed in
+        `carried`, when its topic, purpose, scope, sources and the files it rests on are
+        unchanged. `allow_web` permits a plan that widens supplied-only research to the
+        public web."""
         extra = ['--allow-web'] if allow_web else []
         return self._json('plan', '--project', str(project), '--file', str(file), *extra)
 
     def record(self, project: Path, run: str, item: str, finding: dict) -> dict:
         """Record one question's finding in a run."""
         wanted = {key: finding.get(key) for key in ('status', 'summary', 'limits', 'evidence')}
+        # harness-research refuses a null headline, so the key is omitted when there is none.
+        if finding.get('headline'):
+            wanted['headline'] = finding['headline']
         handle, name = tempfile.mkstemp(suffix='.json', prefix='finding-')
         try:
             with os.fdopen(handle, 'w', encoding='utf-8') as stream:

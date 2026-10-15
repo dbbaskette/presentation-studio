@@ -5,14 +5,18 @@ What a caller needs to know
 ---------------------------
     class Engine(..., research_steps.Researching)   # the engine's research steps
 
-- The plan is research/plan.json (and plan.md to read); the report research/report.md.
-  harness-research keeps its own record in .harness-research/.
+- The plan is research/plan.json (and plan.md to read); the report research/report.md,
+  written from each finding the person kept. harness-research keeps its own record in
+  .harness-research/.
 - Each question still to answer is researched by one worker, several at a time. A finding
   the worker tools accepted is recorded with harness-research at once. A question that fails
   ATTEMPTS times is left unanswered and named in the report; research that answered nothing
   stops the deck.
-- Asking for changes at gate:research researches again the questions the note names by
-  their IDs, and those not yet settled.
+- Asking for changes at gate:research with questions marked to research again, or added,
+  researches only those: each worker is told the line written against its question, or
+  that the person added it, and their own words. A note alone researches again the
+  questions it names by their IDs, and those not yet settled. A question the person left
+  out is never researched again; a finding a changed plan lost always is.
 - `Researching` is a part of the engine and is not used alone.
 """
 from __future__ import annotations
@@ -29,7 +33,7 @@ import runner  # noqa: F401  puts the core on the import path
 import home
 from workspace import WorkspaceError, write_atomic
 
-from runner import briefs, documents, stages
+from runner import briefs, documents, marks, stages, worker_tools
 from runner import research as research_cli
 from runner.jobs import Halted, Run, given_up, last_error, sha256_of, text_of, tries
 from runner.steps import Work
@@ -39,7 +43,6 @@ PLAN = Path('research') / 'plan.json'
 PLAN_MD = Path('research') / 'plan.md'
 REPORT = Path('research') / 'report.md'
 RECORD = Path('.harness-research') / 'research.json'
-HARNESS_REPORT = Path('.harness-research') / 'research-report.md'
 UNRESOLVED = ('insufficient', 'unavailable')
 
 
@@ -62,31 +65,54 @@ class Researching:
                     f'None of the {len(verdicts)} research questions could be answered. '
                     f'{why}').strip(), 'The research plan you approved is kept.')
                 raise Halted()
-            write_atomic(root / REPORT, self._report_text(root, record, verdicts))
+            write_atomic(root / REPORT, self._report_text(root, record))
             (record.get('research') or {}).pop('again', None)
             self._done(root, step, clock, 'keep the research report', record)
 
-    def _report_text(self, root: Path, record: dict, verdicts: dict) -> str:
-        questions = self._questions(root)
-        total = len(verdicts)
-        supported = sum(verdict == 'supported' for verdict in verdicts.values())
+    def _report_text(self, root: Path, record: dict) -> str:
+        """The report the person reads and the outline is drafted from: what the research
+        settled and did not, what the person left out, then each finding kept, with its
+        answer, what is not known and the passages it quotes."""
+        items = self._findings_shown(root, record)
+        left = [item for item in items if item['left_out']]
+        kept = [item for item in items if not item['left_out']]
+        total = len(kept)
+        supported = sum(item['status'] == 'supported' for item in kept)
         lines = ['# Research report', '',
-                 f"{supported} of {total} question{'' if total == 1 else 's'} have an answer "
-                 'the sources support.']
-        unresolved = [ident for ident, verdict in verdicts.items() if verdict in UNRESOLVED]
-        unread = [ident for ident, verdict in verdicts.items() if verdict == 'pending']
+                 f"{supported} of {total} question{'' if total == 1 else 's'} "
+                 f"{'has' if supported == 1 else 'have'} an answer the sources support."]
+        unresolved = [item for item in kept if item['status'] in UNRESOLVED]
+        unread = [item for item in kept if item['status'] == 'pending']
         if unresolved:
             lines += ['', f'Not settled ({len(unresolved)}):']
-            lines += [f'- {ident}: {questions.get(ident, "")} ({verdicts[ident]})'
-                      for ident in unresolved]
+            lines += [f"- {item['id']}: {item['question']} ({item['status']})"
+                      for item in unresolved]
         if unread:
             lines += ['', f'Not researched ({len(unread)}):']
-            lines += [f"- {ident}: {questions.get(ident, '')} "
-                      f"({last_error(record, f'research:{ident}') or 'no reason was kept'})"
-                      for ident in unread]
-        said = text_of(root / HARNESS_REPORT)
-        if said:
-            lines += ['', '---', '', said.strip()]
+            for item in unread:
+                why = last_error(record, 'research:' + item['id']) or 'no reason was kept'
+                lines.append(f"- {item['id']}: {item['question']} ({why})")
+        if left:
+            lines += ['', f'Left out by you ({len(left)}):']
+            lines += [f"- {item['title']}" for item in left]
+        for item in kept:
+            if item['status'] == 'pending':
+                continue
+            lines += ['', f"## {item['title']} (`{item['id']}`)", '', item['question'], '',
+                      f"Status: {item['status']}."]
+            # A headline that is the summary's first sentence is said once, in the summary.
+            spaced = ' '.join(item['summary'].split())
+            headline = '' if spaced.startswith(item['headline']) else item['headline']
+            for said in (headline, item['summary']):
+                if said and said not in lines[-1]:
+                    lines += ['', said]
+            if item['limits']:
+                lines += ['', f"Not known: {item['limits']}"]
+            if item['sources']:
+                lines += ['', 'Sources:']
+                lines += [f"- {source['title'] or source['origin']} ({source['origin']}): "
+                          f"\"{' '.join(source['quote'].split())}\""
+                          for source in item['sources']]
         return '\n'.join(lines) + '\n'
 
     @staticmethod
@@ -101,13 +127,76 @@ class Researching:
         record = home.read_json(root / RECORD, None)
         results = (record or {}).get('results') if isinstance(record, dict) else None
         results = results if isinstance(results, dict) else {}
-        return {ident: (results.get(ident) or {}).get('status', 'pending')
-                for ident in self._questions(root)}
+        return {ident: self._status(results.get(ident)) for ident in self._questions(root)}
+
+    @staticmethod
+    def _status(result) -> str:
+        """A kept finding's verdict, or 'pending' where it has none a person can read."""
+        status = result.get('status') if isinstance(result, dict) else None
+        return status if isinstance(status, str) and status else 'pending'
+
+    def _findings_shown(self, root: Path, record: dict) -> list[dict]:
+        """Each question of the plan with what the research found, for the page: its title,
+        status, one-sentence answer, what is not known and the passages quoted. A finding
+        kept before headlines were asked for is given its summary's first sentence."""
+        found = home.read_json(root / RECORD, None)
+        results = found.get('results') if isinstance(found, dict) else None
+        results = results if isinstance(results, dict) else {}
+        left = set((record.get('research') or {}).get('left_out') or ())
+        shown = []
+        for ident, question in self._questions(root).items():
+            result = results.get(ident) if isinstance(results.get(ident), dict) else {}
+            summary, limits = str(result.get('summary') or ''), str(result.get('limits') or '')
+            headline = result.get('headline') if isinstance(result.get('headline'), str) else ''
+            evidence = result.get('evidence')
+            known = limits.strip().rstrip('.').lower() in ('', 'none')
+            shown.append({
+                'id': ident, 'title': marks.title(ident), 'question': question,
+                'status': self._status(result),
+                'headline': headline or marks.first_sentence(summary), 'summary': summary,
+                'limits': '' if known else limits,
+                'unknown': '' if known else marks.first_sentence(limits),
+                'left_out': ident in left,
+                'sources': [{'title': str(passage.get('title') or ''),
+                             'origin': str(passage.get('origin') or ''),
+                             'quote': str(passage.get('quote') or '')}
+                            for passage in (evidence if isinstance(evidence, list) else ())
+                            if isinstance(passage, dict)]})
+        return shown
 
     @staticmethod
     def _named(ident: str, note: str | None) -> bool:
         return bool(note) and re.search(
             rf'(?<![a-z0-9-]){re.escape(ident)}(?![a-z0-9-])', note.lower()) is not None
+
+    @staticmethod
+    def _own_words(gate: dict) -> str | None:
+        """What the person wrote themselves at gate:research. A request with marks keeps it
+        as `free`, beside the note the runner wrote from the marks."""
+        return gate.get('free') if isinstance(gate.get('again'), dict) else gate.get('note')
+
+    @classmethod
+    def _told(cls, gate: dict, ident: str) -> str | None:
+        """What a worker researching `ident` is told the person said: that they added the
+        question, or the line they wrote against it, then their own words; or their note
+        at the gate."""
+        if gate.get('state') != 'changes':
+            return None
+        again = gate.get('again')
+        if isinstance(again, dict) and ident in again:
+            line = again[ident] or ''
+            if ident in (gate.get('added') or ()):
+                said = 'The person added your question after reading the research.'
+            else:
+                said = ('The person asked for your question to be researched again'
+                        + (f'. What they said about it:\n\n{line}' if line else '.'))
+            if gate.get('free'):
+                said += ('\n\nThey also wrote this, which may or may not be about your '
+                         f"question:\n\n{gate['free']}")
+            return said
+        note = cls._own_words(gate)
+        return ('The person looked at the research and asked for this, which may or may '
+                f'not be about your question:\n\n{note}') if note else None
 
     def _research(self, root: Path, run: Run, step: stages.Step) -> None:
         """Hand the approved plan to harness-research, then research each question still
@@ -115,19 +204,38 @@ class Researching:
         report to name."""
         with self.files:
             record = self._load(root)
-            handed = record.get('research') or {}
+            handed, lost = record.get('research') or {}, []
             if not handed.get('run') or handed.get('plan') != sha256_of(root / PLAN):
+                before = self._verdicts(root)
                 status = self.research().plan(root, root / PLAN)
-                record['research'] = {'run': status.get('run'), 'plan': sha256_of(root / PLAN)}
+                # A finding harness-research did not keep for the changed plan, as when a
+                # file it rests on changed, is researched again.
+                lost = [ident for ident, verdict in self._verdicts(root).items()
+                        if verdict == 'pending' and before.get(ident, 'pending') != 'pending']
+                # What the person left out stays with a changed plan.
+                record['research'] = {**handed, 'run': status.get('run'),
+                                      'plan': sha256_of(root / PLAN)}
                 self._store(root, record)
                 self._commit(root, 'hand the approved questions to research')
             gate = record['gates'].get('gate:research') or {}
+            # Two kinds of `again`: the gate's is what the person marked; `research.again`
+            # is the runner's own list of the questions this request still has to research.
             asked = record['research'].get('again')
             if gate.get('state') == 'changes' and (asked or {}).get('at') != gate.get('at'):
                 verdicts = self._verdicts(root)
-                left = [ident for ident, verdict in verdicts.items()
-                        if self._named(ident, gate.get('note'))
-                        or verdict in ('pending', *UNRESOLVED)] or list(verdicts)
+                out = set(record['research'].get('left_out') or ())
+                kept = [ident for ident in verdicts if ident not in out]
+                marked = gate.get('again')
+                if isinstance(marked, dict) and marked:
+                    left = [ident for ident in kept if ident in marked]
+                else:
+                    # Only the person's own words are looked through for IDs: the note the
+                    # runner wrote from marks names the questions left out.
+                    said = self._own_words(gate)
+                    left = [ident for ident in kept
+                            if self._named(ident, said)
+                            or verdicts[ident] in ('pending', *UNRESOLVED)] or kept
+                left += [ident for ident in lost if ident in kept and ident not in left]
                 record['research']['again'] = {'at': gate.get('at'), 'left': left}
                 for ident in left:
                     tries(record, f'research:{ident}')
@@ -144,11 +252,10 @@ class Researching:
             with self.files:
                 self._done(root, step, time.monotonic(), 'every question is researched')
             return
-        note = gate.get('note') if gate.get('state') == 'changes' else None
 
         def one(ident: str) -> None:
             if self._may_go(root):
-                self._question(root, run, ident, note)
+                self._question(root, run, ident, self._told(gate, ident))
 
         if self.at_once <= 1 or len(todo) == 1:
             for ident in todo:
@@ -159,7 +266,7 @@ class Researching:
                             for ident in todo]:
                 pending.result()
 
-    def _question(self, root: Path, run: Run, ident: str, note: str | None) -> None:
+    def _question(self, root: Path, run: Run, ident: str, told: str | None) -> None:
         """One try at one research question. An accepted finding is recorded at once."""
         name = f'research:{ident}'
         record = self._load(root)
@@ -174,9 +281,8 @@ class Researching:
                 + ('The documents the person supplied are saved for you already. Read them '
                    'as well as the web.\n' if offered else '')
                 + f'\nThe presentation:\n{self._about(record)}')
-        if note:
-            task += ('\n\nThe person looked at the research and asked for this, which may or '
-                     f'may not be about your question:\n\n{note}')
+        if told:
+            task += f'\n\n{told}'
         error = last_error(record, name)
         if error:
             task += (f'\n\nAn earlier try at this job did not work: {error}\nTake care not to '
@@ -203,9 +309,9 @@ class Researching:
                 record = self._load(root)
                 self._tried(record, name, started_at, outcome.seconds, 'kept',
                             **self._cost(outcome))
-                asked = (record.get('research') or {}).get('again') or {}
-                if ident in asked.get('left', []):
-                    asked['left'].remove(ident)
+                again = (record.get('research') or {}).get('again') or {}
+                if ident in again.get('left', []):
+                    again['left'].remove(ident)
                 self._store(root, record)
                 self._commit(root, f'keep the finding for {ident}')
         if refused:
@@ -289,6 +395,47 @@ class Researching:
                          + (f" (search: {item['public_query']})"
                             if item.get('public_query') else ''))
         write_atomic(root / PLAN_MD, '\n'.join(lines).rstrip() + '\n')
+
+    def _drop_questions(self, root: Path, record: dict, dropped) -> None:
+        """Take the questions the person dropped out of the plan, as they asked, with no
+        worker. A plan is never left with none."""
+        plan = home.read_json(root / PLAN, None)
+        items = plan.get('items') if isinstance(plan, dict) else None
+        if not isinstance(items, list):
+            raise WorkspaceError('There is no research plan to drop a question from.')
+        dropped = set(dropped)
+        kept = [item for item in items
+                if not (isinstance(item, dict) and item.get('id') in dropped)]
+        if not kept:
+            raise WorkspaceError(marks.ALL_DROPPED)
+        self._keep_plan(root, record, json.dumps({**plan, 'items': kept}, indent=2,
+                                                 ensure_ascii=False))
+
+    def _add_questions(self, root: Path, record: dict, texts) -> list[str]:
+        """Add the questions the person wrote to the plan, as they wrote them and with no
+        search words. Returns their IDs. A plan that would be refused is not written."""
+        if not texts:
+            return []
+        plan = home.read_json(root / PLAN, None)
+        if not isinstance(plan, dict) or not isinstance(plan.get('items'), list):
+            raise WorkspaceError('There is no research plan to add a question to.')
+        if len(plan['items']) + len(texts) > worker_tools.QUESTIONS:
+            raise WorkspaceError(f'A plan holds at most {worker_tools.QUESTIONS} '
+                                 'questions.')
+        taken = [item.get('id') for item in plan['items'] if isinstance(item, dict)]
+        added = []
+        for text in texts:
+            ident = marks.new_id(text, taken + added)
+            # Shaped as the plan's checks shape every question. The others are written back
+            # as they were, so harness-research keeps their findings.
+            plan['items'].append({'id': ident, 'question': text, 'public_query': None,
+                                  'claim': None})
+            added.append(ident)
+        checked = worker_tools.check_research_plan(plan)
+        if checked['status'] == 'failed':
+            raise WorkspaceError(' '.join(checked['problems']))
+        self._keep_plan(root, record, json.dumps(plan, indent=2, ensure_ascii=False))
+        return added
 
     def _research_plan(self, root: Path, run: Run, step: stages.Step) -> None:
         self._agent(root, run, step,
