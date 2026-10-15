@@ -50,8 +50,10 @@ What a caller needs to know
 - Nothing here starts a worker. A job is a `Work`; what it hands back is given to the
   matching keep function.
 - Pure helpers, as Training Studio's runner/deck.py has them: a section keeps every approved
-  word: `kept` holds its title, sources, caveat, source line and notes to the outline's, and
-  looks for each point's words among the text the slide draws. What is drawn, and how, is
+  word: `kept` holds its title, subtitle, detail, sources, caveat, source line and notes to
+  the outline's, and looks for each point's words among the text the slide draws. At brand
+  only and polish (STRICT) it also refuses drawn text that says anything the slide was not
+  approved with. What is drawn, and how, is
   the composer's. A finding is about `drawing` or about `content`. QUESTIONS are the eight
   the slides tool asks of every slide, numbered as it numbers them, in the runner's words.
   The tool's own are not handed to a caller, so a change to them there has to be made here
@@ -79,6 +81,7 @@ DELIVERY = 'reading'    # a deck is read alone as well as presented
 DIRECTION = {'focal': 'headingPrimary', 'neutral': 'canvasSecondary'}
 SEVERITIES = ('critical', 'major', 'minor')
 ABOUT = ('drawing', 'content')
+STRICT = ('brand-only', 'polish')    # levels whose slides draw only the approved words
 NOTE = 12               # the shortest note the slides tool takes for a finding
 QUESTIONS = (
     'After three seconds, is the main point clear, and is it the claim in the title?',
@@ -111,14 +114,18 @@ def slides_of(outline) -> list[dict]:
     return [slide for slide in found or () if isinstance(slide, dict)]
 
 
-def fixed(whole: dict, ids: list[str], number: int) -> dict:
+def fixed(whole: dict, ids: list[str], number: int, strict: bool = False) -> dict:
     """What the composer of one section may not change: the deck's title and direction,
-    and for each of its slides the title, the sources, the points, the caveat, the source
-    line and the notes that were approved."""
+    and for each of its slides the title, the subtitle and detail, the sources, the points,
+    the caveat, the source line and the notes that were approved. With `strict` (brand only
+    and polish) the slide draws no words but those."""
     by_id = {slide.get('id'): slide for slide in slides_of(whole)}
     return {'title': whole.get('title'), 'direction': whole.get('direction') or DIRECTION,
-            'prefix': f's{number}_',
+            'prefix': f's{number}_', 'strict': bool(strict),
             'slides': [{'id': ident, 'title': by_id[ident].get('title'),
+                        'subtitle': by_id[ident].get('subtitle'),
+                        'detail': by_id[ident].get('detail'),
+                        'focal': by_id[ident].get('focal'),
                         'sources': list(by_id[ident].get('sources') or ()),
                         'points': [{'label': point.get('label'), 'text': point.get('text')}
                                    for point in _points(by_id[ident])],
@@ -153,6 +160,23 @@ def _same(one, other) -> bool:
 def _caveat(slide: dict):
     stated = slide.get('caveat')
     return stated.get('text') if isinstance(stated, dict) else stated
+
+
+def _approved(slide: dict) -> list:
+    """Every text a slide was approved with that it may show."""
+    return [slide.get('title'), slide.get('subtitle'), slide.get('detail'), slide.get('focal'),
+            *(point[key] for point in slide['points'] for key in ('label', 'text')),
+            slide.get('caveat'), slide.get('source')]
+
+
+def _only(text: str, approved: list[str]) -> bool:
+    """Whether a drawn text says nothing but approved words: whole approved texts, one
+    after another, and at most one part of an approved text, cut between words."""
+    left = f' {text} '
+    for one in sorted(approved, key=len, reverse=True):
+        left = left.replace(f' {one} ', ' ')
+    left = left.strip()
+    return not left or any(f' {left} ' in f' {one} ' for one in approved)
 
 
 def kept(section, spec: dict) -> list[str]:
@@ -190,12 +214,20 @@ def kept(section, spec: dict) -> list[str]:
                 if plain(text) and f' {plain(text)} ' not in on_slide]
         problems += [f'{ident}: these approved words are missing or changed: '
                      f'{json.dumps(text)}' for text in gone]
-        for name, got in (('caveat', _caveat(mine)), ('source', mine.get('source')),
+        if spec.get('strict'):
+            approved = [plain(text) for text in _approved(theirs) if plain(text)]
+            added = [text for text in texts if not _only(plain(text), approved)]
+            if added:
+                problems.append(f'{ident}: these words were not approved for the slide: '
+                                + ', '.join(json.dumps(text) for text in added[:8])
+                                + '. Draw only the approved words.')
+        for name, got in (('subtitle', mine.get('subtitle')), ('detail', mine.get('detail')),
+                          ('caveat', _caveat(mine)), ('source', mine.get('source')),
                           ('notes', mine.get('notes'))):
-            if not _same(got, theirs[name]):
+            if not _same(got, theirs.get(name)):
                 problems.append(f'{ident}: `{name}` stays exactly as it was approved'
-                                + (f': {json.dumps(theirs[name])}' if theirs[name]
-                                   and name != 'notes' else '.' if theirs[name]
+                                + (f': {json.dumps(theirs.get(name))}' if theirs.get(name)
+                                   and name != 'notes' else '.' if theirs.get(name)
                                    else ': the slide has none.'))
     return problems
 
@@ -630,7 +662,8 @@ def section_work(root, run: dict, section: str, request: dict | None, error: str
     if error:
         lines.append(f'An earlier try at this job did not work: {error}\n'
                      'Take care not to end the same way.')
-    spec = {'kind': 'section', 'brand': began['brand'], **fixed(whole, ids, number),
+    strict = run.get('route') == 'existing' and _level(run) in STRICT
+    spec = {'kind': 'section', 'brand': began['brand'], **fixed(whole, ids, number, strict),
             'previews': PREVIEWS, **how(root, run, renderer)}
     return Work(guidance=briefs.guidance('section', repair=bool(found)),
                 task='\n\n'.join(lines), profile='write', name='section',

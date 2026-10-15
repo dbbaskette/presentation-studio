@@ -1179,6 +1179,47 @@ class SectionToolTests(ToolCase):
             'what-it-does: these approved words are missing or changed: "Instances are '
             'replaced one batch at a time."'])
 
+    def test_a_subtitle_and_detail_stay_as_they_were_approved(self):
+        whole = {**OUTLINE, 'direction': dict(build.DIRECTION)}
+        whole['slides'] = [dict(slide) for slide in whole['slides']]
+        whole['slides'][1]['subtitle'] = 'Batches, one at a time'
+        spec = {**self.spec, **build.fixed(whole, ['what-it-does', 'when-capacity-holds'], 1)}
+        good = drawn(spec)
+        good['slides'][0]['subtitle'] = 'Batches, one at a time'
+        self.assertEqual(build.kept(good, spec), [])
+        for change, expect in (
+                (lambda made: made['slides'][0].update(subtitle='Batches'),
+                 'what-it-does: `subtitle` stays exactly as it was approved: "Batches, one'),
+                (lambda made: made['slides'][0].pop('subtitle'),
+                 'what-it-does: `subtitle` stays exactly as it was approved: "Batches, one'),
+                (lambda made: made['slides'][1].update(subtitle='A line of my own'),
+                 'when-capacity-holds: `subtitle` stays exactly as it was approved: the slide '
+                 'has none.'),
+                (lambda made: made['slides'][1].update(detail='More words'),
+                 'when-capacity-holds: `detail` stays exactly as it was approved: the slide '
+                 'has none.')):
+            made = json.loads(json.dumps(good))
+            change(made)
+            self.assertIn(expect, ' '.join(build.kept(made, spec)))
+
+    def test_brand_only_and_polish_refuse_words_that_were_not_approved(self):
+        whole = {**OUTLINE, 'direction': dict(build.DIRECTION)}
+        ids = ['what-it-does', 'when-capacity-holds']
+        for strict in (True, False):
+            spec = {**self.spec, **build.fixed(whole, ids, 1, strict=strict)}
+            good = drawn(spec)
+            self.assertEqual(build.kept(good, spec), [], strict)
+            added = drawn(spec, placing={'what-it-does': [
+                {'type': 'text', 'id': 's1_what_it_does_new', 'text': 'Zero downtime, always'},
+                {'type': 'text', 'id': 's1_what_it_does_cut', 'text': 'one batch at a time'}]})
+            said = build.kept(added, spec)
+            if strict:
+                self.assertEqual(said, [
+                    'what-it-does: these words were not approved for the slide: '
+                    '"Zero downtime, always". Draw only the approved words.'])
+            else:
+                self.assertEqual(said, [])
+
     def test_a_preview_returns_a_picture_of_every_slide_with_what_the_renderer_found(self):
         tools, good = self.composer(), drawn(self.spec)
         self.slides.findings['when-capacity-holds'] = [

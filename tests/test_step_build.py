@@ -356,6 +356,16 @@ class RefusalTests(Deck):
         with self.assertRaises(WorkspaceError):
             build.section_work(self.root, self.run_, 'section-9', None, None)
 
+    def test_brand_only_and_polish_composers_draw_only_the_approved_words(self):
+        build.start(self.root, self.run_, self.slides, self.contract)
+        for route, level, strict in (('existing', 'brand-only', True),
+                                     ('existing', 'polish', True),
+                                     ('existing', 'redesign', False), ('scratch', None, False)):
+            run = copy.deepcopy(self.run_)
+            run['route'], run['form']['level'] = route, level
+            work = build.section_work(self.root, run, 'section-1', None, None)
+            self.assertIs(work.prepared['artifacts']['section']['strict'], strict, level)
+
     def test_a_gate_note_reaches_the_composer(self):
         self.built()
         run = copy.deepcopy(self.run_)

@@ -20,19 +20,24 @@ INVENTORY = {'sha256': 'x', 'source': 'deck.pptx', 'slides': [
          'runs': ['One batch', ' at a time']}]},
     {'number': 2, 'id': '257', 'title': 'Why', 'hidden': False, 'objects': [
         {'id': '2', 'type': 'text', 'text': 'Why', 'runs': ['Why']},
-        {'id': '3', 'type': 'text', 'text': 'Capacity holds', 'runs': ['Capacity holds']}]}]}
+        {'id': '3', 'type': 'text', 'text': 'Capacity holds', 'runs': ['Capacity holds']}]},
+    {'number': 3, 'id': '258', 'title': 'Rules', 'hidden': False, 'objects': [
+        {'id': '2', 'type': 'text', 'text': 'Rules', 'runs': ['Rules']},
+        {'id': '3', 'type': 'text', 'text': 'Do not deploy on FridaysBudget is 2 million',
+         'runs': ['Do not deploy on Fridays', 'Budget is 2 million']}]}]}
 
 
-def content(ident, title, number, label='Capacity holds'):
+def content(ident, title, number, label='Capacity holds', text='Capacity holds'):
     return {'id': ident, 'kind': 'content', 'title': title, 'understand': 'It holds.',
-            'relation': 'none', 'points': [{'label': label, 'text': 'Capacity holds'}], 'notes': 'Say it.',
+            'relation': 'none', 'points': [{'label': label, 'text': text}], 'notes': 'Say it.',
             'sources': [f'slide-{number}']}
 
 
 def extracted(title='Run Acme fast'):
     return {'version': 1, 'title': 'Deck', 'slides': [
-        content('first-slide', title, 1, 'One batch at a time'),
-        content('second-slide', 'Why', 2)]}
+        content('first-slide', title, 1, 'One batch at a time', 'Run Acme fast'),
+        content('second-slide', 'Why', 2),
+        content('third-slide', 'Rules', 3, 'Do not deploy on Fridays', 'Budget is 2 million')]}
 
 
 class Case(unittest.TestCase):
@@ -101,6 +106,54 @@ class RuleTests(Case):
         outline_['slides'][0]['points'][0]['label'] = 'One batch  at a\ntime'
         self.assertEqual(outline.verbatim_rule(INVENTORY)(outline_), [])
 
+    def test_whole_levels_refuse_a_cut_text_and_a_dropped_negation(self):
+        for level in ('brand-only', 'polish'):
+            rule = outline.verbatim_rule(INVENTORY, level)
+            self.assertEqual(rule(extracted()), [], level)
+            for label, text in (('Do not deploy on Fridays', 'Budget is 2'),
+                                ('deploy on Fridays', 'Budget is 2 million')):
+                cut = extracted()
+                cut['slides'][2]['points'][0].update(label=label, text=text)
+                said = rule(cut)
+                self.assertEqual(len(said), 1, (level, said))
+                self.assertIn('Slide 3 (third-slide)', said[0])
+                self.assertIn('slide 3 of your deck', said[0])
+
+    def test_text_from_another_slide_is_refused_at_every_level(self):
+        for level in ('brand-only', 'polish', 'redesign', 'rework'):
+            moved = extracted()
+            moved['slides'][1]['points'][0]['text'] = 'Run Acme fast'
+            said = outline.verbatim_rule(INVENTORY, level)(moved)
+            self.assertEqual(len(said), 1, level)
+            self.assertIn('Slide 2 (second-slide)', said[0])
+
+    def test_a_cover_is_held_to_the_slide_at_its_place_when_the_order_is_kept(self):
+        cover = extracted()
+        cover['slides'][1] = {'id': 'why-cover', 'kind': 'section', 'title': 'Why',
+                              'subtitle': 'Capacity holds'}
+        self.assertEqual(outline.verbatim_rule(INVENTORY, 'polish')(cover), [])
+        cover['slides'][1]['subtitle'] = 'Rules'
+        self.assertEqual(len(outline.verbatim_rule(INVENTORY, 'polish')(cover)), 1)
+
+    def test_redesign_splits_points_from_one_object_on_word_boundaries(self):
+        rule = outline.verbatim_rule(INVENTORY, 'redesign')
+        split = extracted()
+        split['slides'][2]['points'] = [{'label': 'Fridays', 'text': 'Do not deploy on Fridays'},
+                                        {'label': 'Budget', 'text': 'is 2 million'}]
+        self.assertEqual(rule(split), [])
+        split['slides'][2]['points'][1]['text'] = 'is 2 mill'
+        said = rule(split)
+        self.assertEqual(len(said), 1)
+        self.assertIn('is 2 mill', said[0])
+
+    def test_rework_reads_from_every_slide_its_sources_name(self):
+        merged = extracted()
+        merged['slides'][0]['sources'] = ['slide-1', 'slide-2']
+        merged['slides'][0]['points'].append({'label': 'Why', 'text': 'Capacity holds'})
+        self.assertEqual(outline.verbatim_rule(INVENTORY, 'rework')(merged), [])
+        merged['slides'][0]['sources'] = ['slide-1']
+        self.assertEqual(len(outline.verbatim_rule(INVENTORY, 'rework')(merged)), 2)
+
     def test_the_writers_own_lines_are_not_compared(self):
         outline_ = extracted()
         outline_['slides'][0]['understand'] = 'Something new.'
@@ -113,7 +166,7 @@ class RuleTests(Case):
         self.assertEqual(rule(extracted()), [])
         dropped = extracted()
         del dropped['slides'][1]
-        self.assertIn('2 slides and the outline has 1', ' '.join(rule(dropped)))
+        self.assertIn('3 slides and the outline has 2', ' '.join(rule(dropped)))
         swapped = extracted()
         swapped['slides'].reverse()
         self.assertEqual(len(rule(swapped)), 2)
@@ -121,7 +174,8 @@ class RuleTests(Case):
         self.assertIsNone(outline.count_rule(INVENTORY, 'rework'))
 
     def test_both_rules_survive_the_trip_across_a_process(self):
-        for rule in (outline.verbatim_rule(INVENTORY), outline.count_rule(INVENTORY, 'polish')):
+        for rule in (outline.verbatim_rule(INVENTORY, 'polish'),
+                     outline.count_rule(INVENTORY, 'polish')):
             kept = json.loads(json.dumps(worker_tools.reference(rule)))
             again = worker_tools.rules_of({'rules': [kept]})[0]
             self.assertEqual(again(extracted()), rule(extracted()))
@@ -173,9 +227,9 @@ class EditTests(Case):
         edited = list(reversed(json.loads((root / 'outline.json').read_text())['slides']))
         outline.apply_edits(root, run, edited, self.slides, self.brand)
         text = (root / 'outline.md').read_text()
-        self.assertLess(text.index('## 1. Why'), text.index('## 2. Run Acme fast'))
+        self.assertLess(text.index('## 2. Why'), text.index('## 3. Run Acme fast'))
         self.assertEqual([s['id'] for s in json.loads((root / 'outline.json').read_text())['slides']],
-                         ['second-slide', 'first-slide'])
+                         ['third-slide', 'second-slide', 'first-slide'])
 
     def test_a_refusal_comes_back_as_a_sentence_and_nothing_is_written(self):
         root, run = self.deck('scratch')
