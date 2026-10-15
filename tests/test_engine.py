@@ -630,7 +630,7 @@ class FindingMarkTests(StudioCase):
                                {'add': ['What does a restart cost?']})
         self.assertEqual(sorted(self.asked(before)),
                          ['health-checks', 'instance-min', 'what-does-a-restart-cost'])
-        self.assertNotIn('pending', self.view(root)['gate']['verdicts'].values())
+        self.assertNotIn('pending', [item['status'] for item in self.view(root)['gate']['items']])
         self.assertNotIn('Not researched', (root / 'research' / 'report.md').read_text())
 
     def test_a_left_out_question_is_not_researched_again_for_a_note(self):

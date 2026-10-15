@@ -2108,8 +2108,7 @@ class Engine(Jobs, Researching):
                               if isinstance(item, dict) and isinstance(item.get('id'), str)]}
 
     def _show_research(self, root: Path, record: dict) -> dict:
-        return {'text': text_of(root / REPORT) or '', 'verdicts': self._verdicts(root),
-                'items': self._findings_shown(root, record)}
+        return {'text': text_of(root / REPORT) or '', 'items': self._findings_shown(root, record)}
 
     def _show_outline(self, root: Path, record: dict) -> dict:
         found = home.read_json(root / outlines.OUTLINE, None)

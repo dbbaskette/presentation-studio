@@ -130,7 +130,8 @@
   color: var(--quiet);
 }
 
-.review-off .row-title {
+.review-off .row-title,
+.review-off .review-name {
   text-decoration: line-through;
 }
 
@@ -143,6 +144,19 @@
 
 .review-headline {
   font-weight: 560;
+}
+
+/* An answered finding is a line that opens: its name, then the card it opens into. */
+.review-fold > * + * {
+  margin-top: 0.35rem;
+}
+
+.review-name {
+  font-weight: 650;
+}
+
+.review-sources {
+  margin-top: 0.4rem;
 }
 
 .review-quote {

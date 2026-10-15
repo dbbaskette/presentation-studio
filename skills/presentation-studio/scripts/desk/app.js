@@ -3393,6 +3393,10 @@ function planRow(gate, item, readonly) {
 function researchPanel(gate, readonly) {
   const node = card('What the research found');
   const items = list(gate.items);
+  // Without findings to show, as when the plan cannot be read, the report is all there is.
+  if (!items.length) {
+    return add(node, documentPart('The research report', gate.text), ...gateSaid(gate));
+  }
   const settled = items.filter((item) => item.status === 'supported').length;
   add(node, reviewCounts([[items.length, items.length === 1 ? 'question' : 'questions'],
     [settled, 'answered by the sources'], [items.length - settled, 'to look at']]));
@@ -3400,7 +3404,7 @@ function researchPanel(gate, readonly) {
   findings.id = 'findings';
   add(node, findings);
   paintFindings(gate, findings, readonly);
-  if (!readonly && items.length) add(node, addedPart(gate), reviewBar(gate));
+  if (!readonly) add(node, addedPart(gate), reviewBar(gate));
   return add(node, fullText('Read the full report', 'The research report', gate.text,
     'report-text'), ...gateSaid(gate));
 }
@@ -3471,8 +3475,8 @@ function findingCard(gate, item, readonly, folded) {
       delete held.again[item.id];
       redraw('leave ' + item.id);
     }, 'leave ' + item.id);
-    leave.setAttribute('aria-label', (out ? 'Bring back “' : 'Leave out “') + title + '”');
-    const why = last ? switchedOff(leave, 'leave-why-' + item.id, 'The last finding left '
+    leave.setAttribute('aria-label', (out ? 'Bring it back: “' : 'Leave out “') + title + '”');
+    const why = last ? switchedOff(leave, 'leave-why-' + item.id, 'The last finding kept '
       + 'cannot be left out: the outline is drafted from the findings.') : null;
     const redo = out ? null : capsule(again ? 'Don’t research it again' : 'Research again',
       'quiet', () => {
@@ -3481,17 +3485,19 @@ function findingCard(gate, item, readonly, folded) {
         redraw(again ? 'again ' + item.id : 'again-' + item.id);
       }, 'again ' + item.id);
     if (redo) {
-      redo.setAttribute('aria-label', (again ? 'Don’t research “' : 'Research “') + title
-        + '” again');
+      redo.setAttribute('aria-label', (again ? 'Don’t research it again: “'
+        : 'Research again: “') + title + '”');
     }
     body.push(why, add(make('div', 'bar'), redo, leave));
   }
-  const row = make('li', 'review-row' + (out && !readonly ? ' review-off' : ''));
+  // Read only, `out` is what the runner left out, so it is shown as left out there too.
+  const row = make('li', 'review-row' + (out ? ' review-off' : ''));
   if (folded) {
     const fold = make('details', 'review-fold');
     fold.dataset.key = 'finding ' + item.id;
-    return add(row, add(fold, make('summary', '', title + ' · ' + said + ' · '
-      + count(list(item.sources).length, 'source', 'sources')), ...body));
+    return add(row, add(fold, add(make('summary', ''), make('span', 'review-name', title),
+      ' · ' + said + ' · ' + count(list(item.sources).length, 'source', 'sources')),
+    ...body));
   }
   return add(row, add(make('div', 'review-top'), make('p', 'row-title', title),
     state(out ? 'off' : again ? 'review' : shape, said)), ...body);
@@ -4152,7 +4158,10 @@ function paintReviewBar(gate, node) {
   if (!node) return;
   const made = reviewOf(gate);
   const problem = node.querySelector('#review-problem');
-  node.querySelector('#review-tally').textContent = made.tally;
+  const tally = node.querySelector('#review-tally');
+  // Only a tally that changed is read out again: typing in a box against an item changes
+  // nothing it counts.
+  if (tally.textContent !== made.tally) tally.textContent = made.tally;
   // What was refused before is not what the marks say now.
   say(problem, '');
   const go = capsule(made.label, '', () => sendReview(gate, go, problem), 'review-send');

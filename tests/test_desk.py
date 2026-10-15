@@ -487,7 +487,7 @@ class ScreenTests(ScriptedPage, PageCase):
         self.assertEqual(self.run_of(path)['gate']['name'], 'gate:research')
         result = self.deck_screen(path, [
             {'snapshot': 'found'},
-            {'click': 'Research “Health checks” again'},
+            {'click': 'Research again: “Health checks”'}, {'snapshot': 'asking'},
             {'fill': 'What was wrong with “Health checks” (optional)',
              'value': 'Look for the platform docs.'},
             {'click': 'Instance min'}, {'click': 'Sources for “Instance min” (1)'},
@@ -500,6 +500,8 @@ class ScreenTests(ScriptedPage, PageCase):
                      'Not known: Only one page was found.', 'Answered', 'Read the full report'):
             self.assertIn(said, found)
         self.assertLess(found.index('Health checks'), found.index('Instance min'))
+        # Pressing Research again takes the focus to the box for what was wrong.
+        self.assertEqual(result['snapshots']['asking']['focus'], 'again-health-checks')
         opened = result['snapshots']['opened']
         self.assertIn(QUOTE, opened['text'])
         self.assertTrue(any(link['href'] == URL for link in opened['links']))
@@ -519,11 +521,12 @@ class ScreenTests(ScriptedPage, PageCase):
             {'click': 'Approve, leaving out 1 finding'}],
             **{'POST /api/decide': [ok(self.run_of(path))]})
         # The focus stays on the row, now drawn again, on the way to bring it back.
-        self.assertEqual(result['snapshots']['left out']['focus'], 'Bring back “Health checks”')
+        self.assertEqual(result['snapshots']['left out']['focus'],
+                         'Bring it back: “Health checks”')
         left = result['snapshots']['one left']
         # The outline needs a finding, so the last one kept cannot be left out, and says why.
         self.assertIn('Leave out “Instance min”', left['off'])
-        self.assertIn('The last finding left cannot be left out', left['text'])
+        self.assertIn('The last finding kept cannot be left out', left['text'])
         (_, body), = self.posts(result)
         self.assertEqual((body['decision'], body['extra']),
                          ('approve', {'left_out': ['health-checks']}))
@@ -534,9 +537,13 @@ class ScreenTests(ScriptedPage, PageCase):
         path = self.started(research=True)
         self.decided(path, 'gate:research-plan')
         result = self.deck_screen(path, [
-            {'click': 'Health checks'}, {'click': 'Research “Health checks” again'},
-            {'click': 'Send 1 change'}],
+            {'click': 'Health checks'}, {'click': 'Research again: “Health checks”'},
+            {'click': 'Don’t research it again: “Health checks”'}, {'snapshot': 'undone'},
+            {'click': 'Research again: “Health checks”'}, {'click': 'Send 1 change'}],
             **{'POST /api/decide': [ok(self.run_of(path))]})
+        # Taking the mark back leaves the focus on the way to make it again.
+        self.assertEqual(result['snapshots']['undone']['focus'],
+                         'Research again: “Health checks”')
         (_, body), = self.posts(result)
         # Nothing was left out or brought back here, so no leave-out is asked for again.
         self.assertEqual((body['decision'], body['extra']),
