@@ -29,7 +29,7 @@ import runner  # noqa: F401  puts the core on the import path
 import home
 from workspace import WorkspaceError, write_atomic
 
-from runner import briefs, documents, stages
+from runner import briefs, documents, marks, stages
 from runner import research as research_cli
 from runner.jobs import Halted, Run, given_up, last_error, sha256_of, text_of, tries
 from runner.steps import Work
@@ -103,6 +103,34 @@ class Researching:
         results = results if isinstance(results, dict) else {}
         return {ident: (results.get(ident) or {}).get('status', 'pending')
                 for ident in self._questions(root)}
+
+    def _findings_shown(self, root: Path, record: dict) -> list[dict]:
+        """Each question of the plan with what the research found, for the page: its title,
+        status, one-sentence answer, what is not known and the passages quoted. A finding
+        kept before headlines were asked for is given its summary's first sentence."""
+        found = home.read_json(root / RECORD, None)
+        results = found.get('results') if isinstance(found, dict) else None
+        results = results if isinstance(results, dict) else {}
+        left = set((record.get('research') or {}).get('left_out') or ())
+        shown = []
+        for ident, question in self._questions(root).items():
+            result = results.get(ident) if isinstance(results.get(ident), dict) else {}
+            summary, limits = str(result.get('summary') or ''), str(result.get('limits') or '')
+            headline = result.get('headline') if isinstance(result.get('headline'), str) else ''
+            known = limits.strip().lower() in ('', 'none')
+            shown.append({
+                'id': ident, 'title': marks.title(ident), 'question': question,
+                'status': result.get('status') or 'pending',
+                'headline': headline or marks.first_sentence(summary), 'summary': summary,
+                'limits': '' if known else limits,
+                'unknown': '' if known else marks.first_sentence(limits),
+                'left_out': ident in left,
+                'sources': [{'title': str(passage.get('title') or ''),
+                             'origin': str(passage.get('origin') or ''),
+                             'quote': str(passage.get('quote') or '')}
+                            for passage in result.get('evidence') or ()
+                            if isinstance(passage, dict)]})
+        return shown
 
     @staticmethod
     def _named(ident: str, note: str | None) -> bool:

@@ -439,6 +439,33 @@ class ResearchTests(StudioCase):
                          {'instance-min': 'The page answers instance-min.',
                           'health-checks': 'The page answers health-checks.'})
 
+    def test_the_research_stops_list_each_question_and_finding(self):
+        root = self.start(research=True)
+        plan = self.view(root)['gate']
+        self.assertEqual(plan['questions'][0], {
+            'id': 'instance-min', 'title': 'Instance min',
+            'question': 'How many instances keep capacity during a restart?',
+            'search': 'rolling restart minimum instances'})
+        self.decide(root, 'gate:research-plan')
+        found = self.view(root)['gate']
+        first = found['items'][0]
+        self.assertEqual({key: first[key] for key in ('id', 'title', 'status', 'headline',
+                                                      'left_out', 'unknown')},
+                         {'id': 'instance-min', 'title': 'Instance min', 'status': 'supported',
+                          'headline': 'The page answers instance-min.', 'left_out': False,
+                          'unknown': ''})
+        self.assertEqual(first['sources'][0]['quote'], runner_support.QUOTE)
+        self.assertEqual(first['sources'][0]['origin'], runner_support.URL)
+        self.assertNotIn(str(root), json.dumps(found))
+        # A finding kept before headlines were asked for is given its summary's first
+        # sentence.
+        kept = root / '.harness-research' / 'research.json'
+        record = json.loads(kept.read_text())
+        del record['results']['instance-min']['headline']
+        kept.write_text(json.dumps(record))
+        self.assertEqual(self.view(root)['gate']['items'][0]['headline'],
+                         'What the page says about instance-min.')
+
 
 class DocumentTests(StudioCase):
     def test_a_pasted_document_is_classified_and_a_correction_switches_the_branch(self):

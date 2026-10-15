@@ -113,7 +113,7 @@ import home
 import hub
 from workspace import WorkspaceError, write_atomic
 
-from runner import agents, companion, decks, documents, gitstate, settings, stages
+from runner import agents, companion, decks, documents, gitstate, marks, settings, stages
 from runner import team, worker_tools
 from runner import brand as brand_skill
 from runner import research as research_cli
@@ -121,7 +121,7 @@ from runner import slides as slides_tool
 from runner.jobs import (FED, KEPT_SO_FAR, Gone as _Gone, Halted as _Halted, Jobs,
                          Run as _Run, Slots as _Slots, attempts, first, gate_state,
                          last_error, spent, text_of, tries)
-from runner.research_steps import PLAN_MD, REPORT, Researching
+from runner.research_steps import PLAN, PLAN_MD, REPORT, Researching
 from runner.steps import build, deliver as delivering, existing, intake
 from runner.steps import look as looks
 from runner.steps import outline as outlines
@@ -2045,12 +2045,18 @@ class Engine(Jobs, Researching):
                 'pictures': [{'kind': 'original', 'ref': number} for number in pictured]}
 
     def _show_research_plan(self, root: Path, record: dict) -> dict:
+        plan = home.read_json(root / PLAN, None)
+        items = plan.get('items') if isinstance(plan, dict) else None
         return {'text': text_of(root / PLAN_MD) or '',
-                'questions': [{'id': ident, 'question': question}
-                              for ident, question in self._questions(root).items()]}
+                'questions': [{'id': item['id'], 'title': marks.title(item['id']),
+                               'question': str(item.get('question') or ''),
+                               'search': item.get('public_query')}
+                              for item in items or ()
+                              if isinstance(item, dict) and isinstance(item.get('id'), str)]}
 
     def _show_research(self, root: Path, record: dict) -> dict:
-        return {'text': text_of(root / REPORT) or '', 'verdicts': self._verdicts(root)}
+        return {'text': text_of(root / REPORT) or '', 'verdicts': self._verdicts(root),
+                'items': self._findings_shown(root, record)}
 
     def _show_outline(self, root: Path, record: dict) -> dict:
         found = home.read_json(root / outlines.OUTLINE, None)
