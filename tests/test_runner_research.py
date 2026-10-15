@@ -238,17 +238,104 @@ class StandInTests(DeckCase):
                          {'instance-min': 'pending', 'health-checks': 'pending'})
         self.assertIn('Status: pending.', Path(status['report']).read_text())
 
-    def test_the_same_plan_continues_its_run_and_a_changed_one_starts_another(self):
+    def test_the_same_plan_continues_its_run_and_a_changed_one_keeps_unchanged_findings(self):
         run = self.planned()
         self.research.record(self.root, run, 'instance-min', self.finding())
         again = self.research.plan(self.root, self.plan_file)
-        self.assertEqual((again['run'], again['completed']), (run, 1))
+        self.assertEqual((again['run'], again['completed'], again['carried']), (run, 1, []))
         longer = {**PLAN, 'items': PLAN['items'] + [{'id': 'rollback', 'question': 'How is a '
                                                      'failed restart rolled back?'}]}
         self.plan_file.write_text(json.dumps(longer))
         changed = self.research.plan(self.root, self.plan_file)
         self.assertNotEqual(changed['run'], run)
-        self.assertEqual((changed['completed'], changed['total']), (0, 3))
+        self.assertEqual((changed['completed'], changed['total'], changed['carried']),
+                         (1, 3, ['instance-min']))
+        self.plan_file.write_text(json.dumps({**longer, 'topic': 'Another topic'}))
+        retitled = self.research.plan(self.root, self.plan_file)
+        self.assertEqual((retitled['completed'], retitled['carried']), (0, []))
+
+    def test_a_question_is_kept_only_when_it_and_what_it_rests_on_are_unchanged(self):
+        run = self.planned()
+        self.research.record(self.root, run, 'instance-min', self.finding())
+        self.research.record(self.root, run, 'health-checks', self.finding())
+        # Findings are listed in the new plan's order, and a status call lists none.
+        reordered = {**PLAN, 'items': PLAN['items'][::-1]}
+        self.plan_file.write_text(json.dumps(reordered))
+        moved = self.research.plan(self.root, self.plan_file)
+        self.assertEqual((moved['completed'], moved['carried']),
+                         (2, ['health-checks', 'instance-min']))
+        self.assertNotIn('carried', self.research.status(self.root))
+        # A question is compared as a whole object: claim null and no claim differ.
+        item = {key: value for key, value in PLAN['items'][0].items() if key != 'claim'}
+        edited = {**reordered, 'items': [reordered['items'][0], item]}
+        self.plan_file.write_text(json.dumps(edited))
+        changed = self.research.plan(self.root, self.plan_file)
+        self.assertEqual((changed['completed'], changed['carried']), (1, ['health-checks']))
+        # Nothing is kept when the selected sources change, or the contents of a file the
+        # plan rests on.
+        self.write('sources/handbook.txt', 'Keep two instances running throughout.\n')
+        handbook = {'id': 'handbook', 'title': 'Handbook', 'origin': 'Supplied by the team',
+                    'file': 'sources/handbook.txt'}
+        self.plan_file.write_text(json.dumps({**edited, 'sources': [handbook]}))
+        added = self.research.plan(self.root, self.plan_file)
+        self.assertEqual((added['completed'], added['carried']), (0, []))
+        self.research.record(self.root, added['run'], 'health-checks', self.finding())
+        self.write('sources/handbook.txt', 'Keep three instances running throughout.\n')
+        rewritten = self.research.plan(self.root, self.plan_file)
+        self.assertNotEqual(rewritten['run'], added['run'])
+        self.assertEqual((rewritten['completed'], rewritten['carried']), (0, []))
+
+    def test_a_finding_keeps_its_headline_and_the_report_gives_it(self):
+        run = self.planned()
+        status = self.research.record(self.root, run, 'instance-min',
+                                      self.finding(headline='Two instances keep capacity.'))
+        self.assertEqual(research_record(self.root)['results']['instance-min']['headline'],
+                         'Two instances keep capacity.')
+        self.assertIn('Answer: Two instances keep capacity.',
+                      Path(status['report']).read_text())
+        for headline in ('Two\nlines', '   ', 'x' * 301):
+            with self.subTest(headline=headline):
+                self.assertEqual(
+                    self.refusal(self.research.record, self.root, run, 'health-checks',
+                                 self.finding(headline=headline)),
+                    'Headline requires one nonempty line (maximum 300 characters).')
+        self.assertNotIn('headline', status)
+        # harness-research refuses a null headline, so a finding without one is handed over
+        # without the key.
+        self.research.record(self.root, run, 'health-checks', self.finding(headline=None))
+        self.assertNotIn('headline', research_record(self.root)['results']['health-checks'])
+
+    def test_the_headline_is_checked_and_kept_as_javascript_would(self):
+        run = self.planned()
+
+        def record(finding):
+            saved = self.write('finding.json', json.dumps(finding))
+            return self.research.run(
+                ['node', 'script', 'record', '--project', str(self.root), '--file', str(saved),
+                 '--run', run, '--item', 'instance-min'])
+
+        def headline() -> str | None:
+            return research_record(self.root)['results'].get('instance-min', {}).get('headline')
+
+        line = 'Headline requires one nonempty line (maximum 300 characters).\n'
+        # The command refuses a null, whatever else is right, and writes nothing.
+        self.assertEqual(record(self.finding(headline=None)), (1, '', line))
+        self.assertEqual(research_record(self.root)['results'], {})
+        # Its limit counts UTF-16 code units before trimming; only \r and \n break a line.
+        self.assertEqual(record(self.finding(headline='\U0001F600' * 151))[0], 1)
+        self.assertEqual(record(self.finding(headline=' ' + 'x' * 300))[0], 1)
+        self.assertEqual(record(self.finding(headline='x' * 3 + '\r'))[0], 1)
+        self.assertEqual(record(self.finding(headline='\x1c\x85'))[0], 0)  # not trimmed away
+        self.assertEqual(headline(), '\x1c\x85')
+        # Its trim takes U+FEFF and the Unicode spaces, and leaves U+2028 inside a line.
+        self.assertEqual(record(self.finding(headline='\ufeff\u3000\u00a0Two\u2028x\t '))[0], 0)
+        self.assertEqual(headline(), 'Two\u2028x')
+        self.assertEqual(record(self.finding(headline='\U0001F600' * 150))[0], 0)
+        self.assertEqual(record(self.finding(headline='\ufeff\u2029'))[0], 1)
+        # The headline is not in what the command returns.
+        out = json.loads(record(self.finding(headline='Two instances keep capacity.'))[1])
+        self.assertNotIn('Two instances', json.dumps(out))
+        self.assertNotIn('headline', json.dumps(self.research.status(self.root)))
 
     def test_findings_are_recorded_one_at_a_time_until_the_run_is_complete(self):
         run = self.planned()

@@ -22,6 +22,10 @@ SCOPES = {'supplied-only': 'Uploaded sources only',
           'public-web': 'Uploaded sources plus external research'}
 IDENT = re.compile(r'^[a-z0-9][a-z0-9-]{0,63}$')
 NOT_A_QUERY = re.compile(r'https?://|[/\\@]')
+# What JavaScript's trim() removes. Python's strip() differs: it also takes \x1c-\x1f and \x85,
+# and leaves U+FEFF.
+JS_SPACE = ('\t\n\v\f\r \u00a0\u1680\u2000\u2001\u2002\u2003\u2004\u2005\u2006\u2007\u2008'
+            '\u2009\u200a\u2028\u2029\u202f\u205f\u3000\ufeff')
 
 
 def stand_in() -> tool.Research:
@@ -38,6 +42,16 @@ def _text(value, label: str, most: int = 4000) -> str:
     if not isinstance(value, str) or not value.strip() or len(value) > most:
         raise _Said(f'{label} requires nonempty text (maximum {most} characters).')
     return value
+
+
+def _headline(value) -> str:
+    """A headline as the command takes it: one nonempty line of at most 300 UTF-16 code
+    units, measured before it is trimmed, with only CR and LF as line breaks."""
+    if isinstance(value, str):
+        units = len(value.encode('utf-16-le', 'surrogatepass')) // 2
+        if value.strip(JS_SPACE) and units <= 300 and not re.search(r'[\r\n]', value):
+            return value.strip(JS_SPACE)
+    raise _Said('Headline requires one nonempty line (maximum 300 characters).')
 
 
 def _digest(data: bytes) -> str:
@@ -158,6 +172,8 @@ class StandIn:
             lines += [f"## {item['id']}", '', item['question'], '',
                       f"Status: {finding['status'] if finding else 'pending'}.", '']
             if finding:
+                if finding.get('headline'):
+                    lines += [f"Answer: {finding['headline']}", '']
                 lines += [finding['summary'], '',
                           f"Limits/open questions: {finding['limits']}", '']
                 for source in finding['evidence']:
@@ -215,10 +231,24 @@ class StandIn:
             raise _Said('Supplied-only research requires explicit permission before changing '
                         'to public-web scope.')
         if old and old['run'] == run:
-            return self._status(project)
-        return self._save(project, {
+            return {**self._status(project), 'carried': []}
+        kept = self._kept(old, plan, pins) if old else {}
+        status = self._save(project, {
             'schema': 1, 'owner': 'harness-research', 'run': run, **plan, 'inputs': pins,
-            'results': {}, 'created_at': _now()})
+            'results': kept, 'created_at': _now()})
+        return {**status, 'carried': [item['id'] for item in items if item['id'] in kept]}
+
+    @staticmethod
+    def _kept(old: dict, plan: dict, pins: dict) -> dict:
+        """As the real command keeps them: the findings of questions defined as before,
+        when the topic, purpose, scope, selected sources and inputs are unchanged."""
+        same = all(old.get(key) == plan.get(key) for key in ('topic', 'purpose', 'scope')) \
+            and old.get('sources') == plan.get('sources') and old.get('inputs') == pins
+        if not same:
+            return {}
+        before = {item['id']: item for item in old['items']}
+        return {item['id']: old['results'][item['id']] for item in plan['items']
+                if before.get(item['id']) == item and item['id'] in old['results']}
 
     def _record(self, project: Path, run: str, ident: str, supplied: dict) -> dict:
         value = self._load(project)
@@ -236,13 +266,15 @@ class StandIn:
                         'status and up to 20 evidence passages.')
         _text(supplied.get('summary'), 'Summary', 12000)
         _text(supplied.get('limits'), 'Coverage limits')
+        headline = _headline(supplied['headline']) if 'headline' in supplied else None
         evidence = [self._evidence(project, value, source) for source in passages]
         if supplied['status'] in ('supported', 'contradicted') and not evidence:
             raise _Said('Supported or contradicted findings require an inspected source '
                         'passage.')
         value['results'][ident] = {
-            'status': supplied['status'], 'summary': supplied['summary'],
-            'limits': supplied['limits'], 'evidence': evidence, 'checked_at': _now()}
+            'status': supplied['status'], **({'headline': headline} if headline else {}),
+            'summary': supplied['summary'], 'limits': supplied['limits'],
+            'evidence': evidence, 'checked_at': _now()}
         return self._save(project, value)
 
     def _evidence(self, project: Path, value: dict, source: dict) -> dict:
