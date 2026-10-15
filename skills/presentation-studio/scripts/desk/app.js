@@ -3372,14 +3372,8 @@ function planRow(gate, item, readonly) {
     redraw('drop ' + item.id);
   }, 'drop ' + item.id);
   drop.setAttribute('aria-label', (dropped ? 'Keep “' : 'Drop “') + title + '”');
-  let why = null;
-  if (last) {
-    drop.disabled = true;
-    why = make('p', 'quiet', 'The last question left cannot be dropped: research needs '
-      + 'something to look up.');
-    why.id = 'drop-why-' + item.id;
-    drop.setAttribute('aria-describedby', why.id);
-  }
+  const why = last ? switchedOff(drop, 'drop-why-' + item.id, 'The last question left '
+    + 'cannot be dropped: research needs something to look up.') : null;
   const reword = dropped ? null : capsule(rewording ? 'Keep the wording' : 'Reword', 'quiet',
     () => {
       if (rewording) delete held.reword[item.id];
@@ -3393,16 +3387,114 @@ function planRow(gate, item, readonly) {
   return add(row, why, add(make('div', 'bar'), drop, reword));
 }
 
-function researchPanel(gate) {
+// What the research found: the findings that need a look first, as cards, and the answered
+// ones a line each that opens into the same card. Each can be researched again or left out,
+// and a question added.
+function researchPanel(gate, readonly) {
   const node = card('What the research found');
-  const verdicts = Object.values(gate.verdicts || {});
-  if (verdicts.length) {
-    const counted = {};
-    for (const said of verdicts) counted[said] = (counted[said] || 0) + 1;
-    add(node, make('p', '', series(Object.entries(counted).map(([said, number]) => number
-      + ' ' + lower(spoken(said))))));
+  const items = list(gate.items);
+  const settled = items.filter((item) => item.status === 'supported').length;
+  add(node, reviewCounts([[items.length, items.length === 1 ? 'question' : 'questions'],
+    [settled, 'answered by the sources'], [items.length - settled, 'to look at']]));
+  const findings = make('div', '');
+  findings.id = 'findings';
+  add(node, findings);
+  paintFindings(gate, findings, readonly);
+  if (!readonly && items.length) add(node, addedPart(gate), reviewBar(gate));
+  return add(node, fullText('Read the full report', 'The research report', gate.text,
+    'report-text'), ...gateSaid(gate));
+}
+
+// The findings, those that need a look first and then the answered ones. They are drawn
+// again together, since leaving one out can leave another the last, which cannot be left
+// out. What was open stays open.
+function paintFindings(gate, holder, readonly) {
+  if (!holder) return;
+  const opened = Array.from(holder.querySelectorAll('details')).filter((node) => node.open)
+    .map((node) => node.dataset.key);
+  const items = list(gate.items);
+  const parts = [];
+  for (const [heading, folded] of [['Look at these first', false], ['Answered', true]]) {
+    const shown = items.filter((item) => (item.status === 'supported') === folded);
+    if (!shown.length) continue;
+    parts.push(make('h3', 'row-title', heading), add(make('ul', 'plain review-list'),
+      ...shown.map((item) => findingCard(gate, item, readonly, folded))));
   }
-  return add(node, documentPart('The research report', gate.text), ...gateSaid(gate));
+  holder.replaceChildren(...parts);
+  for (const node of holder.querySelectorAll('details')) {
+    if (opened.includes(node.dataset.key)) node.open = true;
+  }
+}
+
+// The quoted passages behind a finding, folded, each with where it came from.
+function sourcesPart(item) {
+  const sources = list(item.sources);
+  if (!sources.length) return make('p', 'quiet', 'No passage is quoted for it.');
+  const node = make('details', 'card-part');
+  node.dataset.key = 'sources ' + item.id;
+  const quotes = make('ul', 'plain review-sources');
+  for (const one of sources) {
+    quotes.append(add(make('li', ''), outLink(one.origin, one.title || one.origin
+      || 'A source'), make('blockquote', 'review-quote', one.quote)));
+  }
+  return add(node, make('summary', '', 'Sources for “' + (item.title || item.id) + '” ('
+    + sources.length + ')'), quotes);
+}
+
+// A finding: a card, or a line that opens into one. Read only, it is as the runner has it.
+function findingCard(gate, item, readonly, folded) {
+  const held = chosenFor(gate);
+  const title = item.title || item.id;
+  const outs = readonly ? leftBefore(gate) : leftOut(gate);
+  const out = outs.includes(item.id);
+  const again = !readonly && !out && owns(held.again, item.id);
+  const [shape, words] = FINDING_WORDS[item.status] || FINDING_WORDS.pending;
+  const said = out ? 'Left out' : again ? 'To research again' : words;
+  const body = [make('p', 'quiet', item.question),
+    item.headline ? make('p', 'review-headline', item.headline) : null,
+    item.unknown ? make('p', 'quiet', 'Not known: ' + item.unknown) : null,
+    sourcesPart(item)];
+  if (!readonly) {
+    if (again) {
+      body.push(field('again-' + item.id, 'What was wrong with “' + title + '” (optional)',
+        held.again, item.id, { long: true, limit: LINE, typed: () => reviewChanged(gate) }));
+    }
+    // The runner refuses every finding left out: the outline is drafted from them.
+    const last = !out && list(gate.items).filter((one) => !outs.includes(one.id)).length < 2;
+    const redraw = (key) => {
+      paintFindings(gate, byId('findings'), false);
+      reviewChanged(gate);
+      focusKey(key);
+    };
+    const leave = capsule(out ? 'Bring it back' : 'Leave out', 'quiet', () => {
+      held.leftOut = out ? outs.filter((id) => id !== item.id) : [...outs, item.id];
+      delete held.again[item.id];
+      redraw('leave ' + item.id);
+    }, 'leave ' + item.id);
+    leave.setAttribute('aria-label', (out ? 'Bring back “' : 'Leave out “') + title + '”');
+    const why = last ? switchedOff(leave, 'leave-why-' + item.id, 'The last finding left '
+      + 'cannot be left out: the outline is drafted from the findings.') : null;
+    const redo = out ? null : capsule(again ? 'Don’t research it again' : 'Research again',
+      'quiet', () => {
+        if (again) delete held.again[item.id];
+        else held.again[item.id] = '';
+        redraw(again ? 'again ' + item.id : 'again-' + item.id);
+      }, 'again ' + item.id);
+    if (redo) {
+      redo.setAttribute('aria-label', (again ? 'Don’t research “' : 'Research “') + title
+        + '” again');
+    }
+    body.push(why, add(make('div', 'bar'), redo, leave));
+  }
+  const row = make('li', 'review-row' + (out && !readonly ? ' review-off' : ''));
+  if (folded) {
+    const fold = make('details', 'review-fold');
+    fold.dataset.key = 'finding ' + item.id;
+    return add(row, add(fold, make('summary', '', title + ' · ' + said + ' · '
+      + count(list(item.sources).length, 'source', 'sources')), ...body));
+  }
+  return add(row, add(make('div', 'review-top'), make('p', 'row-title', title),
+    state(out ? 'off' : again ? 'review' : shape, said)), ...body);
 }
 
 // The outline as it stands here: the server's, or the person's edit of it.
@@ -3892,6 +3984,16 @@ function spaced(text) {
 function clipped(text, size) {
   const said = spaced(text);
   return said.length > size ? said.slice(0, size - 1).trimEnd() + '…' : said;
+}
+
+// A mark the runner would refuse: its control switched off, and a quiet line beside it that
+// says why, which a screen reader gives with the control. Returns the line.
+function switchedOff(control, id, reason) {
+  control.disabled = true;
+  const why = make('p', 'quiet', reason);
+  why.id = id;
+  control.setAttribute('aria-describedby', id);
+  return why;
 }
 
 // The lines typed against items, as the runner keeps them, keeping those that say

@@ -16,6 +16,7 @@ from unittest import mock
 
 import helpers
 import runner_support
+from runner_support import QUOTE, URL
 from test_runner_page import PageCase
 
 import server
@@ -38,6 +39,17 @@ MODELS = {'GET /api/models': [{'status': 200, 'body': {
 
 def ok(body) -> dict:
     return {'status': 200, 'body': body}
+
+
+def unsettled(workers, ident):
+    """A research worker that leaves `ident` open and answers every other question."""
+    def act(tools, job):
+        if tools.job['finding'] != ident:
+            return workers.question(tools, job)
+        return tools.submit_finding(ident, 'insufficient', 'No page says.',
+                                    headline='No page says what starts the next batch.',
+                                    limits='Only one page was found.', evidence=[])
+    return act
 
 
 class PageFileTests(unittest.TestCase):
@@ -464,6 +476,71 @@ class ScreenTests(ScriptedPage, PageCase):
         (_, body), = self.posts(result)
         self.assertEqual(len(body['extra']['add']), marks.ADDED)
         # The runner takes exactly as many as the page lets the person add.
+        self.post('decide', body)
+        self.assertEqual(self.run_of(path)['gate']['round'], 2)
+
+    def test_findings_that_need_a_look_come_first_and_marks_go_as_changes(self):
+        self.workers.then('question', unsettled(self.workers, 'health-checks'),
+                          unsettled(self.workers, 'health-checks'))
+        path = self.started(research=True)
+        self.decided(path, 'gate:research-plan')
+        self.assertEqual(self.run_of(path)['gate']['name'], 'gate:research')
+        result = self.deck_screen(path, [
+            {'snapshot': 'found'},
+            {'click': 'Research “Health checks” again'},
+            {'fill': 'What was wrong with “Health checks” (optional)',
+             'value': 'Look for the platform docs.'},
+            {'click': 'Instance min'}, {'click': 'Sources for “Instance min” (1)'},
+            {'snapshot': 'opened'}, {'click': 'Leave out “Instance min”'},
+            {'snapshot': 'marked'}, {'click': 'Send 2 changes'}],
+            **{'POST /api/decide': [ok(self.run_of(path))]})
+        found = result['snapshots']['found']['text']
+        for said in ('Look at these first', 'Not settled',
+                     'No page says what starts the next batch.',
+                     'Not known: Only one page was found.', 'Answered', 'Read the full report'):
+            self.assertIn(said, found)
+        self.assertLess(found.index('Health checks'), found.index('Instance min'))
+        opened = result['snapshots']['opened']
+        self.assertIn(QUOTE, opened['text'])
+        self.assertTrue(any(link['href'] == URL for link in opened['links']))
+        self.assertIn('1 to research again · 1 left out · 0 added',
+                      result['snapshots']['marked']['text'])
+        (_, body), = self.posts(result)
+        self.assertEqual((body['decision'], body['extra']), ('changes', {
+            'left_out': ['instance-min'],
+            'again': {'health-checks': 'Look for the platform docs.'}, 'add': []}))
+
+    def test_the_last_finding_kept_cannot_be_left_out(self):
+        path = self.started(research=True)
+        self.decided(path, 'gate:research-plan')
+        result = self.deck_screen(path, [
+            {'click': 'Health checks'}, {'click': 'Leave out “Health checks”'},
+            {'snapshot': 'left out'}, {'click': 'Instance min'}, {'snapshot': 'one left'},
+            {'click': 'Approve, leaving out 1 finding'}],
+            **{'POST /api/decide': [ok(self.run_of(path))]})
+        # The focus stays on the row, now drawn again, on the way to bring it back.
+        self.assertEqual(result['snapshots']['left out']['focus'], 'Bring back “Health checks”')
+        left = result['snapshots']['one left']
+        # The outline needs a finding, so the last one kept cannot be left out, and says why.
+        self.assertIn('Leave out “Instance min”', left['off'])
+        self.assertIn('The last finding left cannot be left out', left['text'])
+        (_, body), = self.posts(result)
+        self.assertEqual((body['decision'], body['extra']),
+                         ('approve', {'left_out': ['health-checks']}))
+        self.post('decide', body)
+        self.assertEqual(self.run_of(path)['gate']['name'], 'gate:outline')
+
+    def test_a_finding_researched_again_is_sent_without_the_leave_outs(self):
+        path = self.started(research=True)
+        self.decided(path, 'gate:research-plan')
+        result = self.deck_screen(path, [
+            {'click': 'Health checks'}, {'click': 'Research “Health checks” again'},
+            {'click': 'Send 1 change'}],
+            **{'POST /api/decide': [ok(self.run_of(path))]})
+        (_, body), = self.posts(result)
+        # Nothing was left out or brought back here, so no leave-out is asked for again.
+        self.assertEqual((body['decision'], body['extra']),
+                         ('changes', {'again': {'health-checks': ''}, 'add': []}))
         self.post('decide', body)
         self.assertEqual(self.run_of(path)['gate']['round'], 2)
 
