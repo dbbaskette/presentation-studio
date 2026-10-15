@@ -60,7 +60,7 @@ class SyncCase(unittest.TestCase):
         entry.write_text(entry.read_text() + f'\n{text}\n')
         return self.commit('newer guidance')
 
-    def train(self) -> None:
+    def start_deck(self) -> None:
         """Start a deck here the way the helper does: resolve guidance, make the deck, pin."""
         sync_guidance.start(self.project)
         self.make_deck()
@@ -108,7 +108,7 @@ class StartTests(SyncCase):
 
 class PinTests(SyncCase):
     def test_a_new_deck_is_pinned_to_the_guidance_it_started_with(self):
-        self.train()
+        self.start_deck()
         pin = json.loads((self.project / '.presentation-studio' / 'guidance.json').read_text())
         self.assertEqual(pin['commit'], self.first)
         self.assertIn('SKILL.md', pin['files'])
@@ -117,7 +117,7 @@ class PinTests(SyncCase):
                          ('pinned', True, self.first))
 
     def test_a_pinned_deck_stays_put_when_guidance_moves_on(self):
-        self.train()
+        self.start_deck()
         newer = self.change_remote()
         pinned = sync_guidance.start(self.project)
         self.assertEqual(pinned['commit'], self.first)
@@ -129,7 +129,7 @@ class PinTests(SyncCase):
         self.assertIn('A newer entry.', Path(fresh['entry']).read_text())
 
     def test_update_moves_a_deck_to_the_newest_guidance(self):
-        self.train()
+        self.start_deck()
         newer = self.change_remote()
         result = sync_guidance.update(self.project)
         self.assertEqual(result['commit'], newer)
@@ -148,7 +148,7 @@ class PinTests(SyncCase):
         self.assertEqual(sync_guidance.summary(self.project)['commit'], self.first)
 
     def test_a_damaged_cache_is_rebuilt_from_what_was_fetched(self):
-        self.train()
+        self.start_deck()
         entry = Path(sync_guidance.start(self.project)['entry'])
         entry.write_text('tampered')
         self.change_remote()
@@ -183,7 +183,7 @@ class FallbackTests(SyncCase):
 
     def test_a_deck_pinned_while_offline_keeps_using_the_installed_guidance(self):
         with mock.patch.dict(os.environ, {'PRESENTATION_STUDIO_SOURCE': str(self.remote / 'gone')}):
-            self.train()
+            self.start_deck()
         result = sync_guidance.start(self.project)
         self.assertEqual((result['freshness'], result['pinned']), ('installed', True))
         self.assertIsNone(result['notice'])
@@ -266,7 +266,7 @@ class BroughtPinTests(TrustCase):
         self.assertEqual((result['freshness'], result['pinned']), ('pinned', True))
 
     def test_a_folder_that_matches_the_pin_but_not_the_commit_is_not_used(self):
-        self.train()
+        self.start_deck()
         served = Path(sync_guidance.start(self.project)['entry']).parent
         (served / 'SKILL.md').write_text('Planted guidance.\n')
         self.plant_pin(self.first, served)          # the pin's hashes now agree with the folder
@@ -312,7 +312,7 @@ class BroughtPinTests(TrustCase):
             sync_guidance.start(self.project)
 
     def test_a_pinned_deck_resumes_with_no_network(self):
-        self.train()
+        self.start_deck()
         shutil.rmtree(self.cache.parent / self.first)
         with mock.patch.dict(os.environ, {'PRESENTATION_STUDIO_SOURCE': str(self.remote / 'gone')}):
             result = sync_guidance.start(self.project)
@@ -373,7 +373,7 @@ class PlantedCacheTests(TrustCase):
         self.assertTrusted(sync_guidance.start(self.project), newer)
 
     def test_a_replace_ref_does_not_swap_the_guidance(self):
-        self.train()
+        self.start_deck()
         other = self.elsewhere()
         git(self.cache, 'fetch', '--quiet', str(other), '+HEAD:refs/heads/planted')
         git(self.cache, 'replace', self.first, git(self.cache, 'rev-parse', 'refs/heads/planted'))
@@ -381,7 +381,7 @@ class PlantedCacheTests(TrustCase):
         self.assertTrusted(sync_guidance.start(self.project), self.first)
 
     def test_alternates_do_not_lend_the_cache_objects_from_elsewhere(self):
-        self.train()
+        self.start_deck()
         other = self.elsewhere()
         alternates = self.cache / 'objects' / 'info' / 'alternates'
         alternates.write_text(str(other / '.git' / 'objects') + '\n')
