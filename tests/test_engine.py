@@ -9,7 +9,7 @@ from pathlib import Path
 from unittest import mock
 
 import runner_support
-from runner_support import OUTLINE, StudioCase, asks, fails
+from runner_support import OUTLINE, StudioCase, asks, fails, unsettled
 from workspace import WorkspaceError
 
 from runner import decks, marks, stages
@@ -502,6 +502,11 @@ class ResearchTests(StudioCase):
         kept.write_text(json.dumps(record))
         self.assertEqual(self.view(root)['gate']['items'][0]['headline'],
                          'What the page says about instance-min.')
+        # The report says that sentence once, in the summary.
+        self.engine.decide(root, 'gate:research', 'approve', None, {'left_out': []})
+        report = (root / 'research' / 'report.md').read_text()
+        self.assertEqual(report.count('What the page says about instance-min.'), 1)
+        self.assertIn('What the page says about instance-min. More besides.', report)
 
 
 class PlanMarkTests(StudioCase):
@@ -547,17 +552,6 @@ class PlanMarkTests(StudioCase):
                 self.assertIn(said, str(caught.exception))
         self.assertEqual(self.questions(root), ['instance-min', 'health-checks'])
         self.assertEqual(self.waiting(root), 'gate:research-plan')
-
-
-def unsettled(workers, ident):
-    """A research worker that leaves `ident` open and answers every other question."""
-    def act(tools, job):
-        if tools.job['finding'] != ident:
-            return workers.question(tools, job)
-        return tools.submit_finding(ident, 'insufficient', 'No page says.',
-                                    headline='No page says what starts the next batch.',
-                                    limits='Only one page was found.', evidence=[])
-    return act
 
 
 class FindingMarkTests(StudioCase):
@@ -606,6 +600,10 @@ class FindingMarkTests(StudioCase):
         self.assertIn('Be brief.', task)
         gate = self.view(root)['gate']
         self.assertEqual((gate['name'], gate['round']), ('gate:research', 2))
+        # What was marked is not kept once the research is approved.
+        self.engine.decide(root, 'gate:research', 'approve', None, None)
+        gate = self.record(root)['gates']['gate:research']
+        self.assertEqual((gate['again'], gate['added'], gate['free']), (None, None, None))
 
     def test_a_question_added_after_the_research_keeps_the_other_findings(self):
         root = self.researched()
@@ -648,6 +646,20 @@ class FindingMarkTests(StudioCase):
         report = (root / 'research' / 'report.md').read_text()
         self.assertIn('Left out by you (1):\n- Health checks', report)
         self.assertNotIn('No page says', report)
+
+    def test_a_left_out_finding_is_not_researched_again_until_it_is_brought_back(self):
+        root = self.researched()
+        self.engine.decide(root, 'gate:research', 'changes', 'Be brief.',
+                           {'left_out': ['health-checks']})
+        before, kept = len(self.workers.of('question')), self.record(root)
+        with self.assertRaises(WorkspaceError) as caught:
+            self.engine.decide(root, 'gate:research', 'changes', None,
+                               {'again': {'health-checks': ''}})
+        self.assertEqual(str(caught.exception),
+                         'health-checks is left out: bring it back before researching it '
+                         'again.')
+        self.assertEqual(self.record(root), kept)
+        self.assertEqual(len(self.workers.of('question')), before)
 
     def test_a_question_added_to_a_full_plan_is_refused_and_nothing_is_written(self):
         root = self.researched()

@@ -694,6 +694,17 @@ def asks(question: str):
     return act
 
 
+def unsettled(workers, ident):
+    """A research worker that leaves `ident` open and answers every other question."""
+    def act(tools, job):
+        if tools.job['finding'] != ident:
+            return workers.question(tools, job)
+        return tools.submit_finding(ident, 'insufficient', 'No page says.',
+                                    headline='No page says what starts the next batch.',
+                                    limits='Only one page was found.', evidence=[])
+    return act
+
+
 class Workers:
     """Scripted workers for a deck. Each kind of job does the right thing unless a test
     queues something else for it with `then`. `jobs` lists every job that was started, as

@@ -65,11 +65,11 @@ class Researching:
                     f'None of the {len(verdicts)} research questions could be answered. '
                     f'{why}').strip(), 'The research plan you approved is kept.')
                 raise Halted()
-            write_atomic(root / REPORT, self._report_text(root, record, verdicts))
+            write_atomic(root / REPORT, self._report_text(root, record))
             (record.get('research') or {}).pop('again', None)
             self._done(root, step, clock, 'keep the research report', record)
 
-    def _report_text(self, root: Path, record: dict, verdicts: dict) -> str:
+    def _report_text(self, root: Path, record: dict) -> str:
         """The report the person reads and the outline is drafted from: what the research
         settled and did not, what the person left out, then each finding kept, with its
         answer, what is not known and the passages it quotes."""
@@ -100,7 +100,10 @@ class Researching:
                 continue
             lines += ['', f"## {item['title']} (`{item['id']}`)", '', item['question'], '',
                       f"Status: {item['status']}."]
-            for said in (item['headline'], item['summary']):
+            # A headline that is the summary's first sentence is said once, in the summary.
+            spaced = ' '.join(item['summary'].split())
+            headline = '' if spaced.startswith(item['headline']) else item['headline']
+            for said in (headline, item['summary']):
                 if said and said not in lines[-1]:
                     lines += ['', said]
             if item['limits']:

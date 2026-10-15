@@ -1566,6 +1566,12 @@ class Engine(Jobs, Researching):
             if not after and gate_state(record, gate) != 'waiting':
                 raise WorkspaceError(NOT_WAITING.format(it=it))
             marked = marks.check(gate, decision, extra, self._marked_ids(root, gate, extra))
+            if gate == 'gate:research' and 'left_out' not in marked:
+                out = (record.get('research') or {}).get('left_out') or ()
+                for ident in marked.get('again') or ():
+                    if ident in out:
+                        raise WorkspaceError(f'{ident} is left out: bring it back before '
+                                             'researching it again.')
             if decision == 'changes' and not note and not rebrand and not marks.asks(marked):
                 raise WorkspaceError(NO_NOTE)
             at = home.now()
@@ -1586,9 +1592,12 @@ class Engine(Jobs, Researching):
             elif decision == 'approve':
                 record = self._approve(root, record, gate, note, extra, marked)
                 gated = record['gates'].get(gate) or {}
+                # What the last request for changes marked is not kept past the approval.
+                cleared = {'again': None, 'added': None, 'free': None} \
+                    if gate == 'gate:research' else {}
                 record['gates'][gate] = {**gated, 'state': 'approved', 'note': note,
                                          'at': at, 'by': by,
-                                         'round': int(gated.get('round') or 1)}
+                                         'round': int(gated.get('round') or 1), **cleared}
                 self._store(root, record)
                 said = f'approve the {it}'
             else:
@@ -1657,7 +1666,7 @@ class Engine(Jobs, Researching):
         elif gate == 'gate:research' and 'left_out' in marked:
             record['research'] = {**(record.get('research') or {}),
                                   'left_out': marked['left_out']}
-            write_atomic(root / REPORT, self._report_text(root, record, self._verdicts(root)))
+            write_atomic(root / REPORT, self._report_text(root, record))
         elif gate == 'gate:look':
             looks.approve(root, record, note)
             record = self._load(root)
@@ -1685,9 +1694,10 @@ class Engine(Jobs, Researching):
 
     def _apply_marks(self, root: Path, record: dict, gate: str, marked: dict,
                      note: str | None) -> tuple[dict, str | None, dict]:
-        """The marks of a request for changes that need no worker, applied before the stop
-        is reopened. Returns the run, the note its worker reads and what the gate keeps
-        beside it."""
+        """What the marks of a request for changes do before the stop is reopened: drop
+        questions from the plan or add them to it, keep what was left out, and set down
+        which questions the worker researches again. Returns the run, the note its worker
+        reads and what the gate keeps beside it."""
         more = {}
         if gate == 'gate:research-plan' and marked.get('dropped'):
             self._drop_questions(root, record, marked['dropped'])

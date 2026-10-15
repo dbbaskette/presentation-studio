@@ -16,7 +16,7 @@ from unittest import mock
 
 import helpers
 import runner_support
-from runner_support import QUOTE, URL
+from runner_support import QUOTE, URL, unsettled
 from test_runner_page import PageCase
 
 import server
@@ -39,17 +39,6 @@ MODELS = {'GET /api/models': [{'status': 200, 'body': {
 
 def ok(body) -> dict:
     return {'status': 200, 'body': body}
-
-
-def unsettled(workers, ident):
-    """A research worker that leaves `ident` open and answers every other question."""
-    def act(tools, job):
-        if tools.job['finding'] != ident:
-            return workers.question(tools, job)
-        return tools.submit_finding(ident, 'insufficient', 'No page says.',
-                                    headline='No page says what starts the next batch.',
-                                    limits='Only one page was found.', evidence=[])
-    return act
 
 
 class PageFileTests(unittest.TestCase):
@@ -478,6 +467,14 @@ class ScreenTests(ScriptedPage, PageCase):
         # The runner takes exactly as many as the page lets the person add.
         self.post('decide', body)
         self.assertEqual(self.run_of(path)['gate']['round'], 2)
+
+    def test_a_line_takes_as_many_characters_as_the_runner_does(self):
+        path = self.started(research=True)
+        result = self.deck_screen(path, [{'click': 'Reword “Instance min”'},
+                                         {'snapshot': 'rewording'}])
+        limits = result['snapshots']['rewording']['limits']
+        for label in ('New wording for “Instance min”', 'A question to add'):
+            self.assertEqual(limits[label], marks.LINE)
 
     def test_findings_that_need_a_look_come_first_and_marks_go_as_changes(self):
         self.workers.then('question', unsettled(self.workers, 'health-checks'),
