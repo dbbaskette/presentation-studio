@@ -34,7 +34,9 @@ What a caller needs to know
   - `/api/setup/check` and `/api/setup`: see `setup`. The values every studio shares are
     kept only in the studios config, so `/api/setup` and `/api/brand` write the ones they
     change there, and are 409 and 400, with a sentence, when one changes while that file
-    cannot be read. `GET /api/setup` carries `shared`, what the file holds that
+    cannot be read, or when the form was opened before another studio changed that same
+    value: each takes `shared_seen`, the `shared` the form was shown, to tell what the
+    person changed. `GET /api/setup` carries `shared`, what the file holds that
     Presentation Studio can use; `shared_problem`, a sentence when it could not be read;
     `team_moved`, {"repository", "branch", "says"} when it names a team repository this
     computer's workspace is not a copy of; and `shared_notice`, a sentence about the values
@@ -319,7 +321,7 @@ class RunnerPage(server.Page):
             if sent.get('seen') is not True:
                 raise server.Refusal(HTTPStatus.BAD_REQUEST, 'Send {"seen": true} once the '
                                      'notice about the shared values has been read.')
-            setup.seen()
+            setup.notice_read()
             return server.as_json(HTTPStatus.OK, setup.describe(self.engine))
         if path == '/api/brand/install':
             release = server.text(sent, 'release')

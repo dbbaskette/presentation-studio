@@ -135,6 +135,8 @@ class WordTests(unittest.TestCase):
             with self.subTest(field):
                 self.assertIn('held.' + field, script)
         self.assertIn("send('shared', { seen: true })", script)
+        # What a form was shown goes back with it, so another studio's change is kept.
+        self.assertIn('body.shared_seen = form.seen', script)
 
     def test_no_brand_is_named(self):
         # Any brand: the brands offered are only those the brand skill on this computer has.

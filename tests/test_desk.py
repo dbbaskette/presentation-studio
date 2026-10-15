@@ -229,6 +229,9 @@ class ScreenTests(ScriptedPage, PageCase):
                           'output': 'google'})
         # Shared values go to the studios config by the server's own rule, never by a switch.
         self.assertNotIn('for_all_studios', saved)
+        # What the form was shown goes with it, so that a value another studio changes
+        # meanwhile is never written over.
+        self.assertEqual(saved['shared_seen'], fresh['shared'])
         self.assertIn('deck_dollars', saved['limits'])
         self.assertEqual(result['snapshots']['saved']['heading'], 'Home')
 
@@ -583,8 +586,36 @@ class ScreenTests(ScriptedPage, PageCase):
         self.assertIn(f'Installed from {ADDRESS}, release v0.13.1.', shots['saved']['text'])
         self.assertIn('Saved. The Status screen shows which release can be installed.',
                       shots['saved']['toasts'])
-        self.assertEqual(self.posts(result), [('/api/brand', {'repository': ADDRESS,
-                                                              'release': 'v0.13.1'})] * 2)
+        self.assertEqual(self.posts(result), [('/api/brand', {
+            'repository': ADDRESS, 'release': 'v0.13.1',
+            'shared_seen': described['shared']})] * 2)
+
+    def test_the_brand_skills_repository_is_one_every_studio_shares(self):
+        described = self.get('setup')
+        shared = {'brand': {'repository': ADDRESS}}
+        stale = ("The brand skill's repository was changed in another studio while this was "
+                 'open, so nothing was saved. Look again, then save.')
+        now = {**described, 'shared': shared, 'shared_problem': None,
+               'brand': {**described['brand'], 'repository': ADDRESS, 'release': None}}
+        later = {**now, 'shared': {'brand': {'repository': ADDRESS, 'release': 'v1.0.0'}}}
+        answers = self.answers(**{'GET /api/setup': [ok(now), ok(later)],
+                                  'POST /api/brand': [{'status': 400, 'body': {'error': stale}},
+                                                      ok(later)]})
+        result = self.run_page(answers, [
+            {'click': 'Settings'}, {'snapshot': 'settings'},
+            {'fill': 'Which release', 'value': 'v0.13.1'},
+            {'click': 'Check and save'}, {'snapshot': 'refused'},
+            {'poll': True}, {'click': 'Check and save'}])
+        shots = result['snapshots']
+        self.assertIn('Every studio on this computer shares the repository and release named '
+                      'here, so saving changes them for all of them.', shots['settings']['text'])
+        self.assertIn(stale + ' Nothing was changed.', shots['refused']['text'])
+        # What it was shown goes with it, and after a refusal, what it has been shown since.
+        self.assertEqual(self.posts(result), [
+            ('/api/brand', {'repository': ADDRESS, 'release': 'v0.13.1',
+                            'shared_seen': shared}),
+            ('/api/brand', {'repository': ADDRESS, 'release': 'v0.13.1',
+                            'shared_seen': later['shared']})])
 
     def test_without_a_brand_skill_a_new_deck_can_still_be_started(self):
         self.brand = None

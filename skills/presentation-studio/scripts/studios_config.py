@@ -4,10 +4,9 @@ What a caller needs to know
 ---------------------------
     found, problem = studios_config.read()       # ({}, None) when there is no file
     studios_config.update({'share': 'asked'})     # when the person saves a shared value
-    studios_config.writable()                     # refuses while the file cannot be read
 
 - The file is `~/.config/studios-config.json`, or the one `STUDIOS_CONFIG` names, which is
-  how tests keep away from a real one. Presentation Studio, Training Studio and Blog Studio
+  how tests keep away from a real one. Training Studio, Blog Studio and Presentation Studio
   read the same file, in this shape, where every key is optional:
 
       {"schema": 1, "team": {"repository", "branch"}, "person": {"name"},
@@ -19,28 +18,30 @@ What a caller needs to know
   leaving a key out.
 - `read` never refuses, and reads the file afresh each time. A file that cannot be read, is
   not JSON, is not an object or is of another schema is read as empty, with a sentence that
-  says so for the page to show. What each value means to Presentation Studio, and whether
-  it can be used, is `settings`' and `setup`'s to say.
+  says so for the page to show. What each value means to Presentation Studio, and whether it
+  can be used, is `settings`' and `setup`'s to say.
 - `update` changes only the members it is given, by editing them in the file's own text, so
   every other key keeps its bytes, its order and its layout, and a key it does not know is
   never removed. A value that is the same already is not written, and nothing changed is no
   write at all. The file is written whole or not at all, keeps its permissions, and a link
   to it is written through. It refuses a repository address that carries a password or a
   token, a value that is not plain, and a file it could not read, which it leaves as it is.
-  `brand.repository` and `brand.release` are checked as `check_repository` and
-  `check_release` check them: one address git takes, and a release tag, which needs a
-  repository, given or already in the file. `runner/settings.py` uses the same two checks.
+- Writers take turns: `update` holds an exclusive lock on the file beside it, its name with
+  `.lock` added, which every studio takes the same way, from reading the file to replacing
+  it. It waits a few seconds for another writer, then refuses. `guard`, when given, is
+  called with what the file holds while the lock is held, and refuses by raising: that is
+  how a form opened before another studio changed a value is kept from writing over it.
 - Nothing secret belongs in the file: tokens and sign-ins stay with gcloud, gh and git.
-- Only the runner uses this file, through `runner/settings.py`, `runner/setup.py` and
-  `runner/gitstate.py`. It sits in the core beside `hub`, whose check of an address it
-  shares.
+- Only the runner uses this file. The helper's own commands never read it.
 """
 from __future__ import annotations
 
+import fcntl
 import json
 import os
-import re
 import secrets
+import time
+from contextlib import contextmanager
 from json import decoder
 from pathlib import Path
 
@@ -53,14 +54,9 @@ GROUPS = ('team', 'person', 'assistant', 'brand')   # keys whose value is an obj
 WORDS = ('output', 'share')                         # keys whose value is a word
 SECRET = ('That address carries a password or token. Give the address without it; git '
           'signs in with your own credentials.')
-ADDRESS = 2000                                  # characters in a repository's address
-RELEASE = re.compile(r'^[\w][\w.+-]{0,99}$')     # a release tag's name, as git takes it
-USING = (', so Presentation Studio uses its built-in defaults for the values every studio '
-         'shares, and saves none of them, until it can be read.')
-REFUSED = (', so no value every studio shares can be saved until it can, and the file was '
-           'left as it is.')
 SPACE = decoder.WHITESPACE
 DECODE = json.JSONDecoder()
+WAIT = 10.0     # seconds a write waits for another studio's to finish
 
 
 def path() -> Path:
@@ -79,35 +75,14 @@ def shown(where: Path) -> str:
         return str(where)
 
 
+USING = (', so Presentation Studio uses its built-in defaults for the values every studio '
+         'shares, and saves none of them, until it can be read.')
+REFUSED = (', so no value every studio shares can be saved until it can, and the file was '
+           'left as it is.')
+
+
 def _unreadable(where: Path, why: str) -> str:
     return f'{shown(where)} could not be read ({why}){USING}'
-
-
-def check_repository(address) -> str | None:
-    """The brand skill's repository as an address git takes, or None for none."""
-    if address is None or address == '':
-        return None
-    if not isinstance(address, str) or not address.strip() or len(address) > ADDRESS \
-            or any(mark.isspace() or ord(mark) < 32 for mark in address.strip()) \
-            or address.strip().startswith('-'):
-        raise WorkspaceError("Give the brand skill's repository as one address, such as "
-                             'https://github.com/your-org/your-brand.git.')
-    if hub.ADDRESS_WITH_SECRET.match(address.strip()):
-        raise WorkspaceError(SECRET)
-    return address.strip()
-
-
-def check_release(release, repository: str | None = None) -> str | None:
-    """A release tag's name, or None for the newest. A release needs a repository."""
-    if release is None or release == '':
-        return None
-    if not isinstance(release, str) or not RELEASE.match(release) or '..' in release:
-        raise WorkspaceError('Give the release as its tag, such as v1.4.0, or nothing for '
-                             'the newest.')
-    if repository is None:
-        raise WorkspaceError("A release is chosen from the brand skill's repository: give "
-                             'the repository too.')
-    return release
 
 
 def _parsed(where: Path, text: str) -> tuple[dict, str | None]:
@@ -151,9 +126,8 @@ def _plain(value) -> bool:
     return value is None or isinstance(value, (str, bool, int, float))
 
 
-def _check(changes, found: dict) -> None:
-    """Refuse what is not for this file: a value that is not plain, a secret, or a brand
-    skill's repository or release that `check_repository` or `check_release` refuses."""
+def _check(changes) -> None:
+    """Refuse what is not for this file: a value that is not plain, or a secret."""
     if not isinstance(changes, dict) or 'schema' in changes:
         raise WorkspaceError('Give the shared values as the studios config names them.')
     for key, value in changes.items():
@@ -163,17 +137,10 @@ def _check(changes, found: dict) -> None:
                 key in WORDS and not (value is None or isinstance(value, str))) or (
                 not whole and not _plain(value)):
             raise WorkspaceError(f'"{key}" cannot be written to the studios config as it is.')
-    address = (changes.get('team') or {}).get('repository')
-    if isinstance(address, str) and hub.ADDRESS_WITH_SECRET.match(address.strip()):
-        raise WorkspaceError(SECRET)
-    brand = changes.get('brand')
-    if isinstance(brand, dict) and ('repository' in brand or 'release' in brand):
-        held = found.get('brand') if isinstance(found.get('brand'), dict) else {}
-        repository = brand['repository'] if 'repository' in brand else held.get('repository')
-        if 'repository' in brand:
-            check_repository(repository)
-        if 'release' in brand:
-            check_release(brand['release'], repository or None)
+    for group in ('team', 'brand'):
+        address = (changes.get(group) or {}).get('repository')
+        if isinstance(address, str) and hub.ADDRESS_WITH_SECRET.match(address.strip()):
+            raise WorkspaceError(SECRET)
 
 
 def _object(text: str, at: int) -> tuple[list, int]:
@@ -222,6 +189,8 @@ def _edits(text: str, at: int, changes: dict, current: dict) -> list:
             _, key_at, colon, _, value_end = members[-1]
             before = text[:key_at]
             space = text[len(before.rstrip(' \t\r\n')):key_at]
+            # Beside a lone member written against its brace, a comma takes a space.
+            space = space or (' ' if len(members) == 1 else '')
             edits.append((value_end, value_end, ''.join(
                 f',{space}{_dump(key)}{colon}{_dump(value)}' for key, value in added)))
         else:
@@ -237,9 +206,53 @@ def writable() -> None:
         raise WorkspaceError(problem.removesuffix(USING) + REFUSED)
 
 
-def update(changes: dict) -> dict:
+
+
+def lock_path() -> Path:
+    """The file every studio locks while it writes the studios config: beside it."""
+    where = path()
+    return where.with_name(where.name + '.lock')
+
+
+@contextmanager
+def _locked():
+    """Hold the lock every studio takes to write the file, or refuse once it stays taken.
+    The lock goes with the process, so one that ends never leaves it held."""
+    where = lock_path()
+    try:
+        where.parent.mkdir(parents=True, exist_ok=True)
+        handle = os.open(where, os.O_CREAT | os.O_RDWR | getattr(os, 'O_NOFOLLOW', 0), 0o600)
+    except OSError as failure:
+        raise WorkspaceError(f'{shown(path())} could not be written '
+                             f'({str(failure.strerror or failure).lower()}), so it was left '
+                             'as it is.')
+    try:
+        deadline = time.monotonic() + WAIT
+        while True:
+            try:
+                fcntl.flock(handle, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except BlockingIOError:
+                if time.monotonic() >= deadline:
+                    raise WorkspaceError(f'Another studio is changing {shown(path())}, so '
+                                         'nothing was saved. Try again in a moment.')
+                time.sleep(0.05)
+        yield
+    finally:
+        os.close(handle)
+
+
+def update(changes: dict, guard=None) -> dict:
     """Write these values into the file, merged with what it holds, and return what it then
-    holds. `changes` is shaped as the file is: {"share": ..., "team": {"branch": ...}}."""
+    holds. `changes` is shaped as the file is: {"share": ..., "team": {"branch": ...}}.
+    `guard`, when given, is called with what the file holds before anything is written, and
+    refuses by raising."""
+    _check(changes)
+    with _locked():
+        return _update(changes, guard)
+
+
+def _update(changes: dict, guard) -> dict:
     where = path()
     target = where.resolve() if where.is_symlink() else where
     text, problem = _text(target)
@@ -248,7 +261,8 @@ def update(changes: dict) -> dict:
         found, problem = _parsed(where, text)
     if problem:
         raise WorkspaceError(problem.removesuffix(USING) + REFUSED)
-    _check(changes, found)
+    if guard is not None:
+        guard(found)
     if text is None:
         written = json.dumps({'schema': SCHEMA, **changes}, indent=2, ensure_ascii=False) + '\n'
     else:

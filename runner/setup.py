@@ -58,6 +58,11 @@ What a caller needs to know
   cannot be read, a save that would change one of them is refused before anything changes
   (409 for set-up, 400 for the brand skill's repository), and one that changes none goes
   through. There is no "for all studios" choice: saving a shared value is the shared write.
+- `shared_seen`, sent with the set-up or with the brand skill's repository, is the `shared`
+  the page's form was shown. Then only what the person changed from it is written: a value
+  another studio changed while the form was open is kept, and a change to a value another
+  studio changed too is refused, in a sentence, before anything changes. Without it, a
+  value is written where it differs from what the file holds now.
 - `shared` is what the file holds that Presentation Studio can use, in the file's own shape:
   `team` {repository, branch}, `person` {name}, `assistant` {agent, model, effort},
   `brand` {repository, release, brand, variant}, `output` and `share`. A value that would
@@ -76,9 +81,12 @@ What a caller needs to know
   skill's repository and release in runner.json; when to share, and the team repository
   and branch it joined, from the workspace record) into the file where it has none, and
   takes them out of runner.json and the record. The record keeps its repository and
-  branch, which say what the clone is. A value the file holds already stays as it is.
-  Where one differed, `shared_notice` is a sentence that says so, until `seen()` (`POST
-  /api/shared` {"seen": true}). While the file cannot be read nothing is moved.
+  branch, which say what the clone is. A value the file holds already stays as it is. A
+  model and a level go only beside the same agent, a release only beside the same
+  repository, a variant only beside the same brand, and a branch only beside the same team
+  repository. Where a value differed,
+  `shared_notice` is a sentence that says so, until `notice_read()` (`POST /api/shared`
+  {"seen": true}). While the file cannot be read nothing is moved.
 - Ported from Training Studio's runner/setup.py. Its Word copies are gone; the brand
   skill's repository follows its PR #66 and the studios config part its issues #67 and
   #70 (shared values kept only in the studios config).
@@ -156,14 +164,16 @@ def save_brand(engine, sent: dict) -> dict:
     if repository is None and release is not None:
         raise WorkspaceError("A release is chosen from the brand skill's repository: give the "
                              'repository too.')
+    told = seen(sent)
+    shown = None if told is None else settings.seen(told)
     kept = settings.load()
     if repository is None:
-        settings.save(replace(kept, brand_repository=None, brand_release=None))
+        settings.save(replace(kept, brand_repository=None, brand_release=None), shown)
         return describe(engine)
     studios_config.writable()   # before git is asked anything
     found = brand_source.check(repository, release, _anywhere())
     settings.save(replace(kept, brand_repository=found['repository'],
-                          brand_release=found['release']))
+                          brand_release=found['release']), shown)
     keeping = getattr(engine, 'upkeep', None)
     if keeping is not None:
         keeping.remember_brand(found['repository'], {entry['tag']: entry
@@ -275,7 +285,7 @@ def notice() -> str | None:
     return says if isinstance(says, str) and says else None
 
 
-def seen() -> None:
+def notice_read() -> None:
     """The person has read the notice: it is not shown again."""
     notice_path().unlink(missing_ok=True)
 
@@ -293,7 +303,8 @@ def migrate() -> list[str]:
     found, problem = studios_config.read()
     if problem:
         return []
-    mine = [(*settings.SHARED[name], name, value) for name, value in settings.own().items()]
+    kept = settings.own()
+    mine = [(*settings.SHARED[name], name, value) for name, value in kept.items()]
     record = gitstate.current()
     if record is not None and record.address:
         share = gitstate.own_share()
@@ -303,13 +314,23 @@ def migrate() -> list[str]:
         mine.append(('team', 'repository', None, record.address))
         if team.get('repository') is None or same_address(team['repository'], record.address):
             mine.append(('team', 'branch', None, record.branch))
+    # A model and a level are for their agent, a release for its repository and a variant
+    # for its brand: beside another in the file, this computer's are not used.
+    owns = {'model': 'agent', 'effort': 'agent', 'brand_release': 'brand_repository',
+            'variant': 'brand'}
+    others = {name for name in ('agent', 'brand_repository', 'brand') if name in kept
+              and _group(found, settings.SHARED[name][0]).get(settings.SHARED[name][1])
+              not in (None, kept[name])}
     changes, differed = {}, []
     for group, key, name, value in mine:
         if group is not None and found.get(group) is not None \
                 and not isinstance(found[group], dict):
             continue    # a value of the file's own that is not an object is not replaced
         held = _group(found, group).get(key) if group else found.get(key)
-        if held is None:
+        if owns.get(name) in others:
+            if not _same(held, value):
+                differed.append(LABELS[name])
+        elif held is None:
             (changes.setdefault(group, {}) if group else changes)[key] = value
         elif not _same(held, value) and name is not None:
             differed.append(LABELS[name])
@@ -323,9 +344,9 @@ def migrate() -> list[str]:
     if differed:
         home.write_json(notice_path(), {'says': (
             f'Presentation Studio now keeps the values every studio shares only in '
-            f'{studios_config.shown(studios_config.path())}, which already named '
-            f'{_words(differed)}, so those are used now in place of what this computer had '
-            'chosen.')})
+            f'{studios_config.shown(studios_config.path())}, which said otherwise for '
+            f'{_words(differed)}, so what this computer had chosen for those is no longer '
+            'used.')})
     return [f'{key}.{name}' if isinstance(value, dict) else key
             for key, value in changes.items()
             for name in (value if isinstance(value, dict) else [None])]
@@ -569,7 +590,21 @@ def read(sent: dict) -> dict:
     return {'repository': repository, 'path': whole(path) if path else None,
             'brand_skill': sent.get('brand_skill'),
             'folder': folder, 'branch': branch, 'name': name,
-            'share': SHARE[when] if when else None, 'settings': chosen(sent)}
+            'share': SHARE[when] if when else None, 'settings': chosen(sent),
+            'seen': seen(sent)}
+
+
+def seen(sent: dict) -> dict | None:
+    """The shared values the form that sent this was shown, as `shared` gave them, or None
+    where it does not say."""
+    found = sent.get('shared_seen')
+    if found is not None and not isinstance(found, dict):
+        raise WorkspaceError('Give shared_seen as the shared values the page was shown.')
+    return found
+
+
+def stale(what: str) -> WorkspaceError:
+    return WorkspaceError(settings.STALE.format(what))
 
 
 def _team(joined: gitstate.Workspace) -> None:
@@ -597,13 +632,26 @@ def apply(engine, wanted: dict) -> dict:
     if wanted['settings'].notify and not can:
         raise WorkspaceError(problem)
     before = engine.workspace
+    # What the form was shown: only what the person changed from it is written, and a
+    # change to a value another studio changed meanwhile is refused.
+    told = wanted.get('seen')
+    shown = None if told is None else settings.seen(told)
+    now = shared()[0]
     team = bool(repository) and (before is None or not same_address(before.address,
                                                                      repository))
+    if team and told is not None:
+        was, held = (_group(found, 'team').get('repository') for found in (told, now))
+        if held and not same_address(held, was) and not same_address(held, repository):
+            raise stale('The team repository')
     # When to share belongs to a team workspace: a folder on this computer never sets it.
+    was = gitstate.shared_share() if told is None else (
+        told.get('share') if told.get('share') in gitstate.SHARE else gitstate.SHARE[0])
     if not (repository or (not path and before is not None and before.address)) \
-            or share == gitstate.shared_share():
+            or share == was:
         share = None
-    if team or share or settings.changes(settings.load(), wanted['settings']):
+    elif gitstate.shared_share() not in (was, share):
+        raise stale('When to share')
+    if team or share or settings.changes(shown or settings.load(), wanted['settings']):
         studios_config.writable()
     if not repository and not path:
         if share:
@@ -621,9 +669,9 @@ def apply(engine, wanted: dict) -> dict:
                               wanted['name'], share)
             else:
                 gitstate.local(path, wanted['folder'], wanted['branch'], wanted['name'])
-            if team:
-                _team(gitstate.current())
-    settings.save(wanted['settings'])
+        if team:
+            _team(gitstate.current())
+    settings.save(wanted['settings'], shown)
     engine.saved()
     engine.resume()
     return describe(engine)

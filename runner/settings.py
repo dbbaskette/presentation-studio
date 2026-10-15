@@ -46,9 +46,8 @@ What a caller needs to know
   folder, from which the page installs and upgrades it; None until the person names one.
   `brand_release` is the release tag to install from it, None for the newest. Neither is
   needed to use a brand skill installed by hand. Whether the repository can be reached is
-  `brand_source`'s to say; here only its shape is checked, by `studios_config`'s own
-  `check_repository` and `check_release`. `brand_source()` gives both, and is how every
-  other part reads them.
+  `brand_source`'s to say; here only its shape is checked. `brand_source()` gives both, and
+  is how every other part reads them.
 - `name` is the person's own name, as set-up shows it; None until they give it. git's own
   identity still signs each commit and each claim.
 - `brand` and `variant` are the brand a new deck is offered first, as the brand skill names
@@ -67,6 +66,7 @@ from pathlib import Path
 
 import runner  # noqa: F401  puts the core on the import path
 import home
+import hub
 import studios_config
 from workspace import WorkspaceError
 
@@ -86,8 +86,8 @@ PREVIEWS = ('drive', 'local')   # how a deck's previews are rendered
 OUTPUTS = ('google', 'pptx')    # what a new deck is made as
 WORD = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$')   # a brand's or a variant's name
 NAME = 100                  # characters in a person's name
-ADDRESS = studios_config.ADDRESS    # characters in a repository's address
-RELEASE = studios_config.RELEASE    # a release tag's name, as git takes it
+ADDRESS = 2000              # characters in a repository's address
+RELEASE = re.compile(r'^[\w][\w.+-]{0,99}$')   # a release tag's name, as git takes it
 # The settings every studio shares, each with where the studios config keeps it: (group,
 # key), or (None, key) for a word at the top of the file.
 SHARED = {'agent': ('assistant', 'agent'), 'model': ('assistant', 'model'),
@@ -272,9 +272,32 @@ def check_choice(value, label: str) -> str | None:
     return None if value is None or value == '' else check_word(value, label)
 
 
-# The brand skill's repository and release are checked as the studios config checks them.
-check_repository = studios_config.check_repository
-check_release = studios_config.check_release
+def check_repository(address) -> str | None:
+    """The brand skill's repository as an address git takes, or None for none."""
+    if address is None or address == '':
+        return None
+    if not isinstance(address, str) or not address.strip() or len(address) > ADDRESS \
+            or any(mark.isspace() or ord(mark) < 32 for mark in address.strip()) \
+            or address.strip().startswith('-'):
+        raise WorkspaceError("Give the brand skill's repository as one address, such as "
+                             'https://github.com/your-org/your-brand.git.')
+    if hub.ADDRESS_WITH_SECRET.match(address.strip()):
+        raise WorkspaceError('That address carries a password or token. Give the address '
+                             'without it; git signs in with your own credentials.')
+    return address.strip()
+
+
+def check_release(release, repository: str | None = None) -> str | None:
+    """A release tag's name, or None for the newest. A release needs a repository."""
+    if release is None or release == '':
+        return None
+    if not isinstance(release, str) or not RELEASE.match(release) or '..' in release:
+        raise WorkspaceError('Give the release as its tag, such as v1.4.0, or nothing for '
+                             'the newest.')
+    if repository is None:
+        raise WorkspaceError("A release is chosen from the brand skill's repository: give "
+                             'the repository too.')
+    return release
 
 
 def brand_source() -> tuple[str | None, str | None]:
@@ -374,32 +397,73 @@ def load() -> Settings:
         mine = check(Settings(**known))
     except WorkspaceError:
         mine = Settings()
-    shared = from_shared(studios_config.read()[0])
-    return replace(mine, **{**shared, 'agent': shared['agent'] or Settings().agent,
-                            'output': shared['output'] or Settings().output})
+    return replace(mine, **shared_now(studios_config.read()[0]))
+
+
+def shared_now(found: dict) -> dict:
+    """The shared settings as Presentation Studio uses them, from what the studios config
+    holds: those it can use, and the default for the rest."""
+    shared = from_shared(found)
+    return {**shared, 'agent': shared['agent'] or Settings().agent,
+            'output': shared['output'] or Settings().output}
+
+
+def seen(found: dict) -> Settings:
+    """The settings a form was shown, from the shared values it was given, in the shape of
+    the studios config. Only the shared ones mean anything."""
+    return replace(Settings(), **shared_now(found if isinstance(found, dict) else {}))
+
+
+def _same(one, other) -> bool:
+    return type(one) is type(other) and one == other
+
+
+def _member(changed: dict, group: str | None, key: str) -> bool:
+    return key in (changed if group is None else changed.get(group, {}))
 
 
 def changes(before: Settings, after: Settings) -> dict:
     """The shared settings `after` changes from `before`, shaped as the studios config is."""
     found = {}
     for name, (group, key) in SHARED.items():
-        was, now = getattr(before, name), getattr(after, name)
-        if type(was) is type(now) and was == now:
+        if _same(getattr(before, name), getattr(after, name)):
             continue
         if group is None:
-            found[key] = now
+            found[key] = getattr(after, name)
         else:
-            found.setdefault(group, {})[key] = now
+            found.setdefault(group, {})[key] = getattr(after, name)
     return found
 
 
-def save(chosen: Settings) -> Settings:
+# Each shared setting as a sentence names it.
+NAMED = {'agent': 'The agent', 'model': 'The model', 'effort': 'The reasoning level',
+         'name': 'Your name', 'brand': 'The brand', 'variant': 'The variant',
+         'output': 'The output', 'brand_repository': "The brand skill's repository",
+         'brand_release': "The brand skill's release"}
+STALE = ('{} was changed in another studio while this was open, so nothing was saved. Look '
+         'again, then save.')
+
+
+def save(chosen: Settings, shown: Settings | None = None) -> Settings:
     """Keep these settings: each shared one that changed in the studios config, the rest on
-    this computer. A shared one that cannot be written is refused before anything is kept."""
+    this computer. A shared one that cannot be written is refused before anything is kept.
+
+    `shown` is what the form that sent them was shown, where it says. Then only what the
+    person changed from that is written, so a value another studio changed meanwhile is
+    kept, and a change to a value that another studio changed too is refused."""
     chosen = check(chosen)
-    changed = changes(load(), chosen)
+    before = shown if shown is not None else load()
+    changed = changes(before, chosen)
+
+    def guard(found: dict) -> None:
+        now = shared_now(found)
+        for name, (group, key) in SHARED.items():
+            if _member(changed, group, key) and not _same(now[name], getattr(before, name)) \
+                    and not _same(now[name], getattr(chosen, name)):
+                raise WorkspaceError(STALE.format(NAMED[name]))
+
     if changed:
-        studios_config.update(changed)
+        studios_config.update(changed, guard)
     home.write_json(path(), {'schema': SCHEMA, **{
         name: value for name, value in asdict(chosen).items() if name not in SHARED}})
     return chosen

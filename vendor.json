@@ -41,7 +41,7 @@
       "path": "runner/settings.py",
       "from": "runner/settings.py",
       "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
-      "note": "brand_repository, brand_release, check_repository and check_release follow runner/settings.py at 0881ce768039ebeb9e1fa39b89cedf792bf5d40e (PR #66); brand and variant name no brand; adapted for issue #70 after Training Studio 4620afa: agent, model, effort, name, brand, variant, output, brand_repository and brand_release read from and saved to the studios config only (SHARED, from_shared, changes, own, forget_own)"
+      "note": "brand_repository, brand_release, check_repository and check_release follow runner/settings.py at 0881ce768039ebeb9e1fa39b89cedf792bf5d40e (PR #66); brand and variant name no brand; adapted for issue #70 after Training Studio 01ee5f61 (4620afa, e48240e): agent, model, effort, name, brand, variant, output, brand_repository and brand_release read from and saved to the studios config only (SHARED, from_shared, shared_now, seen, changes, save(shown) with the guard and STALE, own, forget_own)"
     },
     {
       "path": "tests/helpers.py",
@@ -78,7 +78,7 @@
       "path": "runner/gitstate.py",
       "from": "runner/gitstate.py",
       "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
-      "note": "adapted for issue #70 after Training Studio 4620afa: when to share is read from and written to the studios config, not the workspace record"
+      "note": "adapted for issue #70 after Training Studio 01ee5f61 (4620afa, e48240e): when to share is read from and written to the studios config, not the workspace record"
     },
     {
       "path": "runner/team.py",
@@ -293,13 +293,13 @@
       "path": "runner/page.py",
       "from": "runner/page.py",
       "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
-      "note": "rewritten for decks: one view, one decision address, the start form with base64 uploads, slide pictures, the download and whitelisted files; desk lists, gates, documents, copies, outline, assets and adopt removed; /api/brand and /api/brand/install follow runner/page.py at 0881ce768039ebeb9e1fa39b89cedf792bf5d40e (PR #66); adapted for issue #70 after Training Studio 4620afa: POST /api/shared"
+      "note": "rewritten for decks: one view, one decision address, the start form with base64 uploads, slide pictures, the download and whitelisted files; desk lists, gates, documents, copies, outline, assets and adopt removed; /api/brand and /api/brand/install follow runner/page.py at 0881ce768039ebeb9e1fa39b89cedf792bf5d40e (PR #66); adapted for issue #70 after Training Studio 01ee5f61 (4620afa, e48240e): POST /api/shared"
     },
     {
       "path": "runner/setup.py",
       "from": "runner/setup.py",
       "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
-      "note": "with defaults for a deck (person, brand, variant, output); the brand skill's repository (save_brand) and the studios config part follow runner/setup.py at 0881ce768039ebeb9e1fa39b89cedf792bf5d40e; adapted for issue #70 after Training Studio 4620afa: no for_all_studios, share_all or base; team_moved, shared_notice, seen and migrate; name, brand, variant and output shared too"
+      "note": "with defaults for a deck (person, brand, variant, output); the brand skill's repository (save_brand) and the studios config part follow runner/setup.py at 0881ce768039ebeb9e1fa39b89cedf792bf5d40e; adapted for issue #70 after Training Studio 01ee5f61 (4620afa, e48240e): no for_all_studios, share_all or base; team_moved, shared_notice, notice_read, shared_seen and migrate; name, brand, variant and output shared too"
     },
     {
       "path": "runner/upkeep.py",
@@ -311,18 +311,19 @@
       "path": "runner/studio.py",
       "from": "runner/studio.py",
       "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
-      "note": "with the test-only serve --fake; adapted for issue #70 after Training Studio 4620afa: setup.migrate() on start"
+      "note": "with the test-only serve --fake; adapted for issue #70 after Training Studio 01ee5f61 (4620afa, e48240e): setup.migrate() on start"
     },
     {
       "path": "skills/presentation-studio/scripts/studios_config.py",
       "from": "runner/studios_config.py",
-      "revision": "0881ce768039ebeb9e1fa39b89cedf792bf5d40e",
-      "note": "issue #67, not yet at the pinned revision; moved into the core; adapted for issue #70 after Training Studio 4620afa: the only place shared values are kept; brand.repository and brand.release checked by check_repository and check_release, which moved here from runner/settings.py; writable()"
+      "revision": "01ee5f61c3c460013fd6a3226f112d6c80ec0ee9",
+      "note": "identical to runner/studios_config.py at that revision but for the product name and the runner import (it sits in the core): the lock beside the file, guard, writable"
     },
     {
       "path": "tests/test_studios_config.py",
       "from": "tests/test_runner_studios_config.py",
-      "revision": "0881ce768039ebeb9e1fa39b89cedf792bf5d40e"
+      "revision": "01ee5f61c3c460013fd6a3226f112d6c80ec0ee9",
+      "note": "identical but for the product name, the import and a brand named acme"
     },
     {
       "path": "tests/test_server_security.py",
@@ -373,7 +374,7 @@
       "path": "skills/presentation-studio/scripts/desk/app.js",
       "from": "skills/training-studio/scripts/desk/app.js",
       "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
-      "note": "the brand skill's Settings card, sheet and Versions parts follow skills/training-studio/scripts/desk/app.js at 0881ce768039ebeb9e1fa39b89cedf792bf5d40e (PR #66); adapted for issue #70 after Training Studio 4620afa: the \"Your other studios\" card on Status and Settings, with Join it and Got it"
+      "note": "the brand skill's Settings card, sheet and Versions parts follow skills/training-studio/scripts/desk/app.js at 0881ce768039ebeb9e1fa39b89cedf792bf5d40e (PR #66); adapted for issue #70 after Training Studio 01ee5f61 (4620afa, e48240e): the \"Your other studios\" card on Status and Settings, with Join it and Got it"
     },
     {
       "path": "tests/page_harness.js",
@@ -396,6 +397,12 @@
       "from": "tests/test_runner_brand_source.py",
       "revision": "0881ce768039ebeb9e1fa39b89cedf792bf5d40e",
       "note": "on this runner's upkeep tests: no installer is staged, the companions are laid out for each assistant, and the pins are Presentation Studio's"
+    },
+    {
+      "path": "docs/shared-studios.md",
+      "from": "docs/shared-studios.md",
+      "revision": "01ee5f61c3c460013fd6a3226f112d6c80ec0ee9",
+      "note": "identical"
     }
   ]
 }

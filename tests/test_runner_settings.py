@@ -180,6 +180,41 @@ class SharedTests(SettingsCase):
         settings.save(replace(loaded, parallel=5))
         self.assertEqual(settings.load().parallel, 5, 'a per-studio change still goes through')
 
+    def test_a_form_opened_before_another_studio_changed_a_value_never_writes_over_it(self):
+        self.write_config('{"schema": 1, "assistant": {"agent": "claude", "model": "opus"}}')
+        shown = settings.load()
+        # Meanwhile, another studio changes the model.
+        self.write_config('{"schema": 1, "assistant": {"agent": "claude", "model": "sonnet"}}')
+        # A save that left the model alone keeps theirs, and writes only what it changed.
+        settings.save(replace(shown, effort='high', parallel=4), shown)
+        self.assertEqual(json.loads(self.config.read_text())['assistant'],
+                         {'agent': 'claude', 'model': 'sonnet', 'effort': 'high'})
+        # One that changed the model too is refused, and nothing at all is kept.
+        kept = settings.path().read_text()
+        before = self.config.read_text()
+        with self.assertRaises(WorkspaceError) as refused:
+            settings.save(replace(shown, model='haiku', parallel=5), shown)
+        self.assertEqual(str(refused.exception), 'The model was changed in another studio '
+                         'while this was open, so nothing was saved. Look again, then save.')
+        self.assertEqual((self.config.read_text(), settings.path().read_text()), (before, kept))
+        # Changed to what the other studio chose, there is nothing to refuse.
+        settings.save(replace(shown, model='sonnet'), shown)
+        self.assertEqual(settings.load().model, 'sonnet')
+
+    def test_a_stale_form_keeps_the_output_another_studio_chose(self):
+        # The output is a word at the top of the file, not a member of a group.
+        self.write_config('{"schema": 1, "output": "google"}')
+        shown = settings.load()
+        self.write_config('{"schema": 1, "output": "pptx"}')
+        settings.save(replace(shown, name='Alex'), shown)
+        self.assertEqual(json.loads(self.config.read_text()),
+                         {'schema': 1, 'output': 'pptx', 'person': {'name': 'Alex'}})
+        self.write_config('{"schema": 1, "person": {"name": "Blake"}}')
+        with self.assertRaisesRegex(WorkspaceError, 'Your name was changed in another studio'):
+            settings.save(replace(shown, name='Casey', output='pptx'), shown)
+        self.assertEqual(json.loads(self.config.read_text()),
+                         {'schema': 1, 'person': {'name': 'Blake'}})
+
     def test_own_and_forget_own_are_what_migration_moves(self):
         settings.path().parent.mkdir(parents=True, exist_ok=True)
         settings.path().write_text(json.dumps({
