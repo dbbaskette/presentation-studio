@@ -6,7 +6,7 @@
 
 **Architecture:** A new pure module, `runner/marks.py`, checks what the page sends with a decision and writes the note a worker reads. The engine applies marks that need no worker (drops, leave-outs, outline edits) itself and reopens the stop for the rest, and the research steps learn to research only the marked questions and to write the report from each question's data. Keeping findings when a question is added, and a one-sentence headline per finding, are harness-research's (its plan `~/projects/harness-research-skill/docs/superpowers/plans/2026-10-15-keep-findings-and-headlines.md`, released as 0.8.1); this plan pins that release first. The page draws the three stops on one shared review component in `app.js`.
 
-**Prerequisite:** harness-research 0.8.1 is released (branch `claude/keep-findings-and-headlines` in `~/projects/harness-research-skill`, merged and tagged `v0.8.1`). Task 0 pins it.
+**Prerequisite:** harness-research 0.8.1 is released: tag `v0.8.1` at merge commit `d58d20dbbd0a51173cd122f223351eea66168cb0` ([dbbaskette/harness-research-skill#8](https://github.com/dbbaskette/harness-research-skill/pull/8)). Task 0 pins it. Its guidance's `minimumRuntime` is 0.8.1, so a computer with harness-research 0.8.0 installed must update it ("Update the skills" on the page, once this is pinned) before refreshed guidance works there.
 
 **Tech Stack:** Python 3.11 standard library (runner), vanilla JavaScript (page, `skills/presentation-studio/scripts/desk/app.js`), `unittest`, and the Node page harness (`tests/page_harness.js`).
 
@@ -46,7 +46,11 @@
 
 ### Task 0: Use harness-research 0.8.1
 
-harness-research 0.8.1 keeps the findings of unchanged questions when a plan changes (and lists them in `carried`), and keeps an optional one-line `headline` with a finding, shown as `Answer:` in its report. This task pins it, hands it the headline, and makes the tests' stand-in behave the same.
+harness-research 0.8.1 keeps the findings of unchanged questions when a plan changes (and lists them in `carried`), and keeps an optional one-line `headline` with a finding, shown as `Answer:` in its report. This task pins it, hands it the headline, and makes the tests' stand-in behave the same. What the stand-in must match, as released:
+
+- `carried` is `[]` when an identical plan resumes its run, although that run's findings remain; compare `run` to tell a resume from a new run. `status` returns no `carried`.
+- A question is compared as a whole object, so `claim: null` and a missing `claim` key differ. The pinned inputs include claim files and selected source files, with their contents.
+- `headline` is optional: omit the key when there is none, because `null` is refused. The 300-character limit is checked before trimming, and only `\r` and `\n` count as line breaks. The headline is kept only in `research.json` (`results[id].headline`) and the report (`Answer:`), never in the JSON `plan`, `record` or `status` return.
 
 **Files:**
 - Modify: `installer/companions.json` (by the pin command)
@@ -88,9 +92,17 @@ In `tests/test_runner_research.py`, replace `test_the_same_plan_continues_its_ru
                          'Two instances keep capacity.')
         self.assertIn('Answer: Two instances keep capacity.',
                       Path(status['report']).read_text())
-        self.assertEqual(self.refusal(self.research.record, self.root, run, 'health-checks',
-                                      self.finding(headline='Two\nlines')),
-                         'Headline requires one nonempty line (maximum 300 characters).')
+        for headline in ('Two\nlines', '   ', 'x' * 301):
+            with self.subTest(headline=headline):
+                self.assertEqual(
+                    self.refusal(self.research.record, self.root, run, 'health-checks',
+                                 self.finding(headline=headline)),
+                    'Headline requires one nonempty line (maximum 300 characters).')
+        self.assertNotIn('headline', status)
+        # harness-research refuses a null headline, so a finding without one is handed over
+        # without the key.
+        self.research.record(self.root, run, 'health-checks', self.finding(headline=None))
+        self.assertNotIn('headline', research_record(self.root)['results']['health-checks'])
 ```
 
 - [ ] **Step 3: Run them to see them fail**
@@ -155,8 +167,9 @@ In `StandIn._record`, after `_text(supplied.get('limits'), 'Coverage limits')` a
 
 ```python
         headline = supplied.get('headline')
-        if headline is not None and (not isinstance(headline, str) or not headline.strip()
-                                     or len(headline) > 300 or re.search(r'[\r\n]', headline)):
+        if 'headline' in supplied and (not isinstance(headline, str) or not headline.strip()
+                                       or len(headline) > 300
+                                       or re.search(r'[\r\n]', headline)):
             raise _Said('Headline requires one nonempty line (maximum 300 characters).')
 ```
 
@@ -165,7 +178,7 @@ and replace the line that stores the result with:
 ```python
         value['results'][ident] = {
             'status': supplied['status'],
-            **({'headline': headline.strip()} if headline is not None else {}),
+            **({'headline': headline.strip()} if 'headline' in supplied else {}),
             'summary': supplied['summary'], 'limits': supplied['limits'],
             'evidence': evidence, 'checked_at': _now()}
 ```
