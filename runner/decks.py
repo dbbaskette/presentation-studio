@@ -32,6 +32,7 @@ OUTPUTS = ('google', 'pptx')
 LIMITS = {'title': 120, 'audience': 2000, 'goal': 2000, 'notes': 4000, 'minutes': 240,
           'selected': 4000}
 RUN = 'run.json'            # what marks a deck's folder
+DELIVER = 'deliver.json'    # written when the deck is delivered
 SCHEMA = 1
 SOURCES = {'document': ('upload', 'paste', 'google'), 'existing': ('upload', 'google')}
 
@@ -134,7 +135,8 @@ def deck_id(space, title: str) -> str:
     remote branch as last fetched."""
     base = re.sub(r'[^a-z0-9]+', '-', title.lower()).strip('-')[:48].strip('-') or 'deck'
     n, ident = 1, base
-    while space.deck(ident).exists() or gitstate.known(space, space.deck(ident)):
+    while (space.deck(ident).exists() or gitstate.known(space, space.deck(ident))
+           or gitstate.theirs(space, f'{ident}/{RUN}') is not None):
         n += 1
         suffix = f'-{n}'
         ident = base[:48 - len(suffix)].rstrip('-') + suffix
@@ -190,8 +192,19 @@ def intake(form: dict) -> str:
     return '\n'.join(parts) + '\n'
 
 
-def state(run: dict) -> str:
+def delivered(root: Path) -> dict | None:
+    """What was delivered: deliver.json in the deck's folder, or None."""
+    try:
+        data = json.loads((Path(root) / DELIVER).read_text(encoding='utf-8'))
+    except (OSError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def state(run: dict, root: Path | None = None) -> str:
     """Where a deck stands, in a few words."""
+    if root is not None and (Path(root) / DELIVER).is_file():
+        return 'finished'
     if run.get('halted'):
         return 'stopped'
     gates = run.get('gates') or {}
@@ -204,15 +217,22 @@ def state(run: dict) -> str:
     return 'in progress'
 
 
+def _where(deliver: dict) -> str:
+    """Where a delivered deck is: its Google Slides link, or the PowerPoint file's name."""
+    if deliver.get('output') == 'pptx':
+        return str(deliver.get('pptx') or 'PowerPoint file')
+    return str(deliver.get('url') or '')
+
+
 def readme(run: dict, deliver: dict | None) -> str:
     form = run['form']
     lines = [f"# {run['title']}", '', f"Route: {run['route']}",
              f"Brand: {form['brand']} ({form['variant']})", f"Output: {form['output']}",
-             f"State: {state(run)}"]
+             f"State: {'finished' if deliver else state(run)}"]
     if deliver:
-        link = deliver.get('link') or deliver.get('file') or deliver.get('name')
-        if link:
-            lines += ['', f'Delivered: {link}']
+        where = _where(deliver)
+        if where:
+            lines += ['', f'Delivered: {where}']
     return '\n'.join(lines) + '\n'
 
 
@@ -239,8 +259,13 @@ def index(space) -> str:
         except (OSError, ValueError):
             continue
         title = run.get('title', folder.name).replace('|', '\\|')
-        rows.append(f"| {title} | {run.get('route', '')} | {state(run)} | "
-                    f"[{folder.name}]({folder.name}/README.md) |")
+        link = f"[{folder.name}]({folder.name}/README.md)"
+        done = delivered(folder)
+        if done and done.get('output') == 'pptx':
+            link += ' · PowerPoint file'
+        elif done and done.get('url'):
+            link += f" · [Google Slides]({done['url']})"
+        rows.append(f"| {title} | {run.get('route', '')} | {state(run, folder)} | {link} |")
     return '\n'.join(['# Presentations', '', '| Deck | Route | State | Link |',
                       '| --- | --- | --- | --- |'] + rows) + '\n'
 

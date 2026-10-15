@@ -1,3 +1,4 @@
+import json
 import tempfile
 import unittest
 from pathlib import Path
@@ -116,3 +117,36 @@ class CreateTests(unittest.TestCase):
         decks.create(self.space, decks.check_form(form(), BRANDS))
         decks.write_index(self.space)
         self.assertIn('Spring AI on Tanzu', (self.space.root / 'README.md').read_text())
+
+
+class DeliveredTests(unittest.TestCase):
+    def setUp(self):
+        self.space = gitstate.local(Path(tempfile.mkdtemp()) / 'ws')
+        self.root = decks.create(self.space, decks.check_form(form(), BRANDS))
+        self.run = decks.read_run(self.root)
+
+    def test_readme_shows_the_google_link(self):
+        text = decks.readme(self.run, {'output': 'google', 'url': 'https://slides.example/x',
+                                       'fileId': 'x', 'pptx': None, 'revision': 1, 'at': 't'})
+        self.assertIn('https://slides.example/x', text)
+        self.assertIn('finished', text)
+
+    def test_readme_shows_the_pptx_name(self):
+        text = decks.readme(self.run, {'output': 'pptx', 'url': None, 'fileId': None,
+                                       'pptx': 'talk.pptx', 'revision': 1, 'at': 't'})
+        self.assertIn('talk.pptx', text)
+
+    def test_index_and_state_follow_deliver_json(self):
+        self.assertEqual(decks.state(self.run, self.root), 'in progress')
+        (self.root / decks.DELIVER).write_text(json.dumps(
+            {'output': 'google', 'url': 'https://slides.example/x', 'fileId': 'x',
+             'pptx': None, 'revision': 1, 'at': 't'}))
+        self.assertEqual(decks.state(self.run, self.root), 'finished')
+        row = decks.index(self.space)
+        self.assertIn('https://slides.example/x', row)
+        self.assertIn('spring-ai-on-tanzu/README.md', row)
+        self.assertIn('finished', row)
+
+    def test_index_for_pptx(self):
+        (self.root / decks.DELIVER).write_text(json.dumps({'output': 'pptx', 'pptx': 'a.pptx'}))
+        self.assertIn('PowerPoint file', decks.index(self.space))
