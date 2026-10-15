@@ -790,11 +790,49 @@ def test_correction_switches_branch_and_keeps_the_document(self):
 
 ---
 
+### Task 13b: Any brand — the brand skill is an input (added 2026-10-14 at the user's request)
+
+Presentation Studio is for any brand. The brand skill, and the repository it is installed from, is an input the person gives; nothing in the product names, defaults to or pins a particular brand.
+
+**Files:**
+- Port, the same way in all three studios (Training Studio is the source; Blog Studio is vendoring the same files as `studio_brand/` from `training-studio` at `0881ce7`): from `training-studio` `origin/main` at `0881ce768039ebeb9e1fa39b89cedf792bf5d40e`, the brand-skill-repository feature of its PR #66 (`87981a0`): `runner/brand_source.py` (a brand skill's repository: its releases, fetching one by tag and commit, running its own installer) and `runner/brand.py`'s current form; `brand_repository` / `brand_release` in `runner/settings.py` with `check_repository` / `check_release`; `setup.save_brand`; `upkeep.install_brand` and `upkeep` reporting `versions.brand`; `POST /api/brand` `{repository, release}` and `POST /api/brand/install` `{release}` (409 while a deck is working or anything else is in hand, or when the release is not the one shown) in `runner/page.py`; the Settings and Versions parts of the page that name the repository and release and install/upgrade it; their tests; the docs wording. Record each in `vendor.json` with revision `0881ce7`.
+- Modify: every file that names Tanzu (`git grep -n -i tanzu`): `runner/settings.py`, `runner/upkeep.py`, `runner/__init__.py`, `vendor.json`, all tests and stand-ins (use a neutral stand-in brand, e.g. `acme` with variants `light`/`dark`), `README.md`, `docs/superpowers/specs/…-design.md` (add a dated "Amendment: any brand" note at the top and neutralise the text), this plan's text, `AGENTS.md`.
+- The brand skill's repository and release are shared values: see Task 13c.
+
+**Rules:**
+- No brand literal in product code. The default brand and variant are the first the installed brand skill lists, unless Settings or the studios config name one.
+- Companions pinned by the installer are harness-slides and harness-research only. The brand skill is installed from the repository and release named in Settings, by its own installer, exactly as Training Studio does; the pinned companions are left alone.
+- Without a brand skill, everything up to the brand step works; the deck stops at `brand` with one sentence saying to name the brand skill's repository in Settings.
+- Person-facing words say "your brand" / "the brand skill", never a brand's name.
+
+- [ ] **Step 1:** Port `brand_source` + settings + `/api/brand` + setup/upkeep brand-skill parts with their tests — PASS.
+- [ ] **Step 2:** Neutralise every Tanzu mention found by `git grep -n -i tanzu` (code, tests, docs); add `test_no_brand_named.py` asserting `git grep -i tanzu` over tracked files outside `vendor.json`'s recorded upstream notes finds nothing.
+- [ ] **Step 3:** Whole suite — PASS. Commit `"Make Presentation Studio brand-neutral: the brand skill is an input"`.
+
+### Task 13c: The studios config is the single source of truth for shared values (added 2026-10-14 at the user's request)
+
+Issues dbbaskette/training-studio#70 and dbbaskette/blog-studio#96 describe the convention all three studios adopt.
+
+**Rules:**
+- Shared values live only in `~/.config/studios-config.json` (`STUDIOS_CONFIG` overrides): `team.repository`, `team.branch`, `person.name`, `assistant.agent|model|effort`, `brand.repository|release|brand|variant`, `output`, `share`. The runner reads them from that file every time it needs them (a short cache is fine) and keeps no copy in its own settings. There is no "for all studios" flag: saving one of these in setup/Settings writes the shared file (merged, atomic, only changed members, unknown keys and bytes preserved, credentials refused; `brand.repository`/`brand.release` checked with `check_repository`/`check_release`).
+- Per-studio settings (limits, preview renderer, concurrent runs, anything only Presentation Studio uses) stay in its own settings file.
+- An unreadable shared file: the studio works on built-in defaults, says so in one sentence on setup and status, refuses to save a shared value until it is readable, and never overwrites it.
+- Migration: on start, shared values found in this studio's own settings file are written into the shared file where it lacks them, then removed from the own file; values the shared file already has are left as they are and the person is told once.
+- The workspace (team repository and branch) a studio has joined is a clone under its own data folder; which repository and branch to use is the shared value.
+
+**Files:** `skills/presentation-studio/scripts/studios_config.py` (brand repository/release members, schema validation), `runner/settings.py` (shared fields removed from the own settings; accessors that read the shared file), `runner/setup.py` (no `for_all_studios`; save shared values to the shared file; migration), `runner/page.py` (GET/POST `/api/setup` and `/api/brand` contract updated; docstring), the page's setup/Settings screens (no "for all studios" toggle; one sentence saying these are shared by every studio), tests for each, docs (`docs/runner.md` shared-values section; README "Shared settings").
+
+- [ ] **Step 1:** Tests first: shared values read only from the file; saving writes the file and a second Settings read (and a fresh studios_config read) sees it; brand repository/release accepted, checked, preserved; per-studio settings unaffected; unreadable file → defaults, sentence, save refused, file untouched; migration moves own copies without overwriting. Run — FAIL.
+- [ ] **Step 2:** Implement; run — PASS; whole suite — PASS.
+- [ ] **Step 3:** Commit `"Keep shared values only in the studios config, the brand skill's repository and release among them"`.
+
+---
+
 ### Task 14: Installer, companions, chat skill and docs
 
 **Files:**
 - Create (port): `installer/install.sh`, `installer/install.py`, `installer/Install Presentation Studio.command`, `bootstrap/presentation-studio/SKILL.md`
-- Create: `installer/companions.json` pinning harness-research `0.8.0` (`547506e9ba5b0d848267033886624d6cea75c365`, sha256 from Training Studio's pins), harness-slides `0.14.1` (commit `79eaf89f39ae5ba7b11f345a2f018833b53bbc59`, sha256 computed with `install.py`'s `tree_digest` of that revision), tanzu-brand (repository `https://github.com/dbbaskette/tanzu-brand.git`, version from its `package.json`, commit `e25ed10923151e597ab37a11b37561e6048a19ff`, sha256 computed the same way, `installer: scripts/tanzu-brand.mjs install`)
+- Create: `installer/companions.json` pinning harness-research `0.8.0` (`547506e9ba5b0d848267033886624d6cea75c365`, sha256 from Training Studio's pins), harness-slides `0.14.1` (commit `79eaf89f39ae5ba7b11f345a2f018833b53bbc59`, sha256 computed with `install.py`'s `tree_digest` of that revision). No brand skill is pinned: it is installed from the repository the person gives (Task 13b).
 - Create: `skills/presentation-studio/SKILL.md`, `references/routes.md`, `references/levels.md`, `references/workspace.md`, `README.md`, `AGENTS.md` (Presentation Studio's working agreements), `docs/runner.md`, `docs/development.md`, `docs/acceptance.md`
 - Test (port): `tests/test_installer.py`, `tests/test_package.py` (package contents, SKILL.md links resolve, budgets)
 
