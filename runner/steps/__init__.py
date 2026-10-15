@@ -3,7 +3,10 @@ engine and holds no state of its own.
 
     intake     taking in a document or a Google Doc, and telling a spec from material
     outline    writing, extracting and restructuring the outline
-    build      what a deck is drawn from: the runner's own rules for a section and a review
+    existing   bringing in a deck that exists, and making selected changes to it
+    look       the looks a worker proposes, their pictures and the person's choice
+    build      the brand, the sections and their composers, the review, the render
+    deliver    delivering the deck, and asking for changes once it is delivered
 
 Every step that sets up a worker's job returns a `Work`: what the worker is told (`guidance`
 and `task`), the profile it runs under, what `worker_tools.prepare(folder, **prepared)` takes

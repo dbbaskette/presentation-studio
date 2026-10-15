@@ -131,7 +131,7 @@
     {
       "path": "runner/steps/build.py",
       "from": "runner/deck.py",
-      "note": "the pure helpers worker_tools needs, without blueprint, objectives or design",
+      "note": "the pure helpers worker_tools needs, without blueprint, objectives or design; with the build loop of runner/pipeline.py (section_work, review_work) and runner/engine.py (_export, _split, _sections, _whole, _review, _keep), the path without a design only",
       "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
     },
     {
