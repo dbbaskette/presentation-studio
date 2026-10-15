@@ -72,6 +72,28 @@
       "path": "runner/claude-code-models.json",
       "from": "runner/claude-code-models.json",
       "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "runner/gitstate.py",
+      "from": "runner/gitstate.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "runner/team.py",
+      "from": "runner/team.py",
+      "note": "tag is <folder>/<deck>/r<N>; copies kept",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "tests/test_runner_gitstate.py",
+      "from": "tests/test_runner_gitstate.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "tests/test_runner_team.py",
+      "from": "tests/test_runner_team.py",
+      "note": "engine-free tests only; rewritten against the workspace",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
     }
   ]
 }
