@@ -114,15 +114,18 @@ def slides_of(outline) -> list[dict]:
     return [slide for slide in found or () if isinstance(slide, dict)]
 
 
-def fixed(whole: dict, ids: list[str], number: int, strict: bool = False) -> dict:
+def fixed(whole: dict, ids: list[str], number: int, strict: bool = False,
+          bare=()) -> dict:
     """What the composer of one section may not change: the deck's title and direction,
     and for each of its slides the title, the subtitle and detail, the sources, the points,
     the caveat, the source line and the notes that were approved. With `strict` (brand only
-    and polish) the slide draws no words but those."""
+    and polish) the slide draws no words but those, and a slide in `bare`, whose original
+    shows no words, draws none: its title is only a label."""
     by_id = {slide.get('id'): slide for slide in slides_of(whole)}
     return {'title': whole.get('title'), 'direction': whole.get('direction') or DIRECTION,
             'prefix': f's{number}_', 'strict': bool(strict),
             'slides': [{'id': ident, 'title': by_id[ident].get('title'),
+                        'bare': bool(strict) and ident in bare,
                         'subtitle': by_id[ident].get('subtitle'),
                         'detail': by_id[ident].get('detail'),
                         'focal': by_id[ident].get('focal'),
@@ -164,7 +167,8 @@ def _caveat(slide: dict):
 
 def _approved(slide: dict) -> list:
     """Every text a slide was approved with that it may show."""
-    return [slide.get('title'), slide.get('subtitle'), slide.get('detail'), slide.get('focal'),
+    return [None if slide.get('bare') else slide.get('title'), slide.get('subtitle'),
+            slide.get('detail'), slide.get('focal'),
             *(point[key] for point in slide['points'] for key in ('label', 'text')),
             slide.get('caveat'), slide.get('source')]
 
@@ -663,7 +667,14 @@ def section_work(root, run: dict, section: str, request: dict | None, error: str
         lines.append(f'An earlier try at this job did not work: {error}\n'
                      'Take care not to end the same way.')
     strict = run.get('route') == 'existing' and _level(run) in STRICT
-    spec = {'kind': 'section', 'brand': began['brand'], **fixed(whole, ids, number, strict),
+    from runner.steps import outline as outlines   # it reaches build through worker_tools
+    bare = outlines.wordless(whole, outlines.inventory_of(root), _level(run)) if strict else []
+    if any(ident in bare for ident in ids):
+        lines.append('These slides show no words in the deck you were given, so draw no '
+                     'text on them: ' + ', '.join(ident for ident in ids if ident in bare)
+                     + '.')
+    spec = {'kind': 'section', 'brand': began['brand'],
+            **fixed(whole, ids, number, strict, bare),
             'previews': PREVIEWS, **how(root, run, renderer)}
     return Work(guidance=briefs.guidance('section', repair=bool(found)),
                 task='\n\n'.join(lines), profile='write', name='section',

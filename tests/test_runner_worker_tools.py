@@ -958,7 +958,14 @@ class RegisterTests(JobCase):
         return [entry['name'] for entry in tools.offered()]
 
     def test_only_the_runners_own_kinds_are_there_until_one_is_registered(self):
-        self.assertEqual(list(worker_tools.VALIDATORS), ['research-plan', 'outline', 'section'])
+        # The runner's own kinds come first; a step module imported by another test may
+        # have registered its own after them, but none of this test's is there yet.
+        self.assertEqual(list(worker_tools.VALIDATORS)[:3],
+                         ['research-plan', 'outline', 'section'])
+        self.assertEqual([kind for kind in worker_tools.VALIDATORS
+                          if kind not in ('research-plan', 'outline', 'section')],
+                         list(worker_tools.REGISTERED))
+        self.assertNotIn('plan-copy', worker_tools.VALIDATORS)
         self.copied()
         self.assertEqual(worker_tools.REGISTERED['plan-copy'], {
             'call': 'runner.worker_tools:check_plan', 'extension': '.json'})
@@ -1201,6 +1208,26 @@ class SectionToolTests(ToolCase):
             made = json.loads(json.dumps(good))
             change(made)
             self.assertIn(expect, ' '.join(build.kept(made, spec)))
+
+    def test_a_slide_with_no_words_of_its_own_draws_none_at_brand_only_and_polish(self):
+        whole = {**OUTLINE, 'direction': dict(build.DIRECTION)}
+        ids = ['what-it-does', 'when-capacity-holds']
+        whole['slides'] = [dict(slide) for slide in whole['slides']]
+        whole['slides'][1].update(title='A photo of the data centre', points=[])
+        labelled = {'type': 'text', 'id': 's1_what_it_does_label',
+                    'text': 'A photo of the data centre'}
+        for strict in (True, False):
+            spec = {**self.spec, **build.fixed(whole, ids, 1, strict=strict,
+                                               bare=['what-it-does'])}
+            self.assertIs(spec['slides'][0]['bare'], strict)
+            made = drawn(spec, placing={'what-it-does': [labelled]})
+            said = build.kept(made, spec)
+            if strict:
+                self.assertEqual(said, [
+                    'what-it-does: these words were not approved for the slide: '
+                    '"A photo of the data centre". Draw only the approved words.'])
+            else:
+                self.assertEqual(said, [])
 
     def test_brand_only_and_polish_refuse_words_that_were_not_approved(self):
         whole = {**OUTLINE, 'direction': dict(build.DIRECTION)}

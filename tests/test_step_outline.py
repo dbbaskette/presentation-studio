@@ -115,9 +115,13 @@ class RuleTests(Case):
                 cut = extracted()
                 cut['slides'][2]['points'][0].update(label=label, text=text)
                 said = rule(cut)
-                self.assertEqual(len(said), 1, (level, said))
-                self.assertIn('Slide 3 (third-slide)', said[0])
-                self.assertIn('slide 3 of your deck', said[0])
+                # The bullets are two runs of one text: losing part of one loses that text,
+                # so the run kept whole beside it is refused too.
+                self.assertEqual(len(said), 2, (level, said))
+                self.assertTrue(all('Slide 3 (third-slide)' in one and 'slide 3 of your deck'
+                                    in one for one in said))
+                self.assertIn(f'"{label if label != "Do not deploy on Fridays" else text}"',
+                              ' '.join(said))
 
     def test_text_from_another_slide_is_refused_at_every_level(self):
         for level in ('brand-only', 'polish', 'redesign', 'rework'):
@@ -154,6 +158,25 @@ class RuleTests(Case):
         merged['slides'][0]['sources'] = ['slide-1']
         self.assertEqual(len(outline.verbatim_rule(INVENTORY, 'rework')(merged)), 2)
 
+    def test_a_slide_that_shows_no_words_is_named_so_that_the_build_draws_none(self):
+        bare = copy.deepcopy(INVENTORY)
+        bare['slides'][1].update(title='', objects=[
+            {'id': '4', 'type': 'pic', 'text': '', 'runs': []}])
+        pictured = extracted()
+        pictured['slides'][1].update(title='A photo of the data centre', points=[])
+        pictured['slides'].insert(0, {'id': 'cover-slide', 'kind': 'cover', 'title': 'Deck'})
+        bare['slides'].insert(0, {'number': 0, 'title': 'Deck', 'objects': []})
+        for number, slide in enumerate(bare['slides'], start=1):
+            slide['number'] = number
+        pictured['slides'][1]['sources'] = ['slide-2']
+        pictured['slides'][2]['sources'] = ['slide-3']
+        pictured['slides'][3]['sources'] = ['slide-4']
+        for level in ('brand-only', 'polish'):
+            self.assertEqual(outline.wordless(pictured, bare, level), ['second-slide'])
+        self.assertEqual(outline.wordless(extracted(), INVENTORY, 'polish'), [])
+        for level in ('redesign', 'rework', None):
+            self.assertEqual(outline.wordless(pictured, bare, level), [], level)
+
     def test_a_slide_that_shows_no_words_takes_a_title_and_nothing_more(self):
         bare = copy.deepcopy(INVENTORY)
         bare['slides'][1].update(title='', objects=[
@@ -164,6 +187,27 @@ class RuleTests(Case):
             self.assertEqual(outline.verbatim_rule(bare, level)(pictured), [], level)
         pictured['slides'][1]['points'] = [{'text': 'Capacity holds'}]
         self.assertEqual(len(outline.verbatim_rule(bare, 'brand-only')(pictured)), 1)
+
+    def test_a_run_counts_only_with_every_run_of_its_text_kept_in_order(self):
+        bold = copy.deepcopy(INVENTORY)
+        bold['slides'][2]['objects'][1] = {'id': '3', 'type': 'text',
+                                           'text': 'Do not deploy on Fridays',
+                                           'runs': ['Do ', 'not', ' deploy on Fridays']}
+        for level in ('brand-only', 'polish'):
+            rule = outline.verbatim_rule(bold, level)
+            for points, refused in (
+                    ([{'text': 'Do not deploy on Fridays'}], 0),
+                    ([{'label': 'Do', 'text': 'not'}, {'text': 'deploy on Fridays'}], 0),
+                    ([{'text': 'deploy on Fridays'}], 1),
+                    ([{'label': 'Do'}, {'text': 'deploy on Fridays'}], 2),
+                    ([{'text': 'not'}, {'text': 'Do'}, {'text': 'deploy on Fridays'}], 3)):
+                made = extracted()
+                made['slides'][2]['points'] = points
+                said = rule(made)
+                self.assertEqual(len(said), refused, (level, points, said))
+                if refused:
+                    self.assertIn('"Do not deploy on Fridays"', said[0])
+                    self.assertIn('every part of it, in order', said[0])
 
     def test_the_writers_own_lines_are_not_compared(self):
         outline_ = extracted()

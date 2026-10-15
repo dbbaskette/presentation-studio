@@ -366,6 +366,24 @@ class RefusalTests(Deck):
             work = build.section_work(self.root, run, 'section-1', None, None)
             self.assertIs(work.prepared['artifacts']['section']['strict'], strict, level)
 
+    def test_a_slide_whose_original_shows_no_words_is_bare_at_brand_only(self):
+        build.start(self.root, self.run_, self.slides, self.contract)
+        given = json.loads((self.root / build.START / 'given' / 'outline.json').read_text())
+        first = next(slide for slide in given['slides'] if slide.get('kind') == 'content')
+        number = given['slides'].index(first) + 1
+        slides = [{'number': n, 'title': 'Words', 'objects': [
+            {'id': '2', 'type': 'sp', 'text': 'Words', 'runs': ['Words']}]}
+            for n in range(1, len(given['slides']) + 1)]
+        slides[number - 1] = {'number': number, 'title': '', 'objects': []}
+        (self.root / 'classify.json').write_text(json.dumps({'slides': slides}))
+        for level, bare in (('brand-only', True), ('polish', True), ('redesign', False)):
+            run = copy.deepcopy(self.run_)
+            run['route'], run['form']['level'] = 'existing', level
+            spec = build.section_work(self.root, run, 'section-1', None, None) \
+                .prepared['artifacts']['section']
+            marked = {slide['id']: slide['bare'] for slide in spec['slides']}
+            self.assertIs(marked.get(first['id'], False), bare, level)
+
     def test_a_gate_note_reaches_the_composer(self):
         self.built()
         run = copy.deepcopy(self.run_)

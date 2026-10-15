@@ -66,11 +66,16 @@ def _norm(text) -> str:
     return ' '.join(text.split()) if isinstance(text, str) else ''
 
 
+def _runs(item: dict) -> list[str]:
+    return [_norm(run) for run in item.get('runs') or () if _norm(run)]
+
+
 def _whole(slide: dict) -> list[str]:
-    """Every whole text a slide shows: its title, each text object, each of their runs."""
+    """Every whole text a slide shows: its title, and each text object, as it is and with
+    its runs joined. A run is a whole text only of an object that has no other."""
     found = []
     for item in slide.get('objects') or ():
-        found += [item.get('text'), ' '.join(item.get('runs') or ()), *(item.get('runs') or ())]
+        found += [item.get('text'), ' '.join(item.get('runs') or ())]
     return list(dict.fromkeys(_norm(text) for text in [slide.get('title'), *found]
                               if _norm(text)))
 
@@ -79,6 +84,13 @@ def pages_of(inventory: dict) -> dict:
     """Each slide's whole texts, whitespace-normalised, by its number as a string."""
     return {str(slide.get('number')): _whole(slide) for slide in inventory.get('slides') or ()
             if isinstance(slide, dict)}
+
+
+def parts_of(inventory: dict) -> dict:
+    """Each slide's text objects of more than one run, as their runs, by its number."""
+    return {str(slide.get('number')): [_runs(item) for item in slide.get('objects') or ()
+                                       if len(_runs(item)) > 1]
+            for slide in inventory.get('slides') or () if isinstance(slide, dict)}
 
 
 def _shown(inventory: dict) -> str:
@@ -135,14 +147,27 @@ def _where(numbers: list[str], pages: dict) -> str:
     return 'slides ' + ', '.join(numbers[:-1]) + f' and {numbers[-1]} of your deck'
 
 
-def verbatim(outline: dict, pages: dict, whole: bool = False, counted: bool = False) -> list[str]:
+def _in_order(runs: list[str], fields: list[str]) -> bool:
+    """Every run, one field each, in their order among the fields."""
+    at = 0
+    for field in fields:
+        if at < len(runs) and field == runs[at]:
+            at += 1
+    return at == len(runs)
+
+
+def verbatim(outline: dict, pages: dict, whole: bool = False, counted: bool = False,
+             parts: dict | None = None) -> list[str]:
     """A sentence for each word of a slide that is not the deck's own, on the slide it was
-    read from. With `whole` (brand only, polish) each text is a whole text or run of that
-    slide; otherwise it is a part of one, cut on word boundaries."""
+    read from. With `whole` (brand only, polish) each text is a whole text of that slide, or
+    a run of one when every run of that text is kept, each its own field, in order; without,
+    it is a part of one, cut on word boundaries."""
     found = []
     for number, slide in enumerate(_slides(outline), start=1):
         numbers = _read_from(slide, number, pages, counted)
         texts = [text for one in numbers for text in pages.get(one) or ()]
+        split = [runs for one in numbers for runs in (parts or {}).get(one) or ()]
+        fields = [_norm(text) for _, text in _words(slide)]
         for field, text in _words(slide):
             plain = _norm(text)
             if not plain or (field == 'title' and not texts and all(one in pages
@@ -151,6 +176,15 @@ def verbatim(outline: dict, pages: dict, whole: bool = False, counted: bool = Fa
                 continue
             if whole:
                 held = plain in texts
+                cut = [runs for runs in split if plain in runs]
+                if not held and cut:
+                    if not any(_in_order(runs, fields) for runs in cut):
+                        found.append(
+                            f"Slide {number} ({slide.get('id')}): the {field} \"{plain}\" is "
+                            f"part of the text \"{' '.join(cut[0])}\" on "
+                            f'{_where(numbers, pages)}. Copy that text whole, or every part '
+                            'of it, in order, each part a text of its own.')
+                    continue
             else:
                 held = any(_within(plain, kept) for kept in texts)
             if not held:
@@ -177,11 +211,23 @@ def same_slides(outline: dict, count: int) -> list[str]:
     return found
 
 
+def wordless(outline: dict, inventory: dict | None, level: str | None) -> list[str]:
+    """The IDs of the slides that, at brand only and polish, stand for an original slide
+    that shows no words at all: their title is a label of the worker's, so the build draws
+    no words of theirs. None at any other level."""
+    if level not in LEVELS_COUNTED or not isinstance(inventory, dict):
+        return []
+    pages = pages_of(inventory)
+    return [slide.get('id') for number, slide in enumerate(_slides(outline), start=1)
+            if str(number) in pages and not pages[str(number)]]
+
+
 def verbatim_rule(inventory: dict, level: str | None = None):
     """The rule that every word is the deck's own, from the slide it was read from. Brand
     only and polish keep whole texts, in the deck's order."""
     held = level in LEVELS_COUNTED
-    return functools.partial(verbatim, pages=pages_of(inventory), whole=held, counted=held)
+    return functools.partial(verbatim, pages=pages_of(inventory), whole=held, counted=held,
+                             parts=parts_of(inventory) if held else None)
 
 
 def count_rule(inventory: dict, level: str):
