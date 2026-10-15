@@ -77,11 +77,13 @@ def bundled() -> Path:
 
 def helper() -> str:
     """How to run the helper: the installer's `presentation` command when that is what ran this,
-    since it finds a Python new enough; otherwise presentation.py itself."""
+    since it finds a Python new enough; otherwise what that command runs, the runner's
+    studio.py: beside the scripts in an installed copy, at the top of a checkout."""
     command = os.environ.get('PRESENTATION_STUDIO_HELPER')
     if command and Path(command).is_file():
         return command
-    return str(RUNTIME / 'scripts' / 'presentation.py')
+    places = (RUNTIME / 'runner' / 'studio.py', RUNTIME.parent.parent / 'runner' / 'studio.py')
+    return str(next((place for place in places if place.is_file()), places[0]))
 
 
 def guidance_root() -> Path:

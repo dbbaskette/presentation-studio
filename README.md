@@ -44,7 +44,7 @@ You need:
 - **A Mac.**
 - **Claude Code or Codex**, installed and signed in.
 - **Python 3.11 or newer**, **Node 20 or newer** and **git**.
-- **Arial**, which the brand uses.
+- **The fonts your brand skill names**, installed on this computer.
 - **A way to see slides**: LibreOffice and Poppler on this computer, or Google Drive previews if you sign in to Google.
 - **Google sign-in** (gcloud), only if you want Google Slides as the output or a Google Doc as the input. Without it you get a PowerPoint file.
 - **Two companion skills**: [harness-slides](https://github.com/dbbaskette/harness-slides-skill) builds the decks and [harness-research](https://github.com/dbbaskette/harness-research-skill) does the research. The installer brings both at the versions it was tested with.

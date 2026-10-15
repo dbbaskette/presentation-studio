@@ -23,7 +23,17 @@ sources/           never shared: documents and the original deck
 work/              never shared: harness-slides' workspace, previews and renders
 ```
 
-`run.json` holds `schema` (1), `id`, `title`, `route`, `form` (`route`, `title`, `audience`, `goal`, `minutes`, `brand`, `variant`, `output`, `research`, and for an existing deck `level`, with `selected` for that level) and `gates`. Record each stop under `gates` by its step, such as `gate:outline`: `{"state": "approved"}` or `{"state": "changes", "note": "<their words>"}`, with `at` and `by` from `person.name`. Keep the brand contract a deck was built with, so that a rerun uses the same brand.
+## run.json
+
+The runner reads it to know where a deck stands, so write it in its shape:
+
+- `schema` 1, `id`, `title`, `route`, and `form`: `route`, `title`, `audience`, `goal`, `minutes`, `brand`, `variant`, `output`, `research`; for an existing deck also `level`, and `selected` for that level.
+- `classified`: `"spec"` or `"material"` for a document, once decided; else `null`. `look`: the chosen look's name, or `null`.
+- `steps`: each step finished, as `{"done": true, "at": "<time>"}`, by the runner's names, in order: `intake-source`, `classify` (document), `inventory` (existing), `research-plan`, `research`, `research-report`, `extract` (existing, not `selected`), `outline`, `brand`, `look`, `look-preview`, `patch` (`selected`), `build-start`, `build-sections`, `build-whole`, `build-review`, `build-repair`, `build-render`, `deliver`. Only those the route and level have.
+- `gates`: each stop, `gate:classify`, `gate:research-plan`, `gate:research`, `gate:outline`, `gate:look` or `gate:build`, as `{"state": "approved"}`, or `"changes"` with the person's `note`, with `at`, and `by` from `person.name`.
+- `revisions` `[]`, and `driver`, `halted` as `null`.
+
+The runner carries on at the first step not done or stop not approved. Work kept in `sources/` and `work/` is not shared, so it redoes a step whose work it lacks.
 
 ## What is never shared
 

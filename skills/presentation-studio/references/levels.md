@@ -18,6 +18,10 @@ The person chooses how much may change. They are harness-slides' own intake leve
 - **rework.** The deck's evidence. The text used is still copied from the deck; where the new story needs a connecting line the deck does not have, say so and leave it out rather than invent it. The proposed new shape is the outline, and the person approves it before anything is drawn.
 - **selected.** Ask at intake which slides and what to change, and record it in the form as `selected`. Change only those, as a scoped patch through harness-slides. Every other slide must come out exactly as it went in, which harness-slides' compare confirms.
 
+## Steps without a stop
+
+Every level but `selected` first pulls the deck's outline out of its inventory (the `extract` step), and every level exports the brand contract before Build. Neither stops for the person: for `brand-only` and `polish` the next stop is Build. `selected` plans its patch instead of extracting.
+
 ## At Build
 
 Show each changed slide beside the original. For `selected`, show only the slides that changed. Changes asked for after delivery are made the same way and delivered as the next numbered revision.

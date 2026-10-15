@@ -80,7 +80,7 @@ class StartTests(SyncCase):
         self.assertTrue((entry.parent / 'references' / 'gates.md').is_file())
         self.assertTrue((entry.parent / 'assets' / 'example.md').is_file())
         self.assertFalse((entry.parent / 'scripts').exists())
-        self.assertEqual(Path(result['helper']), helpers.SCRIPTS / 'presentation.py')
+        self.assertEqual(Path(result['helper']), helpers.REPO / 'runner' / 'studio.py')
         self.assertIsNone(result['notice'])
 
     def test_the_helper_is_the_command_that_ran_this_when_there_is_one(self):
@@ -90,7 +90,7 @@ class StartTests(SyncCase):
             self.assertEqual(sync_guidance.start(self.project)['helper'], str(command))
         with mock.patch.dict(os.environ, {'PRESENTATION_STUDIO_HELPER': str(command) + '-gone'}):
             self.assertEqual(Path(sync_guidance.start(self.project)['helper']),
-                             helpers.SCRIPTS / 'presentation.py')
+                             helpers.REPO / 'runner' / 'studio.py')
 
     def test_start_writes_nothing_into_a_directory_that_has_no_deck(self):
         sync_guidance.start(self.project)
