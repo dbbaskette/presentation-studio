@@ -55,6 +55,7 @@ PAGE = {
     '/app.js': ('app.js', 'text/javascript; charset=utf-8'),
     '/markdown.js': ('markdown.js', 'text/javascript; charset=utf-8'),
     '/style.css': ('style.css', 'text/css; charset=utf-8'),
+    '/deck.css': ('deck.css', 'text/css; charset=utf-8'),
 }
 JSON = 'application/json; charset=utf-8'
 SECURITY_HEADERS = {

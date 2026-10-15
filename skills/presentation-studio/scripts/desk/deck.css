@@ -1,0 +1,96 @@
+/* What a deck's screens add to style.css, which is kept exactly as it was vendored: cards to
+   pick from, the looks side by side, a slide's before and after, and the stage that is coming
+   later. Every colour is one of style.css's own. */
+
+/* A card that is a button: one of several to pick from. The tick and its words say it is
+   picked, not colour alone. */
+.pick-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 15rem), 1fr));
+  gap: 0.8rem;
+  margin-top: 0.6rem;
+}
+
+.pick-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.35rem;
+  width: 100%;
+  padding: 0.9rem 1rem;
+  background: var(--well);
+  color: var(--ink);
+  font: inherit;
+  text-align: left;
+  border: 1px solid var(--hair);
+  border-radius: 16px;
+  cursor: pointer;
+}
+
+.pick-card[aria-pressed="true"] {
+  background: var(--thumb);
+  border-color: var(--focus);
+  box-shadow: var(--edge), 0 0 0 2px var(--focus);
+}
+
+.pick-top {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.pick-card[aria-pressed="false"] .icon {
+  display: none;
+}
+
+.pick-title {
+  font-weight: 650;
+}
+
+.pick-says {
+  color: var(--quiet);
+  font-size: 0.93rem;
+}
+
+.looks .look-option > * + * {
+  margin-top: 0.5rem;
+}
+
+/* What is said of the slide on the stage, under it. */
+.slide-about {
+  margin-top: 0.7rem;
+}
+
+.slide-about > * + * {
+  margin-top: 0.6rem;
+}
+
+.pair {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
+  gap: 0.8rem;
+}
+
+.strip-item .tag {
+  grid-column: 1 / -1;
+  justify-self: start;
+}
+
+/* Rehearsing with Yoodli is shown dimmed, as coming later. */
+.timeline .bead-stage[data-state="later"] {
+  opacity: 0.6;
+}
+
+.bead-later {
+  font-size: 0.72rem;
+}
+
+.steps > summary {
+  cursor: pointer;
+}
+
+/* A deck's contact sheet, small, in a list and on its own screen. */
+.row-text > .thumb,
+.card > .thumb {
+  max-width: 16rem;
+}

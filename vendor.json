@@ -349,6 +349,36 @@
       "from": "tests/test_runner_studio.py",
       "revision": "b19c743673297fa44e245bb76b9e1e36f094223d",
       "note": "with FakeTests"
+    },
+    {
+      "path": "skills/presentation-studio/scripts/desk/style.css",
+      "from": "skills/training-studio/scripts/desk/style.css",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "skills/presentation-studio/scripts/desk/markdown.js",
+      "from": "skills/training-studio/scripts/desk/markdown.js",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "skills/presentation-studio/scripts/desk/index.html",
+      "from": "skills/training-studio/scripts/desk/index.html",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "skills/presentation-studio/scripts/desk/app.js",
+      "from": "skills/training-studio/scripts/desk/app.js",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "tests/page_harness.js",
+      "from": "tests/page_harness.js",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
+    },
+    {
+      "path": "tests/test_desk.py",
+      "from": "tests/test_desk.py",
+      "revision": "b19c743673297fa44e245bb76b9e1e36f094223d"
     }
   ]
 }
