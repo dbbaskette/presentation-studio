@@ -840,6 +840,11 @@ class StudioCase(unittest.TestCase):
         the real one gives when none is installed."""
         if self.brand is None:
             from workspace import WorkspaceError
+            named = os.environ.get('BRAND_SKILL_RUNTIME')
+            if named:
+                raise WorkspaceError(f'BRAND_SKILL_RUNTIME names {named}, which does not hold '
+                                     'a brand skill. Point it at an installed one, or unset '
+                                     'it.')
             raise WorkspaceError('No brand skill was found on this computer, so a deck '
                                  'cannot be made. Install one, or name its folder in '
                                  'BRAND_SKILL_RUNTIME, then try again.')

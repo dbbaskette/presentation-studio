@@ -1209,13 +1209,22 @@ class Engine(Jobs, Researching):
         with self.files:
             record = self._load(root)
             form = record.get('form') or {}
-            if not (root / build.CONTRACT).is_file() \
-                    and (not form.get('brand') or not form.get('variant')):
-                chosen = decks.default_brand(form.get('brand') or settings.load().brand,
-                                             form.get('variant') or settings.load().variant,
-                                             skill.brands())
-                record['form'] = {**form, **chosen}
-                self._store(root, record)
+            if not (root / build.CONTRACT).is_file():
+                saved = settings.load()
+                try:
+                    chosen = decks.deck_brand(form, skill.brands(), saved.brand,
+                                              saved.variant)
+                except WorkspaceError as refusal:
+                    step = first(record)
+                    self._problem(root, step.name if step else 'brand', 'stopped',
+                                  str(refusal), KEPT_SO_FAR)
+                    raise _Halted()
+                if (chosen['brand'], chosen['variant']) \
+                        != (form.get('brand'), form.get('variant')):
+                    record['form'] = {**form, **chosen}
+                    self._store(root, record)
+                    decks.name_brand(root, record['form'])
+                    self._commit(root, 'make it in ' + decks.brand_words(record['form']))
             try:
                 return build.export_brand(root, record, skill)
             except build.BrandChanged:

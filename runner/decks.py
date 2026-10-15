@@ -178,10 +178,19 @@ def _source_words(source: dict) -> str:
     return 'pasted text'
 
 
+NOT_OFFERED = ('Your brand skill does not offer the brand {brand}, so this deck cannot be made '
+               'in it: start a deck in one of the brands it lists ({listed}), or install a '
+               'brand skill that offers {brand} and retry.')
+NO_VARIANT = ('Your brand skill offers no "{variant}" variant of {brand}, so this deck cannot be '
+              'made in it: start a deck in one of the variants it lists ({listed}), or install '
+              'a brand skill that offers it and retry.')
+
+
 def default_brand(brand: str | None, variant: str | None, brands) -> dict:
-    """The brand and variant a deck is given: `brand` and `variant` where the brand skill
+    """The brand and variant offered first: `brand` and `variant` where the brand skill
     has them, else the first it lists, else the first variant of that brand. With nothing
-    listed, they stay as they are. No brand is named here."""
+    listed, they stay as they are. No brand is named here. For a deck's own brand, see
+    `deck_brand`."""
     listed = [entry for entry in brands or [] if isinstance(entry, dict) and entry.get('brand')]
     if not listed:
         return {'brand': brand, 'variant': variant}
@@ -189,6 +198,42 @@ def default_brand(brand: str | None, variant: str | None, brands) -> dict:
     variants = [str(one) for one in entry.get('variants') or []]
     return {'brand': entry['brand'],
             'variant': variant if variant in variants else (variants[0] if variants else None)}
+
+
+def deck_brand(form: dict, brands, brand: str | None, variant: str | None) -> dict:
+    """The brand and variant a deck is made in, once the brand skill lists its brands. A
+    brand or variant the deck's form names must be one the brand skill offers, or this
+    refuses with NOT_OFFERED or NO_VARIANT. Only one left empty is chosen: `brand` and
+    `variant` (what Settings names) where the skill has them, else its first."""
+    listed = [entry for entry in brands or [] if isinstance(entry, dict) and entry.get('brand')]
+    named = form.get('brand')
+    if not named:
+        return default_brand(brand, form.get('variant') or variant, listed)
+    entry = next((one for one in listed if one.get('brand') == named), None)
+    if entry is None:
+        raise WorkspaceError(NOT_OFFERED.format(brand=named, listed=', '.join(
+            str(one['brand']) for one in listed) or 'none'))
+    variants = [str(one) for one in entry.get('variants') or []]
+    wanted = form.get('variant')
+    if wanted and wanted not in variants:
+        raise WorkspaceError(NO_VARIANT.format(variant=wanted, brand=named,
+                                               listed=', '.join(variants) or 'none'))
+    if not wanted:
+        wanted = variant if variant in variants else (variants[0] if variants else None)
+    return {'brand': named, 'variant': wanted}
+
+
+def name_brand(root: Path, form: dict) -> None:
+    """Say in the deck's intake which brand and variant it is made in, once they are
+    chosen."""
+    path = Path(root) / 'intake.md'
+    try:
+        lines = path.read_text(encoding='utf-8').split('\n')
+    except OSError:
+        return
+    if '## Brand' in lines and lines.index('## Brand') + 1 < len(lines):
+        lines[lines.index('## Brand') + 1] = brand_words(form)
+        write_atomic(path, '\n'.join(lines))
 
 
 def brand_words(form: dict) -> str:

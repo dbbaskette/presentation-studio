@@ -308,7 +308,38 @@ class BrandTests(StudioCase):
             root = self.start(brand='', variant='')
         view = self.view(root)
         self.assertNotEqual(view['sentence'], engine.NO_BRAND)
-        self.assertIn('No brand skill was found on this computer', view['sentence'])
+        self.assertEqual(view['sentence'], f"BRAND_SKILL_RUNTIME names {self.base / 'nowhere'}, "
+                         'which does not hold a brand skill. Point it at an installed one, or '
+                         'unset it.')
+
+    def test_a_brand_the_brand_skill_does_not_offer_stops_the_deck(self):
+        from runner import decks as named
+        self.without_a_brand_skill()
+        for form, says in (
+                ({'brand': 'globex', 'variant': ''},
+                 named.NOT_OFFERED.format(brand='globex', listed='example')),
+                ({'brand': 'example', 'variant': 'neon'},
+                 named.NO_VARIANT.format(variant='neon', brand='example',
+                                         listed='light, dark'))):
+            self.brand = None
+            root = self.start(title=f"Restarts in {form['variant'] or form['brand']}", **form)
+            self.brand = self.installed
+            self.engine.act(root, 'retry')
+            view = self.view(root)
+            self.assertEqual((view['state'], view['sentence']), ('stopped', says))
+            kept = json.loads((root / 'run.json').read_text())['form']
+            self.assertEqual((kept['brand'], kept['variant']),
+                             (form['brand'], form['variant'] or None), 'never switched')
+            self.assertEqual(self.workers.of('outline'), [])
+
+    def test_the_brand_chosen_for_a_deck_is_said_in_its_intake(self):
+        self.without_a_brand_skill()
+        root = self.start(brand='', variant='')
+        self.brand = self.installed
+        self.engine.act(root, 'retry')
+        self.assertIn('## Brand\nexample (light)\n', (root / 'intake.md').read_text())
+        self.assertNotIn('chosen when the brand skill is installed',
+                         (root / 'intake.md').read_text())
 
     def test_without_a_brand_skill_an_existing_deck_is_still_listed_slide_by_slide(self):
         self.without_a_brand_skill()

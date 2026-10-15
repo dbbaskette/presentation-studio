@@ -119,10 +119,11 @@ class CompanionTests(UpkeepCase):
                                               'harness-research': 'missing'})
         slides = found['companions'][0]
         self.assertEqual((slides['wanted'], slides['repository'], slides['says']),
-                         (None, None, 'harness-slides 0.14.1. No version is pinned for it yet.'))
-        self.assertEqual(slides['found'], {str(self.skills / 'harness-slides'): '0.14.1'})
-        self.assertEqual(found['companions'][1]['says'], 'harness-research is not installed on '
-                         'this computer, and research cannot run without it.')
+                         (None, None, 'harness-slides 0.14.1, for Claude Code. No version is '
+                                      'pinned for it yet.'))
+        self.assertEqual(slides['found'], {'Claude Code': '0.14.1'})
+        self.assertEqual(found['companions'][1]['says'], 'harness-research is not installed '
+                         'for Claude Code, and research cannot run without it.')
         self.assertEqual((found['installer'], found['problem']), (False, upkeep.NO_INSTALLER))
 
     def test_each_companion_is_compared_with_its_pin(self):
@@ -132,8 +133,8 @@ class CompanionTests(UpkeepCase):
         found = self.keeper().check(repair=False)
         self.assertEqual(self.states(found), {'harness-slides': 'older',
                                               'harness-research': 'ok'})
-        self.assertEqual(found['companions'][0]['says'], 'harness-slides 0.13.1 is older than '
-                         'the 0.14.1 this Presentation Studio was made with.')
+        self.assertEqual(found['companions'][0]['says'], 'harness-slides for Claude Code is '
+                         'older than the 0.14.1 this Presentation Studio was made with.')
         self.assertEqual(found['companions'][0]['commit'], 'a' * 12)
         rows = {row['name']: row for row in self.keeper().versions(found, None, False)['rows']}
         self.assertEqual((rows['harness-slides']['state'], rows['harness-slides']['target']),
@@ -149,9 +150,39 @@ class CompanionTests(UpkeepCase):
         self.assertEqual([row['name'] for row in rows],
                          ['presentation-studio', 'harness-slides', 'harness-research',
                           'brand skill'])
-        self.assertEqual(rows[-1]['says'], 'No brand skill is installed, so no deck is '
-                         'offered. Name its repository in Settings to install and upgrade it '
-                         'from here.')
+        self.assertEqual(rows[-1]['says'], 'No brand skill is installed, so a deck stops where '
+                         'it first needs your brand. Name its repository in Settings to install '
+                         'and upgrade it from here.')
+
+    def test_each_assistant_is_looked_at_for_itself(self):
+        self.pin()
+        codex = self.home / '.agents' / 'skills'
+        self.companion('harness-slides', '0.14.1')
+        self.companion('harness-slides', '0.13.1', codex)
+        self.companion('harness-research', '0.8.0')
+        found = self.keeper().check(repair=False)
+        self.assertEqual(self.states(found), {'harness-slides': 'older',
+                                              'harness-research': 'missing'})
+        self.assertEqual(found['companions'][0]['says'], 'harness-slides for Codex is older '
+                         'than the 0.14.1 this Presentation Studio was made with.')
+        self.assertEqual(found['companions'][1]['says'], 'harness-research is not installed '
+                         'for Codex, and research cannot run without it. This Presentation '
+                         'Studio was made with 0.8.0.')
+        self.companion('harness-research', None, codex)
+        self.assertEqual(self.states(self.keeper().check(repair=False))['harness-research'],
+                         'unread')
+
+    def test_only_the_copy_in_each_assistants_skills_folder_counts(self):
+        self.pin()
+        shared = self.home / '.local' / 'share' / 'harness-slides'
+        self.companion('harness-slides', '0.1.0', shared)
+        (shared / 'current').symlink_to(shared / 'harness-slides')
+        self.companion('harness-slides', '0.14.1')
+        elsewhere = self.companion('harness-slides', '0.2.0', self.base / 'mine')
+        with mock.patch.dict(os.environ, {'HARNESS_SLIDES_RUNTIME': str(elsewhere)}):
+            found = self.keeper().check(repair=False)
+        self.assertEqual(found['companions'][0]['state'], 'ok')
+        self.assertEqual(found['companions'][0]['found'], {'Claude Code': '0.14.1'})
 
     def test_a_companion_whose_version_cannot_be_read_is_said_and_left_alone(self):
         self.pin()

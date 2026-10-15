@@ -508,7 +508,8 @@ class ScreenTests(ScriptedPage, PageCase):
         shots = result['snapshots']
         for said in ('Newer versions are ready for this computer:',
                      'brand skill 0.13.1, which is missing',
-                     'No brand skill is installed, so no deck is offered.'):
+                     'No brand skill is installed, so a deck stops where it first needs '
+                     'your brand.'):
             self.assertIn(said, shots['home']['text'])
         asked = shots['asked']['sheet']
         for said in ('Install the brand skill 0.13.1?', 'What is installed',

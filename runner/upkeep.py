@@ -17,10 +17,12 @@ What a caller needs to know
     keep.close()                 # end an update in hand
 
 - The companions are harness-slides and harness-research (COMPANIONS), the only skills
-  Presentation Studio pins. Each is looked for on this computer the way the runner finds it
-  when it uses it, through `companion.locations` (its variable, the folder its own
-  installer uses, and each assistant's skills folder). Its version is the one its
-  `package.json` says. Nothing is run to look at them. The brand skill is not a
+  Presentation Studio pins. Each is looked for, as the installer places it, in the skills
+  folder of each assistant Presentation Studio was installed for (ASSISTANTS; without an
+  installer's record, each assistant whose skills folder is here). It is `missing` when
+  any of them lacks it, `older` when any copy is older than its pin, and `unread` when a
+  copy's version cannot be read. Its version is the one its `package.json` says. Nothing
+  is run to look at them. The brand skill is not a
   companion: it is the person's own, installed from the repository they name (see below).
 - The pins are `../installer/companions.json`, as the installer writes them: {"schema": 1,
   "companions": {name: {"repository", "version", "commit", ...}}}. A missing file is no
@@ -171,6 +173,8 @@ BRAND_WORKING = ('A deck on this computer is working now, and a step in hand kee
                  'the brand skill it started with. Pause it, or wait until it stops for you, '
                  'then install.')
 BRAND_INSTALLING = 'The brand skill is being installed already.'
+NO_BRAND_SKILL = ('No brand skill is installed, so a deck stops where it first needs your '
+                  'brand.')
 BRAND_STOPPED = 'The install was stopped when Presentation Studio closed.'
 
 
@@ -397,8 +401,9 @@ class Upkeep:
     def _local(self, repair: bool) -> dict:
         install = self.module()
         pins, problem = self.pins()
-        companions = [self._companion(name, pins.get(name)) for name in COMPANIONS]
         if install is None:
+            companions = [self._companion(name, pins.get(name), self._assistants(None))
+                          for name in COMPANIONS]
             return {**self._blank(problem or NO_INSTALLER), 'companions': companions,
                     'main': self._main_version(), 'newest': self._newest(None),
                     'tools': self._tools(), 'brands': self._brands()}
@@ -408,6 +413,8 @@ class Upkeep:
             state, problem = None, problem or str(refusal)
         repaired = self._current(install, state) if state and repair else []
         chosen = list(state.get('links', {})) if state else install.found_harnesses(self.home)
+        companions = [self._companion(name, pins.get(name), self._assistants(state))
+                      for name in COMPANIONS]
         links = [self._link(install, state, harness, repair) for harness in chosen]
         repaired += [link['says'] for link in links if link['state'] == 'repaired']
         if state and repair:
@@ -520,49 +527,47 @@ class Upkeep:
         return [f'{COMMANDS[kind]} was missing, and was written again: {path}.'
                 for kind, path in written.items()]
 
-    def _places(self, name: str) -> list[Path]:
-        """Each folder on this computer that holds a companion, with links followed."""
-        module, title = TOOLS[name]
-        found = [place for place in companion.locations(module.VARIABLE, name, title,
-                                                        home=self.home)
-                 if (place / module.SCRIPT).is_file()]
-        seen, places = set(), []
-        for place in found:
-            try:
-                resolved = place.resolve()
-            except (OSError, RuntimeError):
-                continue
-            if resolved not in seen:
-                seen.add(resolved)
-                places.append(place)
-        return places
+    def _assistants(self, state: dict | None) -> list[str]:
+        """The assistants whose companions are looked at: those Presentation Studio was
+        installed for, as the installer recorded, else each whose skills folder is here."""
+        if state and state.get('links'):
+            return [name for name in ASSISTANTS if name in state['links']]
+        return [name for name, (_, parts) in ASSISTANTS.items()
+                if self.home.joinpath(*parts).is_dir()]
 
-    def _companion(self, name: str, pin: dict | None) -> dict:
-        """One companion as this computer has it, against its pin when there is one."""
-        found = {}
-        for place in self._places(name):
-            version = _package(place.resolve()).get('version')
-            found[str(place)] = version if isinstance(version, str) \
-                and VERSION.match(version) else ''
+    def _companion(self, name: str, pin: dict | None, chosen: list[str]) -> dict:
+        """One companion, for each assistant Presentation Studio is installed for, against
+        its pin when there is one. Only the copy in each assistant's skills folder is looked
+        at: that is the one its installer places."""
+        found = self._assistant_versions(name, chosen)
         wanted, need = (pin or {}).get('version'), NEEDS[name]
-        having = sorted({version for version in found.values() if version}, key=_version)
-        if not found:
-            state = 'missing'
-            says = f'{name} is not installed on this computer, and {need}.' + (
-                f' This Presentation Studio was made with {wanted}.' if wanted else '')
-        elif not having:
-            state, says = 'unread', (f'{name} is there, but not as its own installer leaves '
-                                     'it, so its version could not be read. It was left '
-                                     'alone.')
-        elif wanted and _version(having[0]) < _version(wanted):
-            state, says = 'older', (f'{name} {having[0]} is older than the {wanted} this '
+        short = [assistant for assistant, version in found.items()
+                 if version is None or (wanted and version
+                                        and _version(version) < _version(wanted))]
+        unread = [ASSISTANTS[assistant][0] for assistant, version in found.items()
+                  if version == '']
+        who = _who([ASSISTANTS[assistant][0] for assistant in short])
+        made = f' This Presentation Studio was made with {wanted}.' if wanted else ''
+        if short and all(found[assistant] is None for assistant in short):
+            state, says = 'missing', f'{name} is not installed for {who}, and {need}.{made}'
+        elif short:
+            state, says = 'older', (f'{name} for {who} is older than the {wanted} this '
                                     'Presentation Studio was made with.')
+        elif unread:
+            state, says = 'unread', (f'{name} is there for {_who(unread)}, but not as its '
+                                     'own installer leaves it, so its version could not be '
+                                     'read. It was left alone.')
+        elif not chosen:
+            state, says = 'missing', f'{name} cannot be looked for: no assistant was found.'
         else:
+            having = sorted({version for version in found.values() if version}, key=_version)
             state = 'ok'
-            says = f"{name} {', '.join(having)}." + (
+            says = f"{name} {', '.join(having)}, for " + _who(
+                [ASSISTANTS[assistant][0] for assistant in found]) + '.' + (
                 '' if wanted else ' No version is pinned for it yet.')
         return {'name': name, 'wanted': wanted, 'state': state, 'says': says,
-                'found': found,
+                'found': {ASSISTANTS[assistant][0]: version
+                          for assistant, version in found.items()},
                 'repository': pin['repository'].removesuffix('.git') if pin else None,
                 'commit': pin['commit'][:12] if pin else None,
                 'note': (pin or {}).get('note')}
@@ -1082,11 +1087,13 @@ class Upkeep:
         return 'done', (f"{now[0]['name']} {version} is installed, from {repository} at "
                         f"{tag} (revision {target['commit'][:12]}). New decks can use it.")
 
-    def _assistant_versions(self, name: str) -> dict:
-        """The version of a companion each assistant has in its skills folder: None when it
-        has none, '' when one is there whose version cannot be read."""
+    def _assistant_versions(self, name: str, chosen=None) -> dict:
+        """The version of a companion each assistant (each of `chosen`, else both) has in
+        its skills folder: None when it has none, '' when one is there whose version cannot
+        be read."""
         found = {}
-        for assistant, (_, parts) in ASSISTANTS.items():
+        for assistant in chosen if chosen is not None else ASSISTANTS:
+            parts = ASSISTANTS[assistant][1]
             skill = self.home.joinpath(*parts) / name
             if not os.path.lexists(skill):
                 found[assistant] = None
@@ -1101,7 +1108,7 @@ class Upkeep:
         None when it would leave them alone. It brings its own copy of each it records,
         unless every one installed here is at least that version and one is there."""
         for name, wanted in brand_source.bootstraps(folder).items():
-            if name in brand_source.SKIPPED or name not in COMPANIONS:
+            if name in brand_source.SKIPPED:
                 continue
             found = self._assistant_versions(name)
             having = [version for version in found.values() if version]
@@ -1164,7 +1171,7 @@ class Upkeep:
                'commit': target and target['commit'][:12]}
         named = skill['name'] if skill else 'The brand skill'
         if not repository:
-            first = ('No brand skill is installed, so no deck is offered.' if not skill
+            first = (NO_BRAND_SKILL if not skill
                      else f'{named} {installed} is installed.' if installed
                      else f'{named} is installed.')
             return {**row, 'state': 'unknown', 'says': f'{first} Name its repository in '
@@ -1179,7 +1186,7 @@ class Upkeep:
         wanted = target['version']
         if skill is None:
             return {**row, 'state': 'missing', 'target': wanted, 'says': (
-                f"No brand skill is installed, so no deck is offered. {target['tag']} can be "
+                f"{NO_BRAND_SKILL} {target['tag']} can be "
                 f'installed from {repository}.')}
         if installed is None:
             return {**row, 'state': 'unknown', 'target': wanted, 'says': (

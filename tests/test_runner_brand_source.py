@@ -426,8 +426,9 @@ class BrandRowTests(BrandInstallCase):
         row = self.row()
         self.assertEqual((row['name'], row['kind'], row['state'], row['installed']),
                          ('brand skill', 'brand', 'unknown', None))
-        self.assertEqual(row['says'], 'No brand skill is installed, so no deck is offered. '
-                         'Name its repository in Settings to install and upgrade it from here.')
+        self.assertEqual(row['says'], 'No brand skill is installed, so a deck stops where it '
+                         'first needs your brand. Name its repository in Settings to install '
+                         'and upgrade it from here.')
         self.brand.release('0.13.1')
         folder = self.base / 'by-hand'
         # By its tag: the bare repository's HEAD is whatever branch git makes by default here.
@@ -452,8 +453,8 @@ class BrandRowTests(BrandInstallCase):
         self.assertEqual((row['state'], row['newest'], row['target'], row['release'],
                           row['commit']), ('missing', '0.13.1', '0.13.1', 'v0.13.1',
                                            commit[:12]))
-        self.assertEqual(row['says'], 'No brand skill is installed, so no deck is offered. '
-                         f'v0.13.1 can be installed from {self.address}.')
+        self.assertEqual(row['says'], 'No brand skill is installed, so a deck stops where it '
+                         f'first needs your brand. v0.13.1 can be installed from {self.address}.')
         self.assertEqual(shown['key'], 'brand skill 0.13.1')
         self.assertEqual(shown['brand'], {
             'offered': True, 'action': 'Install', 'repository': self.address,
@@ -543,8 +544,7 @@ class BrandInstallTests(BrandInstallCase):
             with self.assertRaises(WorkspaceError) as caught:
                 self.keep.install_brand(working, release)
             self.assertEqual(str(caught.exception), says)
-        for skills in (self.claude, self.codex):   # gone for both: Update brings it back
-            shutil.rmtree(skills / 'harness-slides')
+        shutil.rmtree(self.codex / 'harness-slides')
         self.keep.check(repair=False)
         with self.assertRaises(WorkspaceError) as caught:
             self.keep.install_brand(False, 'v0.13.1')
@@ -568,6 +568,16 @@ class BrandInstallTests(BrandInstallCase):
                          'Presentation Studio first. Nothing was run.')
         self.assertEqual(self.ran(), [], 'its installer was never run')
         self.assertFalse(os.path.lexists(self.claude / 'acme-brand'))
+
+    def test_a_companion_it_would_bring_that_is_not_here_stops_it(self):
+        folder = self.base / 'release'
+        (folder / 'scripts' / 'lib').mkdir(parents=True)
+        (folder / brand_source.SOURCES).write_text(json.dumps({
+            'slides': {'version': '0.14.1'}, 'research': {'version': '9.9.9'},
+            'diagrams': {'version': '1.0.0'}}))
+        self.assertEqual(self.keep._would_change(folder), 'its installer would put in its own '
+                         'harness-diagrams 1.0.0, as none is installed here. Update the skills '
+                         'first.')
 
     def test_a_change_its_installer_made_to_a_companion_is_said(self):
         self.brand.release('0.13.1', meddles=True)
