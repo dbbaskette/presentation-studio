@@ -62,11 +62,11 @@ import home
 from workspace import WorkspaceError
 
 from runner import worker_tools
+from runner.decks import RUN   # what marks a deck's folder
 
 TYPES = ('.txt', '.md', '.html', '.htm', '.docx', '.pdf')
 LIMITS = {'bytes': 8_000_000, 'files': 40}
 FOLDER = 'sources/supplied'
-RUN = 'run.json'            # what marks a deck's folder
 
 SCHEMA = 1
 INDEX = f'{FOLDER}/index.json'
