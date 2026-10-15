@@ -3314,19 +3314,83 @@ function classifyPanel(gate, readonly) {
   return add(node, ...gateSaid(gate));
 }
 
-function researchPlanPanel(gate) {
+// The research plan: each question with the way to drop or reword it, and a box for one
+// more. Drops go with Approve; rewording and new questions go back to be redrafted.
+function researchPlanPanel(gate, readonly) {
   const node = card('The research plan');
   const questions = list(gate.questions);
-  if (questions.length) {
-    const items = make('ol', 'questions');
-    for (const item of questions) {
-      add(items, add(make('li'), make('span', '', item.question),
-        make('span', 'question-id', item.id)));
-    }
-    add(node, make('p', '', 'It will look up ' + count(questions.length, 'question',
-      'questions') + ':'), items);
+  const searched = questions.filter((item) => item.search).length;
+  add(node, reviewCounts([[questions.length, questions.length === 1 ? 'question'
+    : 'questions'], [searched, 'searched on the web']]));
+  if (!readonly) {
+    add(node, make('p', '', 'Drop a question, or reword it. A drop takes effect when you '
+      + 'approve; rewording and new questions go back to be redrafted, and come back here.'));
   }
-  return add(node, documentPart('The research plan', gate.text), ...gateSaid(gate));
+  const items = make('ol', 'plain review-list');
+  items.id = 'plan-list';
+  add(node, items);
+  paintPlan(gate, items, readonly);
+  if (!readonly) add(node, addedPart(gate), reviewBar(gate));
+  return add(node, fullText('Read the full plan', 'The research plan', gate.text, 'plan-text'),
+    ...gateSaid(gate));
+}
+
+// The plan's questions. They are drawn again together, since dropping one can leave
+// another the last, which cannot be dropped.
+function paintPlan(gate, holder, readonly) {
+  if (!holder) return;
+  holder.replaceChildren(...list(gate.questions).map((item) => planRow(gate, item,
+    readonly)));
+}
+
+function planRow(gate, item, readonly) {
+  const held = chosenFor(gate);
+  const title = item.title || item.id;
+  const dropped = held.dropped.includes(item.id);
+  const rewording = !dropped && owns(held.reword, item.id);
+  // The runner refuses a plan with every question dropped: research needs one to look up.
+  const last = !dropped && list(gate.questions)
+    .filter((one) => !held.dropped.includes(one.id)).length < 2;
+  const row = make('li', 'review-row' + (dropped ? ' review-off' : ''));
+  add(row, make('p', 'row-title', title), make('p', '', item.question),
+    item.search ? make('p', 'quiet', 'Searched for: ' + item.search) : null);
+  if (readonly) return row;
+  if (dropped) add(row, make('p', 'quiet', 'Dropped: it is not researched.'));
+  if (rewording) {
+    add(row, field('reword-' + item.id, 'New wording for “' + title + '”', held.reword,
+      item.id, { long: true, limit: 1000, typed: () => reviewChanged(gate) }));
+  }
+  const redraw = (key) => {
+    paintPlan(gate, byId('plan-list'), false);
+    reviewChanged(gate);
+    focusKey(key);
+  };
+  const drop = capsule(dropped ? 'Keep' : 'Drop', 'quiet', () => {
+    held.dropped = dropped ? held.dropped.filter((id) => id !== item.id)
+      : [...held.dropped, item.id];
+    delete held.reword[item.id];
+    redraw('drop ' + item.id);
+  }, 'drop ' + item.id);
+  drop.setAttribute('aria-label', (dropped ? 'Keep “' : 'Drop “') + title + '”');
+  let why = null;
+  if (last) {
+    drop.disabled = true;
+    why = make('p', 'quiet', 'The last question left cannot be dropped: research needs '
+      + 'something to look up.');
+    why.id = 'drop-why-' + item.id;
+    drop.setAttribute('aria-describedby', why.id);
+  }
+  const reword = dropped ? null : capsule(rewording ? 'Keep the wording' : 'Reword', 'quiet',
+    () => {
+      if (rewording) delete held.reword[item.id];
+      else held.reword[item.id] = item.question;
+      redraw(rewording ? 'reword ' + item.id : 'reword-' + item.id);
+    }, 'reword ' + item.id);
+  if (reword) {
+    reword.setAttribute('aria-label', (rewording ? 'Keep the wording of “' : 'Reword “')
+      + title + '”');
+  }
+  return add(row, why, add(make('div', 'bar'), drop, reword));
 }
 
 function researchPanel(gate) {
@@ -3618,8 +3682,8 @@ function gatePanel(run) {
   const gate = run.gate;
   const readonly = theirs(run);
   if (gate.name === 'gate:classify') return classifyPanel(gate, readonly);
-  if (gate.name === 'gate:research-plan') return researchPlanPanel(gate);
-  if (gate.name === 'gate:research') return researchPanel(gate);
+  if (gate.name === 'gate:research-plan') return researchPlanPanel(gate, readonly);
+  if (gate.name === 'gate:research') return researchPanel(gate, readonly);
   if (gate.name === 'gate:outline') return outlinePanel(gate, readonly);
   if (gate.name === 'gate:look') return lookPanel(gate, readonly);
   return buildPanel(gate, readonly);
@@ -3803,6 +3867,7 @@ function costCard(run) {
 // nothing, and nothing is sent until the button is pressed.
 
 const REVIEWED = ['gate:research-plan', 'gate:research', 'gate:outline'];
+const ADDED = 10; // questions added at once: the runner takes no more
 const FINDING_WORDS = { supported: ['done', 'Answered'], insufficient: ['late', 'Not settled'],
   unavailable: ['late', 'Not found'], contradicted: ['review', 'Contradicted'],
   pending: ['out', 'Not answered'] };
@@ -4018,8 +4083,11 @@ function paintAdded(gate, node) {
     items.append(add(make('li', 'review-row'), make('p', '', text),
       add(make('div', 'bar'), take)));
   });
+  // The runner refuses more than ADDED at once, so no more are taken here.
+  const full = held.added.length >= ADDED;
   const box = field('added-question', 'A question to add', held, 'asking',
-    { long: true, limit: 1000 });
+    { long: true, limit: 1000, hint: full ? 'You have added ' + ADDED + ', as many as can '
+      + 'be added at once. Send these, and add more next time round.' : '' });
   const go = capsule('Add the question', 'quiet', () => {
     const text = String(held.asking || '').trim();
     if (!text) {
@@ -4033,6 +4101,7 @@ function paintAdded(gate, node) {
     reviewChanged(gate);
     focusKey('added-question');
   }, 'add-question');
+  go.disabled = full;
   node.replaceChildren(...(held.added.length ? [make('h3', 'row-title', 'Questions you added'),
     items] : []), box, add(make('div', 'bar'), go));
 }

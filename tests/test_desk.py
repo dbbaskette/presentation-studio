@@ -397,6 +397,57 @@ class ScreenTests(ScriptedPage, PageCase):
         self.assertIn('/api/download?path=', ' '.join(
             request['address'] for request in result['requests']))
 
+    def test_a_question_dropped_on_the_page_goes_with_the_approval(self):
+        path = self.started(research=True)
+        result = self.deck_screen(path, [
+            {'snapshot': 'plan'}, {'click': 'Drop “Health checks”'}, {'snapshot': 'dropped'},
+            {'click': 'Approve without 1 question'}],
+            **{'POST /api/decide': [ok(self.run_of(path))]})
+        plan = result['snapshots']['plan']
+        for said in ('2 questions', 'Instance min', 'Searched for: rolling restart minimum '
+                     'instances', 'Read the full plan'):
+            self.assertIn(said, plan['text'])
+        dropped = result['snapshots']['dropped']
+        self.assertIn('1 dropped · 0 reworded · 0 added', dropped['text'])
+        # The last question left cannot be dropped too, and the row says why.
+        self.assertIn('Drop “Instance min”', dropped['off'])
+        self.assertIn('The last question left cannot be dropped', dropped['text'])
+        (_, body), = self.posts(result)
+        self.assertEqual((body['decision'], body['extra']),
+                         ('approve', {'dropped': ['health-checks']}))
+        self.post('decide', body)
+        self.assertEqual(self.run_of(path)['gate']['name'], 'gate:research')
+
+    def test_a_reworded_and_an_added_question_are_sent_as_changes(self):
+        path = self.started(research=True)
+        result = self.deck_screen(path, [
+            {'click': 'Reword “Instance min”'},
+            {'fill': 'New wording for “Instance min”',
+             'value': 'How many instances keep capacity?'},
+            {'fill': 'A question to add', 'value': 'What does a restart cost?'},
+            {'click': 'Add the question'}, {'snapshot': 'marked'},
+            {'click': 'Send 2 changes'}],
+            **{'POST /api/decide': [ok(self.run_of(path))]})
+        self.assertIn('Questions you added', result['snapshots']['marked']['text'])
+        (_, body), = self.posts(result)
+        self.assertNotIn('note', body)
+        self.assertEqual((body['decision'], body['extra']), ('changes', {
+            'dropped': [], 'reword': {'instance-min': 'How many instances keep capacity?'},
+            'add': ['What does a restart cost?']}))
+        self.post('decide', body)
+        self.assertEqual(self.run_of(path)['gate']['round'], 2)
+
+    def test_no_more_questions_are_added_than_the_runner_takes_at_once(self):
+        path = self.started(research=True)
+        steps = []
+        for number in range(1, 11):
+            steps += [{'fill': 'A question to add', 'value': f'Question {number}?'},
+                      {'click': 'Add the question'}]
+        full = self.deck_screen(path, [*steps, {'snapshot': 'full'}])['snapshots']['full']
+        self.assertIn('Add the question', full['off'])
+        self.assertIn('as many as can be added at once', full['text'])
+        self.assertIn('Send 10 changes', full['buttons'])
+
     def test_a_slide_added_and_moved_on_the_page_is_an_outline_the_slides_tool_takes(self):
         path = self.started()
         drafted = self.run_of(path)['gate']['slides']
