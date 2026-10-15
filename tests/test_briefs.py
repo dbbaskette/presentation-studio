@@ -59,6 +59,14 @@ class BriefTests(unittest.TestCase):
             self.assertIn(note, text)
             self.assertEqual(sum(n in text for n in notes.values()), 1)
 
+    def test_sources_cite_original_slides(self):
+        for level in briefs.LEVELS:
+            text = briefs.guidance('extract', level=level)
+            self.assertIn('slide-<n>', text)
+            self.assertNotIn('existing_deck', text)
+        self.assertIn('slide-<n>', briefs.guidance('restructure'))
+        self.assertNotIn('existing_deck', briefs.guidance('restructure'))
+
     def test_hand_back_names(self):
         self.assertIn('`classification`', briefs.guidance('classify'))
         self.assertIn('`look`', briefs.guidance('look'))

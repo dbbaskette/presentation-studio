@@ -25,7 +25,7 @@ This is a full rework. The wording, the narrative and the structure may all chan
 - **Notes**, carried to the slide whose points they belong to, reworded as the new story needs.
 - **Flag the new.** Where the new story needs a claim the deck did not make, do not state it as the deck's: say it plainly in your notes, naming the slide, so that the person can approve it.
 
-An outline (version 1) has a cover, section, closing and content slides. A closing slide takes a title and notes only. A content slide has title, understand (one sentence), relation, focal (a point's label, or left out where the slide lists or compares equals), rhythm (anchor, dense or breathing), points (labels and texts), caveat, source, notes and sources, which is required: give existing_deck or the slides it draws on.
+An outline (version 1) has a cover, section, closing and content slides. A closing slide takes a title and notes only. A content slide has title, understand (one sentence), relation, focal (a point's label, or left out where the slide lists or compares equals), rhythm (anchor, dense or breathing), points (labels and texts), caveat, source, notes and sources, which is required: name each original slide it draws on as slide-<n>, where n is the original slide's number (slide-1, slide-12), one or more for each new slide.
 
 ## Hand back
 
