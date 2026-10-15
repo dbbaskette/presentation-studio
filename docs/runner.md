@@ -46,11 +46,13 @@ Nothing is changed until you save, and anything can be changed later in Settings
 
 | You start from | The runner stops for you at |
 | --- | --- |
-| An idea | The research plan and the research, if you turned research on; the outline; the look; the deck |
-| A document | Whether it lays out the slides or is material to make them from; the research, for material with research on; the outline; the look; the deck |
-| A deck | Its slides, as pictures; then what the level you chose needs: the new outline (full rework), the look (redesign and full rework), and the deck |
+| An idea | The research plan and the research, if you turned research on; the outline; the brand; the deck |
+| A document | Whether it lays out the slides or is material to make them from; the research, for material with research on; the outline; the brand; the deck |
+| A deck | Its slides, as pictures; then what the level you chose needs: the new outline (full rework), the brand (redesign and full rework), and the deck |
 
-At each stop the page shows what was made: the text, or the real slides in a slide viewer with the contact sheet, the brand's own check and the review's notes. A redesign shows each slide before and after. **Approve**, or **Ask for changes** in your own words; the runner makes them and brings the new version back. At the deck, each slide has its own "Ask for changes".
+At each stop the page shows what was made: the text, or the real slides in a slide viewer with the contact sheet, the brand's own check and the review's notes. A redesign shows each slide before and after. Beside it the page says what approving does, and **Approve** does it at once, with no second question. Or **Ask for changes** in your own words; the runner makes them and brings the new version back. At the deck, each slide has its own "Ask for changes".
+
+**The brand.** Before any slide is designed, the runner draws the deck's cover in the brand you chose, so you can see it is the right one. No assistant is used for it, and nothing about the slides is chosen there. **Choose another brand** offers the brands and variants your brand skill lists; the cover is drawn again in the one you choose. When the deck is built, each slide's layout is designed on its own from what it says, in the brand's own colours.
 
 The deck is delivered as Google Slides, or as a PowerPoint file to download. An existing deck is never changed: you always get a new copy. Asking for changes to a delivered deck draws again the sections that hold the slides you name (every section when you name none), reviews the deck again and delivers a new numbered revision. A deck made as a PowerPoint file because Google was not connected can be sent to Google Slides later, unchanged, with **Deliver to Google Slides** on its screen.
 

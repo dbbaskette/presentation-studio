@@ -706,7 +706,7 @@ class Workers:
 
     def then(self, kind: str, *acts) -> None:
         """Queue what the next jobs of one kind do: `classification`, `research-plan`,
-        `question`, `outline`, `look`, `section`, `review`, `patch`."""
+        `question`, `outline`, `section`, `review`, `patch`."""
         self.queued.setdefault(kind, []).extend(acts)
 
     def of(self, kind: str) -> list:
@@ -754,17 +754,6 @@ class Workers:
         assert checked[1].startswith('Nothing to put right'), checked[1]
         self._ok(tools.submit_outline(said))
         tools.submit_review('Six slides. The check slide is the one I am least sure of.')
-
-    def look(self, tools, job):
-        from stand_ins.slides import sketch
-        wanted = tools.job['artifacts']['look']['slide']
-        first = next(slide for slide in self.outline_said['slides'] if slide['id'] == wanted)
-        options = [{'name': name, 'direction': direction, 'why': f'{name} suits the room.',
-                    'composition': sketch(first, 'l1_')}
-                   for name, direction in (
-                       ('Calm grid', {'focal': 'headingPrimary', 'neutral': 'canvasSecondary'}),
-                       ('Bold rule', {'focal': 'accentAqua', 'neutral': 'canvasPrimary'}))]
-        self._ok(tools.submit_artifact('look', json.dumps({'options': options})))
 
     def section(self, tools, job):
         from stand_ins.slides import sketch
@@ -897,8 +886,6 @@ class StudioCase(unittest.TestCase):
                note: str | None = None, extra: dict | None = None, engine=None) -> dict:
         engine = engine or self.engine
         gate = gate or engine.view(root)['gate']['name']
-        if gate == 'gate:look' and decision == 'approve' and not extra:
-            extra = {'choice': engine.view(root)['gate']['options'][0]['name']}
         return engine.decide(root, gate, decision, note, extra)
 
     def to_gate(self, root: Path, gate: str) -> None:

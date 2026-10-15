@@ -43,23 +43,25 @@ What a caller needs to know
 - A gate is opened by the step that feeds it, or by the engine when the deck reaches it,
   and the run waits. `decide` is the only way a gate moves: it records the decision on the
   gate ({'state', 'note', 'at', 'by', 'round'}), applies what the gate takes beside it
-  (gate:classify {'kind'}, gate:look {'choice'}, gate:outline {'edited'}, gate:build
-  {'slides'}), commits, shares when the workspace shares after each decision, and wakes the
-  run. Asking for changes sets the gate to 'changes' first and then reopens it
-  (`stages.reopen`), so the step that feeds it runs again with the person's note. Asking
-  for changes at gate:build once the deck is delivered builds it again (deliver.again).
+  (gate:classify {'kind'}, gate:outline {'edited'}, gate:build {'slides'}), commits, shares
+  when the workspace shares after each decision, and wakes the run. Asking for changes sets
+  the gate to 'changes' first and then reopens it (`stages.reopen`), so the step that feeds
+  it runs again with the person's note. Asking for changes at gate:look is choosing another
+  brand or variant ({'brand', 'variant'}, with no note needed): the deck's contract is
+  exported again for it and its cover drawn again. Asking for changes at gate:build once
+  the deck is delivered builds it again (deliver.again).
 - The brand is exported once, with the first step that needs it, and checked before every
-  step that uses it: the outline, the look, the patch, each step of the build and its
-  render. A brand that changed since stops the deck with build's sentence.
+  step that uses it: the outline, the sample of the brand, the patch, each step of the
+  build and its render. A brand that changed since stops the deck with build's sentence.
 - No brand is named here: a deck started with no brand chosen is given, when its brand is
   first exported, the one Settings names where the brand skill has it, else the first the
   brand skill lists. A deck can be started with no brand skill installed; everything that
   does not need the brand is done, and the first step that does stops with NO_BRAND.
 - What a deck is made from (sources/) and what its steps make on the way (work/) are never
   shared, so a deck taken over or brought in may lack them. Before its next step, the steps
-  whose work is missing here are done again (the build from its start; the looks), and a
-  gate they fed that was approved is shown again. A document or deck that was uploaded or
-  pasted cannot be fetched again: the deck stops and says so.
+  whose work is missing here are done again (the build from its start; the brand's sample),
+  and a gate they fed that was approved is shown again. A document or deck that was
+  uploaded or pasted cannot be fetched again: the deck stops and says so.
 - What a deck's slides look like is drawn one picture at a time on this computer, and
   through the deck's one preview file in Google Drive (`build.how`). Pictures are kept
   under the deck's never-shared work/ folder; `picture` serves only those the step modules
@@ -150,7 +152,6 @@ RUN = {
     'gate:research-plan': '_gate', 'research': '_research',
     'research-report': '_research_report', 'gate:research': '_gate', 'extract': '_extract',
     'outline': '_outline', 'gate:outline': '_gate', 'brand': '_brand_step',
-    'look': '_look_step',
     'look-preview': '_look_preview', 'gate:look': '_gate', 'patch': '_patch',
     'build-start': '_build_start', 'build-sections': '_build_sections',
     'build-whole': '_build_whole', 'build-review': '_build_review',
@@ -158,7 +159,7 @@ RUN = {
     'deliver': '_deliver', 'rehearse': None}
 # What each gate decides on, as a commit and a sentence say it.
 WORDS = {'gate:classify': 'classification', 'gate:research-plan': 'research plan',
-         'gate:research': 'research', 'gate:outline': 'outline', 'gate:look': 'look',
+         'gate:research': 'research', 'gate:outline': 'outline', 'gate:look': 'brand',
          'gate:build': 'deck'}
 # The build's steps, whose work is kept under work/build/ on the computer that did it.
 BUILT = ('build-start', 'build-sections', 'build-whole', 'build-review', 'build-repair',
@@ -208,6 +209,7 @@ AGAIN_HERE = ('carry on here: {steps} again, as what was made for them is kept o
               'computer that made it')
 NOT_WAITING = 'The {it} is not waiting for a decision now.'
 NO_NOTE = 'Say what should change.'
+NO_BRAND_CHOSEN = 'Choose the brand, and its variant, to make the deck in.'
 ON_ITS_WAY = 'This deck is on its way to Google Slides already. Wait for it.'
 STILL_NOT_CONNECTED = ("Google still isn't connected on this computer. Sign in with gcloud, "
                        'then deliver it again.')
@@ -960,12 +962,9 @@ class Engine(Jobs, Researching):
         if did('inventory') and gate_state(record, 'gate:classify') != 'approved' \
                 and (lacks or not self._shots(root / existing.ORIGINAL_SHOTS)):
             again.append('inventory')
-        if gate_state(record, 'gate:look') != 'approved':
-            if did('look') and not (root / looks.KEPT).is_file():
-                again += ['look', 'look-preview']
-            elif did('look-preview') and not (root / looks.OPTIONS / '1' / 'picture.png'
-                                              ).is_file():
-                again.append('look-preview')
+        if gate_state(record, 'gate:look') != 'approved' and did('look-preview') \
+                and not (root / looks.SAMPLE).is_file():
+            again.append('look-preview')
         if did('patch') and (lacks or not (root / existing.PATCH).is_file()):
             again += ['patch', 'build-render']
         if any(did(name) for name in BUILT) and (
@@ -1313,11 +1312,11 @@ class Engine(Jobs, Researching):
         how = self._renderer(root, step)
         self._contract(root)
         clock = time.monotonic()
-        shown = looks.draw_options(root, self._load(root), self.slides(), how)
+        looks.draw_sample(root, self._load(root), self.slides(), how)
         with self.files:
             record = self._load(root)
-            looks.show_options(root, record, shown)
-            self._done(root, step, clock, 'draw each look on a sample slide', record)
+            looks.show_sample(root, record)
+            self._done(root, step, clock, 'draw your cover in your brand', record)
 
     def _build_start(self, root: Path, run: _Run, step: stages.Step) -> None:
         contract = self._contract(root)
@@ -1413,15 +1412,6 @@ class Engine(Jobs, Researching):
                     lambda record, handed: outlines.keep_outline(
                         root, record, self._text(handed, outlines.NAME)),
                     'keep the outline')
-
-    def _look_step(self, root: Path, run: _Run, step: stages.Step) -> None:
-        contract = self._contract(root)
-        self._agent(root, run, step,
-                    lambda record, request, error: looks.look_work(
-                        root, record, request, error, contract, self.slides()),
-                    lambda record, handed: looks.keep_look(root, record,
-                                                           self._text(handed, looks.NAME)),
-                    'keep the looks proposed')
 
     def _patch(self, root: Path, run: _Run, step: stages.Step) -> None:
         self._contract(root)
@@ -1558,8 +1548,12 @@ class Engine(Jobs, Researching):
         note, extra = self._note(note), extra or {}
         if not isinstance(extra, dict):
             raise WorkspaceError('What comes with a decision was not understood.')
-        if decision == 'changes' and not note:
+        rebrand = gate == 'gate:look' and decision == 'changes'
+        if rebrand and not (isinstance(extra.get('brand'), str) and extra['brand'].strip()):
+            raise WorkspaceError(NO_BRAND_CHOSEN)
+        if decision == 'changes' and not note and not rebrand:
             raise WorkspaceError(NO_NOTE)
+        brands = self.brands() if rebrand else None
         space, it = self.space(), WORDS[gate]
         by = gitstate.identity(space.repo)
         with self.files:
@@ -1594,6 +1588,9 @@ class Engine(Jobs, Researching):
             else:
                 gated = record['gates'].get(gate) or {}
                 named = self._numbers(extra) if gate == 'gate:build' else None
+                if rebrand:
+                    looks.rebrand(root, record, extra['brand'], extra.get('variant'), brands)
+                    note = note or ('Make it in ' + decks.brand_words(record['form']) + '.')
                 record['gates'][gate] = {**gated, 'state': 'changes', 'note': note, 'at': at,
                                          'by': by, 'round': int(gated.get('round') or 1),
                                          **({'slides': named} if gate == 'gate:build' else {})}
@@ -1606,7 +1603,8 @@ class Engine(Jobs, Researching):
                 if gate == 'gate:build':
                     self._ask_again(root, named, note, at)
                 self._store(root, record)
-                said = f'ask for changes to the {it}'
+                said = ('make it in ' + decks.brand_words(record['form']) if rebrand
+                        else f'ask for changes to the {it}')
             self._commit(root, said, self._listed(space) if after else ())
         if space.share == gitstate.SHARE[0]:
             self.share_soon()
@@ -1645,10 +1643,7 @@ class Engine(Jobs, Researching):
                 raise WorkspaceError(self._load(root)['halted']['why']) from None
             outlines.apply_edits(root, record, extra['edited'], self.slides(), contract)
         elif gate == 'gate:look':
-            choice = extra.get('choice')
-            if not isinstance(choice, str) or not choice.strip():
-                raise WorkspaceError('Choose one of the looks first.')
-            looks.choose(root, record, choice, note)
+            looks.approve(root, record, note)
             record = self._load(root)
         return record
 
@@ -1736,30 +1731,21 @@ class Engine(Jobs, Researching):
         return {one.get('number'): folder / str(one.get('image')) for one in listed or ()
                 if isinstance(one, dict)}
 
-    def _look_options(self, root: Path) -> list[dict]:
-        found = home.read_json(root / looks.KEPT, None)
-        options = found.get('options') if isinstance(found, dict) else None
-        return [one for one in options or () if isinstance(one, dict)]
-
     def picture(self, path, kind: str, ref) -> bytes:
         """One picture of a deck, as PNG bytes: a slide of the build (`ref` its number, or
-        'contact-sheet'), one of the looks (its number or name), or a slide of the deck that
-        was given (its number). Only a picture the steps recorded under the deck's work/
+        'contact-sheet'), the sample of its brand (`ref` 'sample'), or a slide of the deck
+        that was given (its number). Only a picture the steps recorded under the deck's work/
         folder is served, and the deck's contact sheet."""
         root = self.driven(path)
         if root is None:
             raise WorkspaceError('There is no deck there.')
         if kind not in PICTURE_KINDS:
-            raise WorkspaceError('A picture is of the build, a look or the original deck.')
+            raise WorkspaceError('A picture is of the build, the brand or the original deck.')
         within, file = (root / 'work').resolve(), None
         if kind == 'build' and ref == SHEET:
             within, file = root.resolve(), root / build.SHEET
         elif kind == 'look':
-            options = self._look_options(root)
-            for number, option in enumerate(options, start=1):
-                if str(ref) == str(number) or str(option.get('name') or '').strip().lower() \
-                        == str(ref).strip().lower():
-                    file = root / looks.OPTIONS / str(number) / 'picture.png'
+            file = root / looks.SAMPLE if str(ref) == 'sample' else None
         else:
             try:
                 number = int(ref)
@@ -2074,11 +2060,11 @@ class Engine(Jobs, Researching):
                 or build.DELIVERY}
 
     def _show_look(self, root: Path, record: dict) -> dict:
-        return {'text': text_of(root / looks.LOOK_MD) or '', 'options': [
-            {'number': number, 'name': option.get('name'), 'why': option.get('why'),
-             'direction': option.get('direction'),
-             'picture': {'kind': 'look', 'ref': number}}
-            for number, option in enumerate(self._look_options(root), start=1)]}
+        form = record.get('form') or {}
+        return {'text': text_of(root / looks.LOOK_MD) or '', 'brand': form.get('brand'),
+                'variant': form.get('variant'), 'made_in': decks.brand_words(form),
+                'picture': {'kind': 'look', 'ref': 'sample'}
+                if (root / looks.SAMPLE).is_file() else None}
 
     def _show_build(self, root: Path, record: dict) -> dict:
         """build.gate_view, with each picture named as `picture` takes it, never by path."""

@@ -38,7 +38,7 @@ Each run uses a disposable folder outside this repository, and a workspace made 
 | Research plan | | |
 | Research | | |
 | Outline | | |
-| Look | | |
+| Brand | | |
 | Build | | |
 | Delivered as Google Slides | | |
 
@@ -50,13 +50,13 @@ The document's kind, what the studio said it was, and whether it was corrected.
 | --- | --- | --- |
 | Classify | | |
 | Outline | | |
-| Look | | |
+| Brand | | |
 | Build | | |
 | Delivered as PowerPoint | | |
 
 ### Run 3: an existing deck, at each level
 
-| Level | Classify | Outline | Look | Build | Delivered | The original unchanged |
+| Level | Classify | Outline | Brand | Build | Delivered | The original unchanged |
 | --- | --- | --- | --- | --- | --- | --- |
 | Brand only | | — | — | | | |
 | Polish | | — | — | | | |
@@ -160,4 +160,4 @@ What the real tools showed, and what was changed for it:
 3. With the data folder in a temporary folder, the outline step failed three times before it said why: job folders may not be under a folder other programs share. This is the rule working; it was met by moving the data folder, and is noted here for whoever runs this next.
 4. The first start of the runner, from a program rather than a terminal, opened the page in the browser, as it is meant to; the runner was then started again with a key of its own handed to it.
 
-Still to do on a computer with LibreOffice or Google: everything from the look and from classify onward, changes after delivery, Deliver to Google Slides, the team and the restart checks, and the conversation runs.
+Still to do on a computer with LibreOffice or Google: everything from the brand (then the look) and from classify onward, changes after delivery, Deliver to Google Slides, the team and the restart checks, and the conversation runs.

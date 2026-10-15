@@ -23,7 +23,7 @@ class BriefTests(unittest.TestCase):
             self.assertIn('## The freedom', briefs.guidance('extract', level=level))
         self.assertEqual(briefs.guidance('section', repair=True), briefs.read('section-repair'))
         with self.assertRaises(ValueError):
-            briefs.guidance('look', level='polish')
+            briefs.guidance('section', level='polish')
 
     def test_no_commands_or_paths(self):
         for kind in briefs.KINDS:
@@ -69,9 +69,9 @@ class BriefTests(unittest.TestCase):
 
     def test_hand_back_names(self):
         self.assertIn('`classification`', briefs.guidance('classify'))
-        self.assertIn('`look`', briefs.guidance('look'))
         self.assertIn('`patch`', briefs.guidance('patch'))
-        self.assertNotIn('preview_section', briefs.guidance('look'))
+        # No worker proposes a look: each slide is designed from what it says.
+        self.assertNotIn('look', briefs.KINDS)
 
 
 if __name__ == '__main__':

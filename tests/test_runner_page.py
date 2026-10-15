@@ -128,8 +128,6 @@ class Asking:
     def decided(self, path: str, gate: str | None = None, decision: str = 'approve',
                 expect: int = 200, **more) -> dict:
         gate = gate or self.run_of(path)['gate']['name']
-        if gate == 'gate:look' and decision == 'approve' and 'extra' not in more:
-            more['extra'] = {'choice': self.run_of(path)['gate']['options'][0]['name']}
         return self.post('decide', {'path': path, 'gate': gate, 'decision': decision, **more},
                          expect)
 
@@ -364,7 +362,7 @@ class RunTests(PageCase):
         self.assertTrue(run['deliver']['download'])
         self.assertEqual([line for line in self.log()[before:] if ': approve the ' in line],
                          ['Rolling restarts: approve the outline',
-                          'Rolling restarts: approve the look',
+                          'Rolling restarts: approve the brand',
                           'Rolling restarts: approve the deck'])
         status, kind, data, extra = self.raw('GET', '/api/download?' + urlencode(
             {'path': path}))
@@ -377,11 +375,10 @@ class RunTests(PageCase):
     def test_a_slides_picture_is_only_what_the_engine_gives(self):
         path = self.started()
         self.decided(path, 'gate:outline')
-        for query in ({'kind': 'look', 'number': '1'}, {'kind': 'look', 'name': 'Bold rule'}):
-            status, kind, data, _ = self.raw('GET', '/api/slide?' + urlencode(
-                {'path': path, **query}))
-            self.assertEqual((status, kind), (200, 'image/png'), data[:200])
-            self.assertTrue(data.startswith(b'\x89PNG'))
+        status, kind, data, _ = self.raw('GET', '/api/slide?' + urlencode(
+            {'path': path, 'kind': 'look', 'name': 'sample'}))
+        self.assertEqual((status, kind), (200, 'image/png'), data[:200])
+        self.assertTrue(data.startswith(b'\x89PNG'))
         self.decided(path, 'gate:look')
         for query in ({'kind': 'build', 'number': '2'},
                       {'kind': 'build', 'name': 'contact-sheet'}):
@@ -394,7 +391,8 @@ class RunTests(PageCase):
                 ({'kind': 'build', 'number': '1', 'name': 'x'}, 400, 'and not both'),
                 ({'kind': 'build'}, 400, 'and not both'),
                 ({'kind': 'secret', 'number': '1'}, 400, 'A picture is of the build'),
-                ({'kind': 'look', 'name': '../../secret'}, 404, engines.NO_PICTURE)):
+                ({'kind': 'look', 'name': '../../secret'}, 404, engines.NO_PICTURE),
+                ({'kind': 'look', 'number': '1'}, 404, engines.NO_PICTURE)):
             with self.subTest(query=query):
                 status, reply, _ = self.answer('GET', '/api/slide?' + urlencode(
                     {'path': path, **query}))
@@ -907,8 +905,6 @@ class WireTests(WireCase):
         for gate in ('gate:outline', 'gate:look', 'gate:build'):
             run = json.loads(self.ask(f'/api/run?{query}')[2])
             self.assertEqual(run['gate']['name'], gate)
-            extra = {'choice': run['gate']['options'][0]['name']} if gate == 'gate:look' \
-                else None
             if gate == 'gate:build':
                 status, headers, picture = self.ask('/api/slide?' + urlencode(
                     {'path': path, 'kind': 'build', 'number': 1}))
@@ -916,7 +912,7 @@ class WireTests(WireCase):
                 self.assertTrue(picture.startswith(b'\x89PNG'))
                 self.assertEqual(headers['X-Content-Type-Options'], 'nosniff')
             status, _, body = self.ask('/api/decide', {'path': path, 'gate': gate,
-                                                       'decision': 'approve', 'extra': extra})
+                                                       'decision': 'approve'})
             self.assertEqual(status, 200, body)
         status, headers, deck = self.ask(f'/api/download?{query}')
         self.assertEqual((status, headers.get_content_type()), (200, page.PPTX))
@@ -993,10 +989,8 @@ class LiveWireTests(WireCase):
         for gate in ('gate:outline', 'gate:look', 'gate:build'):
             run = self.until(path, lambda run: run['state'] == 'waiting'
                              and (run['gate'] or {}).get('name') == gate)
-            extra = {'choice': run['gate']['options'][0]['name']} if gate == 'gate:look' \
-                else None
             status, _, body = self.ask('/api/decide', {'path': path, 'gate': gate,
-                                                       'decision': 'approve', 'extra': extra})
+                                                       'decision': 'approve'})
             self.assertEqual(status, 200, body)
         done = self.until(path, lambda run: run['state'] == 'finished')
         self.assertTrue(done['deliver']['url'].startswith('https://'))

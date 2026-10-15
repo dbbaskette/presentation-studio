@@ -236,7 +236,7 @@ class DriverTests(Team):
                                      'Shorter.')
         self.assertEqual(self.seen(self.blake, root)['gate']['name'], 'gate:build')
 
-    def test_a_deck_taken_at_its_look_draws_the_looks_again_here(self):
+    def test_a_deck_taken_at_its_brand_draws_its_sample_again_here(self):
         root = self.started()
         self.approve(self.alex, root, 'gate:outline')
         self.drive(self.alex, root, 'hand-over')
@@ -246,11 +246,11 @@ class DriverTests(Team):
         self.drive(self.blake, root)
         view = self.seen(self.blake, root)
         self.assertEqual(view['gate']['name'], 'gate:look')
-        self.assertTrue(view['gate']['options'])
+        self.assertEqual(view['gate']['picture'], {'kind': 'look', 'ref': 'sample'})
         with self.be(self.blake):
-            self.blake.engine.picture(theirs, 'look', 1)
-        self.assertIn('Rolling restarts: carry on here: design the look, preview the look '
-                      'again', self.git('log', '--format=%s', repo=self.blake.space.repo))
+            self.blake.engine.picture(theirs, 'look', 'sample')
+        self.assertIn('Rolling restarts: carry on here: draw a sample in your brand again',
+                      self.git('log', '--format=%s', repo=self.blake.space.repo))
 
     def test_an_upload_kept_on_the_computer_that_started_the_deck_stops_it_elsewhere(self):
         with self.be(self.alex):

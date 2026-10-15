@@ -6,8 +6,8 @@ The person chooses how much may change. They are harness-slides' own intake leve
 | --- | --- | --- |
 | `brand-only` | Nothing but the look: the brand's colours, fonts, logo and master layouts | Build, Deliver |
 | `polish` | The brand, plus tidier layouts, spacing and overflow fixes | Build, Deliver |
-| `redesign` | Each slide is designed afresh with the brand's layouts, icons and diagrams | Look, Build, Deliver |
-| `rework` | The story: slides may be tightened, split, merged, dropped or reordered, then redesigned | Outline, Look, Build, Deliver |
+| `redesign` | Each slide is designed afresh with the brand's layouts, icons and diagrams | Brand, Build, Deliver |
+| `rework` | The story: slides may be tightened, split, merged, dropped or reordered, then redesigned | Outline, Brand, Build, Deliver |
 | `selected` | Only the slides the person names, and only what they say | Build, Deliver |
 
 ## What each level keeps

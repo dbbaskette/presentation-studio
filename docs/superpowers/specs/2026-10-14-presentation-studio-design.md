@@ -58,7 +58,7 @@ One pipeline; the route and options decide which stages run. ⏸ is a gate: the 
 | **Research plan** | ⏸ if research is on | ⏸ if source material and research is on | — |
 | **Research** | ⏸ if research is on | ⏸ if source material and research is on | — |
 | **Outline** — per slide: title, key message, notes | Drafted ⏸ | Material: drafted ⏸ · Spec: parsed, confirmed ⏸ | Full rework only: proposed restructure ⏸ |
-| **Look** — one sample slide built 2–3 ways, rendered as pictures, pick one | ⏸ | ⏸ | Redesign, Full rework (skipped for Brand only, Polish, Selected changes) |
+| **Brand** — the deck's cover drawn in its brand, so the person sees it is the one they meant; approve, or choose another brand or variant | ⏸ | ⏸ | Redesign, Full rework (skipped for Brand only, Polish, Selected changes) |
 | **Build** — compose, render, brand audit, critique | ⏸ | ⏸ | ⏸ with before/after per slide |
 | **Deliver** — Google Slides link and/or `.pptx`, recorded in the deck | ✓ | ✓ | ✓ always a new copy; the original is never changed |
 | **Rehearse with Yoodli** | coming later | coming later | coming later |
@@ -69,8 +69,8 @@ Existing-deck change levels (harness-slides `references/intake.md`):
 |---|---|---|
 | Brand only | "Same slides in your brand's look: colors, fonts, logo, master layouts." | Build, Deliver |
 | Polish | "Brand plus tidier layouts, spacing and overflow fixes. Words stay." | Build, Deliver |
-| Redesign, keep content | "Rebuilt with your brand's layouts, icons and diagrams. Same message per slide." | Look, Build, Deliver |
-| Full rework | "We may tighten, split, merge or reorder content, then redesign." | Outline, Look, Build, Deliver |
+| Redesign, keep content | "Rebuilt with your brand's layouts, icons and diagrams. Same message per slide." | Brand, Build, Deliver |
+| Full rework | "We may tighten, split, merge or reorder content, then redesign." | Outline, Brand, Build, Deliver |
 | Selected changes | "Tell us which slides and what to fix." | A *which slides / what* step at intake, then Build (only those slides), Deliver |
 
 **Changes after delivery.** "Ask for changes" on a finished deck reopens Build with the
@@ -93,7 +93,11 @@ person's Google Drive — chosen in Settings, as in Training Studio), and the pa
 picture as bytes and shows it in a slide-by-slide pager.
 
 - **Classify (existing deck):** the original slides as pictures, with what the inventory found.
-- **Look:** the 2–3 sample directions side by side as rendered slides; click one to choose it.
+- **Brand:** the deck's cover alone, drawn by the runner in the brand's own colours, with
+  the brand and variant named; "Choose another brand" draws it again in another. No layout
+  or style is chosen for the deck: an earlier version had the person pick one sample slide
+  of two or three, and the layout it showed was carried onto every slide. Each slide is
+  designed on its own from what it says, as harness-slides' design guidance decides it.
 - **Build:** the full pager plus the contact sheet; per-slide brand-audit and critique notes;
   per-slide "Ask for changes". Existing decks show original and redesigned versions side by side.
 - **After a change request:** only the changed slides are rendered again; the pager marks them.
@@ -123,7 +127,7 @@ folder and only ever reads and writes under `presentations/`.
     research/report.md
     outline.json               # the outline as harness-slides reads it
     outline.md
-    look.json  look.md         # the looks proposed and the chosen direction
+    look.md                    # the brand the deck is made in, shown on its cover
     brand/                     # brand-contract.json, DESIGN.md, VOICE.md, brand version
     reviews/build-<n>.md       # what the review of each build round found
     deliver.json               # Slides file ID and URL, pptx name, revision number
@@ -166,8 +170,9 @@ your teammates.
 existing deck* — each opening a two- or three-step form with only that route's intake fields.
 
 **Deck screen**: a stage timeline (done ✓ / current / upcoming; Yoodli dimmed as "coming
-later") and the current gate (§3). Controls: Approve, Ask for changes, Pause, Stop, Undo the
-last step.
+later") and the current gate (§3). Controls: Approve (one click; what it does is said beside
+the gate), Ask for changes (Choose another brand at the brand), Pause, Stop, Undo the last
+step.
 
 **Other screens** (kept from Training Studio): Decks (searchable), Published, Status (runs,
 costs, problems), Settings, Versions/upgrade.
@@ -187,7 +192,7 @@ presentation-studio/
     engine.py                  # trimmed to decks
     stages.py                  # replaces pipeline.py: §2 table + skip map per route/level
     briefs/                    # worker prompts: classify, outline-from-material,
-                               # outline-from-spec, restructure, look, change-request
+                               # outline-from-spec, restructure, change-request
   skills/presentation-studio/  # SKILL.md for chat use, references/, scripts/desk (page assets)
   installer/                   # install.sh, .command, companions.json
   guidance/manifest.json  VERSION  vendor.json  tests/  docs/

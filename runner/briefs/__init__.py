@@ -11,7 +11,6 @@ What a caller needs to know
     briefs.guidance('extract')                   reading a deck that exists into an outline
     briefs.guidance('extract', level='polish')   and what that level leaves free
     briefs.guidance('restructure')               reworking a deck's story
-    briefs.guidance('look')                      proposing two or three looks
     briefs.guidance('section')                   drawing one section of a deck
     briefs.guidance('section', repair=True)      drawing it again after a review
     briefs.guidance('review')                    reviewing a deck someone else drew
@@ -33,7 +32,7 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 KINDS = ('classify', 'research-plan', 'research-question', 'outline-brief', 'outline-material',
-         'outline-spec', 'extract', 'restructure', 'look', 'section', 'section-repair',
+         'outline-spec', 'extract', 'restructure', 'section', 'section-repair',
          'review', 'patch', 'change-request')
 LEVELS = ('brand-only', 'polish', 'redesign', 'rework')
 

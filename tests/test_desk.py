@@ -315,17 +315,19 @@ class ScreenTests(ScriptedPage, PageCase):
                 break
             name = gate['name']
             seen.append(name)
-            steps = [{'see': 'Slide'}, {'see': 'The look'}, {'snapshot': 'gate'}]
+            steps = [{'see': 'Slide'}, {'see': 'The cover'}, {'snapshot': 'gate'}]
             if name == 'gate:look':
-                steps += [{'click': 'Approve'}, {'snapshot': 'unchosen'}, {'click': 'Cancel'},
-                          {'click': 'Choose “Bold rule”'}]
+                steps += [{'click': 'Choose another brand'}, {'snapshot': 'rebrand'},
+                          {'click': 'Use this brand'}, {'snapshot': 'same'},
+                          {'click': 'Cancel'}]
             if name == 'gate:outline':
                 steps += [{'fill': 'Title of slide 2', 'value': 'Batches, one at a time'}]
             if name == 'gate:build':
                 steps += [{'click': 'Next slide'}, {'click': 'Ask for changes to this slide'},
                           {'click': 'Ask for changes'}, {'type': 'Make it shorter.'},
                           {'click': 'Send for changes'}]
-            steps += [{'click': 'Approve'}, {'snapshot': 'sheet'}, {'click': 'Approve'}]
+            # One click approves: no second question.
+            steps += [{'click': 'Approve'}, {'snapshot': 'approved'}]
             answer = ok(self.run_of(path))
             result = self.deck_screen(path, steps, **{'POST /api/decide': [answer]})
             shot = result['snapshots']['gate']
@@ -335,21 +337,34 @@ class ScreenTests(ScriptedPage, PageCase):
                 self.assertIn('Rehearse with Yoodli', shot['text'])
                 self.assertIn('Coming later', shot['text'])
                 self.assertEqual(shot['filled'], ['Approve'])
-                self.assertIn('Ask for changes', shot['buttons'])
+                self.assertIn('Choose another brand' if name == 'gate:look'
+                              else 'Ask for changes', shot['buttons'])
                 self.assertIn(gate['label'] + '.', shot['text'])
-                self.assertIn('Approve the ' + gate['words'] + '?',
-                              result['snapshots']['sheet']['sheet'])
+                self.assertIn('Approve, and ', shot['text'])
+                approved = result['snapshots']['approved']
+                self.assertEqual(approved['sheet'], '')
+                self.assertTrue(any(said.startswith('Approved. It carries on by itself.')
+                                    for said in approved['toasts']), approved['toasts'])
                 decided = [body for address, body in self.posts(result)
                            if address == '/api/decide']
                 approval = decided[-1]
                 self.assertEqual((approval['gate'], approval['decision']), (name, 'approve'))
+                self.assertEqual(len([body for body in decided
+                                      if body['decision'] == 'approve']), 1)
             if name in ('gate:research-plan', 'gate:research'):
                 self.assertIn('research', shot['text'].lower())
             if name == 'gate:look':
-                self.assertIn('Choose one of the looks first',
-                              result['snapshots']['unchosen']['sheet'])
-                self.assertEqual(approval['extra'], {'choice': 'Bold rule'})
-                self.assertGreaterEqual(len(shot['pictures']), 2)
+                self.assertIn('Made in example (light).', shot['text'])
+                self.assertIn('each slide is designed on its own', shot['text'])
+                self.assertTrue(any('kind=look&name=sample' in picture['of']
+                                    for picture in shot['pictures']), shot['pictures'])
+                asked = result['snapshots']['rebrand']['sheet']
+                for said in ('Choose another brand', 'The brand’s variant', 'Use this brand'):
+                    self.assertIn(said, asked)
+                self.assertIn('It is made in example (light) already.',
+                              result['snapshots']['same']['sheet'])
+                self.assertNotIn('extra', approval)
+                self.assertEqual(len(decided), 1, 'the same brand is never sent')
             if name == 'gate:outline':
                 edited = approval['extra']['edited']
                 self.assertEqual(edited[1]['title'], 'Batches, one at a time')
@@ -388,7 +403,7 @@ class ScreenTests(ScriptedPage, PageCase):
         title = 'Watch each batch of the restart closely'
         result = self.deck_screen(path, [
             {'fill': 'A new slide’s title', 'value': title}, {'click': 'Add the slide'},
-            {'click': f'Move “{title}” up'}, {'click': 'Approve'}, {'click': 'Approve'}],
+            {'click': f'Move “{title}” up'}, {'click': 'Approve'}],
             **{'POST /api/decide': [ok(self.run_of(path))]})
         approval = [body for address, body in self.posts(result)
                     if address == '/api/decide'][-1]
@@ -419,7 +434,7 @@ class ScreenTests(ScriptedPage, PageCase):
                 {'snapshot': 'unnoted'},
                 {'fill': 'What the presenter says on it', 'value': said},
                 {'click': 'Add the slide'}, {'snapshot': 'added'},
-                {'click': 'Approve'}, {'click': 'Approve'}],
+                {'click': 'Approve'}],
                 **{'POST /api/decide': [ok(self.run_of(path))]})
             self.assertIn('A deck presented live needs what the presenter says on each slide.',
                           result['snapshots']['unnoted']['text'])
@@ -501,18 +516,50 @@ class ScreenTests(ScriptedPage, PageCase):
         kinds = {picture['of'].split('kind=')[1].split('&')[0] for picture in shot['pictures']}
         self.assertEqual(kinds, {'original', 'build'})
 
+    def test_another_brand_chosen_on_the_page_has_its_cover_drawn_again(self):
+        path = self.started()
+        self.decided(path, 'gate:outline')
+        self.assertEqual(self.run_of(path)['gate']['name'], 'gate:look')
+        result = self.deck_screen(path, [
+            {'click': 'Choose another brand'}, {'fill': 'The brand’s variant', 'value': 'dark'},
+            {'click': 'Use this brand'}, {'snapshot': 'sent'}],
+            **{'POST /api/decide': [ok(self.run_of(path))]})
+        (address, body), = self.posts(result)
+        self.assertEqual((address, body['gate'], body['decision'], body['extra']),
+                         ('/api/decide', 'gate:look', 'changes',
+                          {'brand': 'example', 'variant': 'dark'}))
+        self.assertNotIn('note', body)
+        self.assertEqual(result['snapshots']['sent']['sheet'], '')
+        # What the page sent is what the runner takes: the cover comes back in the new brand.
+        self.post('decide', body)
+        gate = self.run_of(path)['gate']
+        self.assertEqual((gate['name'], gate['made_in'], gate['round']),
+                         ('gate:look', 'example (dark)', 2))
+
+    def test_an_approval_that_is_refused_is_said_on_the_deck_s_screen(self):
+        path = self.started()
+        refused = {'status': 409, 'body': {'error': 'The outline is not waiting for a '
+                                                    'decision.'}}
+        result = self.deck_screen(path, [{'click': 'Approve'}, {'snapshot': 'refused'}],
+                                  **{'POST /api/decide': [refused]})
+        shot = result['snapshots']['refused']
+        self.assertEqual(shot['sheet'], '')
+        self.assertIn('The outline is not waiting for a decision. Nothing was decided.',
+                      shot['text'])
+        self.assertIn('Approve', shot['buttons'])
+
     def test_a_document_said_to_be_wrong_is_corrected_with_the_approval(self):
         path = self.started(route='document', research=False,
                             source={'kind': 'paste', 'text': 'Notes to build a talk from.'})
         gate = self.run_of(path)['gate']
         self.assertEqual((gate['name'], gate['verdict']), ('gate:classify', 'material'))
         result = self.deck_screen(path, [{'snapshot': 'gate'}, {'click': 'That’s wrong'},
-                                         {'click': 'Approve'}, {'snapshot': 'sheet'},
-                                         {'click': 'Approve'}],
+                                         {'snapshot': 'wrong'}, {'click': 'Approve'}],
                                   **{'POST /api/decide': [ok(self.run_of(path))]})
         self.assertIn('It reads as material to build from.',
                       result['snapshots']['gate']['text'])
-        self.assertIn('It is taken as a finished script', result['snapshots']['sheet']['sheet'])
+        self.assertIn('It will be taken as a finished script for the slides instead.',
+                      result['snapshots']['wrong']['text'])
         (_, body), = self.posts(result)
         self.assertEqual(body['extra'], {'kind': 'spec'})
         self.post('decide', body)

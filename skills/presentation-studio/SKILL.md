@@ -11,6 +11,7 @@ This guidance is for making a deck in a conversation. Most people use the page i
 
 - **Only the person approves.** Each step ends at a stop: show what was made, then wait. Move on only when the person says they approve, in this conversation. Never approve for them, and never take silence or "looks fine so far" as approval of a later step. Record each decision as [the workspace](references/workspace.md) says.
 - **Slides are made by harness-slides.** Draw, check, preview, render and patch slides only through its own commands, following its own guidance. Never write or edit a slide file yourself.
+- **Each slide is designed on its own,** from what it says. Never have the person pick a layout for the whole deck.
 - **The brand is the person's brand skill.** Before the first step that needs the brand, export its contract into the deck's `brand/` folder with the brand skill's own `contract export` command, and give that contract to harness-slides with `--brand`. Presentation Studio names no brand: offer the brands and variants the brand skill lists.
 - **Research is done by harness-research,** following its own guidance, and only when the person turned research on.
 - **An original is never changed.** A deck being improved is read; the result is always a new file.
@@ -32,7 +33,7 @@ Ask how the person is starting and follow [the three routes](references/routes.m
 | Classify: a document's kind, or an existing deck's slides | Yes, when there is a source |
 | Research plan, then research | Each, when research is on |
 | Outline: title, key message and notes for each slide | Yes |
-| Look: one sample slide drawn two or three ways | They pick one |
+| Brand: the deck's cover drawn in its brand | Yes, or another brand |
 | Build: the whole deck, its preview and its checks | Yes, or changes |
 | Deliver: Google Slides or PowerPoint | No: say where it is |
 
