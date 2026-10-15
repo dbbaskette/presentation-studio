@@ -581,6 +581,9 @@ class UpgradeTests(InstalledCase):
     def test_a_checkout_shows_the_versions_and_says_it_is_upgraded_with_git_pull(self):
         keep = upkeep.Upkeep(home_dir=self.home, root=self.base / 'nothing-installed',
                              installer=helpers.REPO / 'installer' / 'install.py')
+        # The checkout's own pins name the companions' real repositories; an installed
+        # version has the stand-ins' pins beside its installer, and so does this.
+        keep.pins = lambda: upkeep.read_pins(self.pins_file)
         keep.check()
         self.release('v99.0.0')
         keep.look()
