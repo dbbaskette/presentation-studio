@@ -3537,8 +3537,12 @@ function outlineRow(gate, slides, index, readonly) {
   else {
     add(node, field('outline-title-' + index, 'Title of slide ' + (index + 1), one, 'title',
       { limit: 300, typed: () => {
-        chosenFor(gate).edited = true;
-        paintOutlineSaid(gate, byId('outline-said'));
+        // The line that says the outline is edited is drawn, and read out, once.
+        const chosen = chosenFor(gate);
+        if (!chosen.edited) {
+          chosen.edited = true;
+          paintOutlineSaid(gate, byId('outline-said'));
+        }
         reviewChanged(gate);
       } }));
   }
@@ -3583,12 +3587,14 @@ function outlineRow(gate, slides, index, readonly) {
   const up = capsule('Move up', 'quiet', move(-1), 'outline up ' + one.id);
   const down = capsule('Move down', 'quiet', move(1), 'outline down ' + one.id);
   const remove = capsule('Remove', 'quiet', () => {
+    // Its mark goes with it, so a slide put back as drafted comes back unmarked.
+    delete held.slideNotes[one.id];
     slides.splice(index, 1);
     outlineEdited(gate);
     if (!focusKey('outline-add')) byId('title').focus({ preventScroll: true });
   }, 'outline remove ' + one.id);
-  up.setAttribute('aria-label', 'Move “' + title + '” up');
-  down.setAttribute('aria-label', 'Move “' + title + '” down');
+  up.setAttribute('aria-label', 'Move up: “' + title + '”');
+  down.setAttribute('aria-label', 'Move down: “' + title + '”');
   remove.setAttribute('aria-label', 'Remove “' + title + '”');
   up.disabled = index === 0;
   down.disabled = index === slides.length - 1;

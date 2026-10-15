@@ -557,7 +557,7 @@ class ScreenTests(ScriptedPage, PageCase):
         title = 'Watch each batch of the restart closely'
         result = self.deck_screen(path, [
             {'fill': 'A new slide’s title', 'value': title}, {'click': 'Add the slide'},
-            {'click': f'Move “{title}” up'}, {'click': 'Approve'}],
+            {'click': f'Move up: “{title}”'}, {'click': 'Approve'}],
             **{'POST /api/decide': [ok(self.run_of(path))]})
         approval = [body for address, body in self.posts(result)
                     if address == '/api/decide'][-1]
@@ -629,9 +629,67 @@ class ScreenTests(ScriptedPage, PageCase):
         self.assertIn(f"- Slide `{second['id']}`: Split it in two.",
                       self.workers.of('outline')[-1].task)
 
+    def test_typing_in_a_slide_s_box_or_its_title_leaves_the_rows_as_they_are(self):
+        path = self.started()
+        second = self.run_of(path)['gate']['slides'][1]
+        keep = f"Keep it as it is: “{second['title']}”"
+        result = self.deck_screen(path, [
+            {'click': f"Ask for changes to “{second['title']}”"}, {'hold': keep},
+            {'fill': f"What should change on “{second['title']}”", 'value': 'Split it.',
+             'stay': True},
+            {'snapshot': 'noting'},
+            {'fill': 'Title of slide 3', 'value': 'Capacity holds', 'stay': True},
+            {'hold': 'Put it back as drafted'},
+            {'fill': 'Title of slide 3', 'value': 'Capacity holds with several', 'stay': True},
+            {'snapshot': 'retitling'}])
+        shots = result['snapshots']
+        self.assertEqual(shots['noting']['still'], [keep])
+        self.assertEqual(shots['noting']['focus'], f"slide-note-{second['id']}")
+        # The line that says the outline is edited is drawn once, not again at every key.
+        self.assertEqual(shots['retitling']['still'], [keep, 'Put it back as drafted'])
+        self.assertEqual(shots['retitling']['focus'], 'outline-title-2')
+        self.assertIn('1 slide to change · edited here', shots['retitling']['text'])
+        self.assertEqual(self.posts(result), [])
+
+    def test_a_mark_follows_its_slide_and_goes_when_the_slide_is_removed(self):
+        path = self.started()
+        drafted = self.run_of(path)['gate']['slides']
+        second, fourth = drafted[1], drafted[3]
+        result = self.deck_screen(path, [
+            {'click': f"Ask for changes to “{second['title']}”"},
+            {'fill': f"What should change on “{second['title']}”", 'value': 'Shorter.'},
+            {'click': f"Ask for changes to “{fourth['title']}”"},
+            {'fill': f"What should change on “{fourth['title']}”", 'value': 'Drop it.'},
+            {'click': f"Move down: “{second['title']}”"}, {'snapshot': 'moved'},
+            {'click': f"Remove “{fourth['title']}”"}, {'snapshot': 'removed'},
+            {'click': 'Send 1 change'}],
+            **{'POST /api/decide': [ok(self.run_of(path))]})
+        moved = result['snapshots']['moved']
+        self.assertEqual(moved['focus'], f"Move down: “{second['title']}”")
+        self.assertEqual(moved['fields'][f"What should change on “{second['title']}”"],
+                         'Shorter.')
+        self.assertIn('2 slides to change · edited here', moved['text'])
+        removed = result['snapshots']['removed']
+        self.assertIn('1 slide to change · edited here', removed['text'])
+        self.assertNotIn(f"What should change on “{fourth['title']}”", removed['fields'])
+        (_, body), = self.posts(result)
+        self.assertEqual((body['decision'], body['extra']['slides']),
+                         ('changes', {second['id']: 'Shorter.'}))
+        self.assertEqual([one['id'] for one in body['extra']['edited']],
+                         [drafted[0]['id'], drafted[2]['id'], second['id'], drafted[4]['id'],
+                          drafted[5]['id']])
+        self.post('decide', body)
+        said = self.workers.of('outline')[-1].task
+        self.assertIn(f"- Slide `{second['id']}`: Shorter.", said)
+        self.assertNotIn(fourth['id'], said)
+
     def test_an_outline_put_back_as_drafted_is_approved_as_it_was(self):
         path = self.started()
+        second = self.run_of(path)['gate']['slides'][1]
         result = self.deck_screen(path, [
+            {'click': f"Ask for changes to “{second['title']}”"},
+            {'fill': f"What should change on “{second['title']}”", 'value': 'Split it.'},
+            {'click': f"Remove “{second['title']}”"},
             {'fill': 'Title of slide 2', 'value': 'Batches, one at a time'},
             {'snapshot': 'edited'}, {'click': 'Put it back as drafted'}, {'snapshot': 'back'},
             {'click': 'Approve'}],
@@ -639,8 +697,11 @@ class ScreenTests(ScriptedPage, PageCase):
         edited = result['snapshots']['edited']['text']
         self.assertIn('0 slides to change · edited here', edited)
         self.assertIn('Your edits go with your decision', edited)
-        # The tally follows the outline put back, and nothing edited goes with the approval.
-        self.assertNotIn('edited here', result['snapshots']['back']['text'])
+        # The tally follows the outline put back, the slide removed with its mark comes back
+        # unmarked, and nothing edited goes with the approval.
+        back = result['snapshots']['back']
+        self.assertNotIn('edited here', back['text'])
+        self.assertIn(f"Ask for changes to “{second['title']}”", back['buttons'])
         (_, body), = self.posts(result)
         self.assertEqual(body['decision'], 'approve')
         self.assertNotIn('extra', body)
