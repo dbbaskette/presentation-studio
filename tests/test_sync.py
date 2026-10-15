@@ -32,7 +32,7 @@ class SyncCase(unittest.TestCase):
         shutil.copytree(helpers.SKILL, self.remote / 'skills' / 'presentation-studio',
                         ignore=shutil.ignore_patterns('__pycache__'))
         guidance = self.remote / 'skills' / 'presentation-studio'
-        (guidance / 'references').mkdir()
+        (guidance / 'references').mkdir(exist_ok=True)
         (guidance / 'references' / 'gates.md').write_text('# Gates\n')
         (guidance / 'assets').mkdir()
         (guidance / 'assets' / 'example.md').write_text('# Example\n')

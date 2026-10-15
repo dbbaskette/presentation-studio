@@ -5,14 +5,19 @@ companion: its row and its install are in test_runner_brand_source.py.
 
 Each test has a home of its own with the companions it needs laid out as their installers
 leave them, and an installer folder of its own: with no installer, or with a small stand-in
-that answers as the real one does. Training Studio's link and upgrade tests drive its real
-installer and come with Task 14's. Every repository is a bare one made here. Nothing real is
-read, and nothing is fetched from anywhere but there.
+that answers as the real one does. The link, update and upgrade tests at the end install
+Presentation Studio with its real installer into a temporary home, with the installer tests'
+stand-in companions. Every repository is a bare one made here. Nothing real is read, and
+nothing is fetched from anywhere but there.
 """
+import contextlib
+import io
 import json
 import os
+import shutil
 import subprocess
 import tempfile
+import threading
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -20,9 +25,11 @@ from unittest import mock
 import helpers
 import runner_support  # noqa: F401  puts the runner on the import path
 
+import home
 from workspace import WorkspaceError
 
 from runner import settings, upkeep
+from test_installer import NODE, StandIn, install, write_pins
 
 VERSION = (helpers.REPO / 'VERSION').read_text().strip()
 PINS = {'harness-slides': '0.14.1', 'harness-research': '0.8.0'}
@@ -330,6 +337,338 @@ class GuidanceTests(UpkeepCase):
         self.assertEqual(said['says'], f'New decks follow the guidance installed with '
                          f'Presentation Studio {VERSION}. None has been fetched on this '
                          'computer yet.')
+
+
+# --- with the real installer --------------------------------------------------------------
+
+_made = {}
+
+
+def settle(keep: upkeep.Upkeep) -> None:
+    """Wait for what it does in the background, without ending anything."""
+    for thread in list(keep._threads):
+        thread.join(60)
+
+
+def setUpModule():
+    """Each companion's stand-in, pinned at its first release, as a maintainer pins it."""
+    holder = tempfile.TemporaryDirectory()
+    unittest.addModuleCleanup(holder.cleanup)
+    base = Path(holder.name).resolve()
+    pins = {}
+    for name, version in (('harness-research', '0.8.0'), ('harness-slides', '0.14.1')):
+        _made[name] = StandIn(base, name)
+        commit = _made[name].release(version)
+        pins[name] = {'repository': str(_made[name].bare), 'version': '0.0.0',
+                      'commit': '0' * 40, 'sha256': '0' * 64, 'stub': 'bootstrap/SKILL.md',
+                      'installer': 'scripts/install.mjs'}
+        write_pins(base / 'companions.json', pins)
+        install.pin(base / 'companions.json', name, commit)
+        pins = install.read_pins(base / 'companions.json')
+    _made['pins'] = pins
+
+
+class InstalledCase(unittest.TestCase):
+    """Presentation Studio installed by its own installer into a temporary home, with its
+    data folder where the installer keeps its record."""
+
+    def setUp(self):
+        holder = tempfile.TemporaryDirectory()
+        self.addCleanup(holder.cleanup)
+        self.base = Path(holder.name).resolve()
+        self.home = self.base / 'home'
+        self.root = self.home / '.local' / 'share' / 'presentation-studio'
+        self.claude = self.home / '.claude' / 'skills'
+        self.codex = self.home / '.agents' / 'skills'
+        self.claude.mkdir(parents=True)
+        self.codex.mkdir(parents=True)
+        self.pins_file = self.base / 'companions.json'
+        write_pins(self.pins_file, _made['pins'])
+        self.source = self.base / 'presentation-studio.git'
+        git(self.base, 'init', '-q', '--bare', str(self.source))
+        for patch in (mock.patch.dict(os.environ, {
+                          'PRESENTATION_STUDIO_DATA': str(self.root),
+                          'STUDIOS_CONFIG': str(self.base / 'studios-config.json'),
+                          'PRESENTATION_STUDIO_SOURCE': str(self.source)}),
+                      mock.patch.object(install, 'PINS', self.pins_file),
+                      mock.patch.object(install, 'PLATFORM', 'linux'),
+                      # What else this computer has is the installer tests' business.
+                      mock.patch.object(install, 'prerequisites',
+                                        lambda *asked, **named: {'notes': []})):
+            patch.start()
+            self.addCleanup(patch.stop)
+        for name in ('BRAND_SKILL_RUNTIME', 'HARNESS_SLIDES_RUNTIME',
+                     'HARNESS_RESEARCH_RUNTIME'):
+            os.environ.pop(name, None)
+
+    def installed(self, *args: str) -> Path:
+        """Install Presentation Studio into the temporary home; the installed version."""
+        printed = io.StringIO()
+        with contextlib.redirect_stdout(printed):
+            code = install.main(['install', '--yes', '--companions', 'skip', '--json',
+                                 '--home', str(self.home), *args])
+        self.assertEqual(code, 0, printed.getvalue())
+        result = json.loads(printed.getvalue())
+        return self.root / 'versions' / result['version'] if result['mode'] == 'managed' \
+            else helpers.REPO
+
+    def keeper(self, staged: Path | None = None, after=None) -> upkeep.Upkeep:
+        """What looks after the skills, as the runner of that version makes it."""
+        staged = staged or self.installed()
+        return upkeep.Upkeep(home_dir=self.home, root=self.root,
+                             installer=staged / 'installer' / 'install.py', after=after)
+
+
+class LinkTests(InstalledCase):
+    def test_a_missing_link_to_a_whole_copy_is_put_back_and_said(self):
+        keep = self.keeper()
+        link = self.claude / 'presentation-studio'
+        link.unlink()
+        found = keep.check(repair=True)
+        self.assertEqual(os.readlink(link), str(self.root / 'current'))
+        self.assertTrue((link / 'SKILL.md').is_file())
+        self.assertEqual(found['repaired'], [f'The link for Claude Code was missing, and was '
+                                             f'put back: {link}.'])
+        self.assertEqual([(entry['assistant'], entry['state']) for entry in found['links']],
+                         [('Claude Code', 'repaired'), ('Codex', 'ok')])
+        self.assertEqual(keep.check(repair=True)['repaired'], [], 'once put back, it is ok')
+
+    def test_looking_without_repairing_changes_nothing(self):
+        keep = self.keeper()
+        (self.codex / 'presentation-studio').unlink()
+        found = keep.check(repair=False)
+        self.assertFalse(os.path.lexists(self.codex / 'presentation-studio'))
+        self.assertEqual(found['repaired'], [])
+        self.assertEqual(found['links'][1]['state'], 'missing')
+        self.assertIn('It is put back when Presentation Studio starts.',
+                      found['links'][1]['says'])
+
+    def test_only_what_the_installer_placed_is_ever_put_back(self):
+        keep = self.keeper()
+        claude, codex = self.claude / 'presentation-studio', self.codex / 'presentation-studio'
+        claude.unlink()
+        claude.mkdir()                               # a folder of someone's own
+        (claude / 'SKILL.md').write_text('mine\n')
+        codex.unlink()
+        codex.symlink_to(self.base)                  # a link someone pointed elsewhere
+        found = keep.check(repair=True)
+        self.assertEqual(found['repaired'], [])
+        self.assertEqual((claude / 'SKILL.md').read_text(), 'mine\n')
+        self.assertEqual(os.readlink(codex), str(self.base))
+        self.assertEqual([entry['state'] for entry in found['links']],
+                         ['left alone', 'left alone'])
+        self.assertIn('is not the link the installer placed, so it was left alone',
+                      found['links'][0]['says'])
+
+    def test_an_assistant_whose_skill_folder_is_gone_is_not_given_one_again(self):
+        keep = self.keeper()
+        shutil.rmtree(self.home / '.agents')
+        found = keep.check(repair=True)
+        self.assertFalse((self.home / '.agents').exists())
+        self.assertEqual(found['links'][1]['state'], 'left alone')
+        self.assertIn('is gone, so Presentation Studio was not linked into it again',
+                      found['links'][1]['says'])
+
+    def test_the_link_to_the_version_and_the_commands_are_put_back_when_missing(self):
+        staged = self.installed()
+        keep = self.keeper(staged)
+        (self.root / 'current').unlink()
+        (self.root / 'presentation').unlink()
+        (self.root / 'studio').write_text('my own studio\n')   # not missing: left alone
+        found = keep.check(repair=True)
+        self.assertEqual(os.readlink(self.root / 'current'), str(staged))
+        self.assertTrue(install.ours(self.root / 'presentation'))
+        self.assertIn(str(self.root / 'current' / 'runner' / 'studio.py'),
+                      (self.root / 'presentation').read_text())
+        self.assertEqual((self.root / 'studio').read_text(), 'my own studio\n')
+        self.assertEqual(found['repaired'], [
+            f"The link to the installed version was missing, and was put back: "
+            f"{self.root / 'current'}.",
+            f"The command the skill runs its helper with was missing, and was written again: "
+            f"{self.root / 'presentation'}."])
+        self.assertEqual([entry['state'] for entry in found['links']], ['ok', 'ok'],
+                         'the links work again once the version they point through is back')
+
+    def test_a_link_whose_copy_is_gone_is_said_and_left(self):
+        keep = self.keeper()
+        (self.root / 'current').unlink()
+        (self.root / 'current').symlink_to(self.base / 'gone')
+        state = install.read_state(self.root)
+        state['current'] = 'not-there'
+        install.write_state(self.root, state)
+        found = keep.check(repair=True)
+        self.assertEqual(found['repaired'], [])
+        self.assertEqual(found['links'][0]['state'], 'missing')
+        self.assertIn('which is not there any more. Run the installer again.',
+                      found['links'][0]['says'])
+
+    def test_where_the_record_is_follows_where_the_runner_was_installed(self):
+        version = self.root / 'versions' / '1.0.0-abc'
+        self.assertEqual(upkeep.install_root(version / 'runner'), self.root)
+        self.assertEqual(upkeep.install_root(helpers.REPO / 'runner'), home.data_root())
+
+
+class InstalledUpdateTests(InstalledCase):
+    def test_an_update_runs_the_installer_of_this_version_in_the_background(self):
+        staged = self.installed()
+        going, told, asked = threading.Event(), [], []
+
+        def supervise(command, cwd, env, stdin, seconds, errors, each, stop):
+            asked.append((command, seconds))
+            going.wait(30)
+            each(json.dumps({'action': 'companions', 'companions': {
+                'harness-research': {'state': 'installed', 'wanted': '0.8.0'},
+                'harness-slides': {'state': 'failed', 'wanted': '0.14.1',
+                                   'detail': 'its installer needs Node 20 or newer.'}}})
+                 .encode())
+            return 0, False
+
+        keep = self.keeper(staged, after=lambda: told.append('looked again'))
+        keep.check()
+        with mock.patch.object(upkeep.companion, 'supervise', supervise):
+            shown = keep.update(working=False)
+            self.assertEqual(shown['update']['state'], 'running')
+            with self.assertRaises(WorkspaceError) as refused:
+                keep.update(working=False)
+            self.assertEqual(str(refused.exception), upkeep.UPDATING)
+            going.set()
+            settle(keep)
+        (command, seconds), = asked
+        self.assertEqual(command[2:], [
+            str(staged / 'installer' / 'install.py'), 'companions', '--companions', 'install',
+            '--while-open', '--json', '--home', str(self.home), '--root', str(self.root)])
+        self.assertEqual(seconds, upkeep.UPDATE_SECONDS)
+        done = keep.report()['update']
+        self.assertEqual(done['state'], 'failed')
+        self.assertEqual(done['says'], 'harness-research 0.8.0 was installed by its own '
+                         'installer. harness-slides 0.14.1 was not installed: its installer '
+                         'needs Node 20 or newer.')
+        self.assertEqual(told, ['looked again'])
+
+    @unittest.skipUnless(NODE, 'a companion installs itself with Node')
+    def test_an_update_brings_each_companion_through_its_own_checked_install(self):
+        staged = self.installed('--target', 'claude')
+        keep = self.keeper(staged)
+        self.assertEqual([entry['state'] for entry in keep.check()['companions']],
+                         ['missing', 'missing'])
+        keep.update(working=False)
+        settle(keep)
+        done = keep.report()
+        self.assertEqual(done['update']['state'], 'done', done['update']['says'])
+        self.assertEqual(sorted(entry['state'] for entry in done['companions']), ['ok', 'ok'])
+        state = install.read_state(self.root)
+        self.assertEqual(sorted(state['companions']), ['harness-research', 'harness-slides'])
+
+
+class UpgradeTests(InstalledCase):
+    """Upgrading Presentation Studio itself, through the installer of the version fetched."""
+
+    def setUp(self):
+        super().setUp()
+        self.keep = self.keeper()
+        self.keep.check()
+        self.work = self.base / 'presentation-studio-work'
+        git(self.base, 'init', '-q', str(self.work))
+        (self.work / 'VERSION').write_text('1\n')
+        git(self.work, 'add', '-A')
+        git(self.work, 'commit', '-q', '-m', 'one')
+
+    def release(self, *versions: str) -> None:
+        for version in versions:
+            git(self.work, 'tag', version)
+        git(self.work, 'push', '-q', '--tags', str(self.source))
+
+    def test_a_checkout_shows_the_versions_and_says_it_is_upgraded_with_git_pull(self):
+        keep = upkeep.Upkeep(home_dir=self.home, root=self.base / 'nothing-installed',
+                             installer=helpers.REPO / 'installer' / 'install.py')
+        keep.check()
+        self.release('v99.0.0')
+        keep.look()
+        versions = keep.report()['versions']
+        self.assertEqual((versions['checkout'], versions['command']),
+                         (True, f'cd {helpers.REPO} && git pull'))
+        self.assertFalse(versions['upgrade']['offered'])
+        with self.assertRaises(WorkspaceError) as refused:
+            keep.upgrade(False, '99.0.0')
+        self.assertEqual(str(refused.exception), upkeep.FROM_CHECKOUT)
+
+    def test_an_installed_version_is_offered_the_newer_one(self):
+        self.release('v99.0.0')
+        self.assertTrue(self.keep.look())
+        versions = self.keep.report()['versions']
+        self.assertEqual((versions['checkout'], versions['command']), (False, None))
+        self.assertEqual((versions['upgrade']['offered'], versions['upgrade']['version']),
+                         (True, '99.0.0'))
+
+    def test_the_upgrade_runs_the_fetched_versions_own_installer_beside_this_one(self):
+        self.release('v99.0.0')
+        self.keep.look()
+        asked, fetched, going = [], [], threading.Event()
+
+        def fetch(repository, ref, into):
+            going.wait(30)   # held until the test has seen it running
+            fetched.append((repository, ref))
+            tree = into / 'tree'
+            tree.mkdir()
+            (tree / 'VERSION').write_text('99.0.0\n')   # the repository's own, at its top
+            return tree, 'c' * 40
+
+        def supervise(command, cwd, env, stdin, seconds, errors, each, stop):
+            asked.append((command, seconds))
+            staged = self.root / 'versions' / '99.0.0-abcdef012345'
+            staged.mkdir(parents=True)
+            install.replace_link(self.root / 'current', staged)
+            each(json.dumps({'action': 'install', 'mode': 'managed',
+                             'version': '99.0.0-abcdef012345'}).encode())
+            return 0, False
+
+        with mock.patch.object(upkeep, 'fetch_tree', fetch), \
+                mock.patch.object(upkeep.companion, 'supervise', supervise):
+            shown = self.keep.upgrade(False, '99.0.0')
+            self.assertEqual(shown['versions']['upgrade']['state'], 'running')
+            going.set()
+            settle(self.keep)
+        self.assertEqual(fetched, [(str(self.source), 'refs/tags/v99.0.0')])
+        (command, seconds), = asked
+        self.assertEqual(command[3:], [
+            'install', '--yes', '--json', '--companions', 'skip', '--while-open',
+            '--home', str(self.home), '--root', str(self.root), '--target', 'both'])
+        self.assertTrue(command[2].endswith('/tree/installer/install.py'))
+        self.assertEqual(seconds, upkeep.UPGRADE_SECONDS)
+        versions = self.keep.report()['versions']
+        self.assertEqual((versions['upgrade']['state'], versions['upgrade']['restart']),
+                         ('restart', True))
+        left = []
+        self.keep.leave = lambda: left.append('left')
+        with self.assertRaises(WorkspaceError) as refused:
+            self.keep.restart(True)
+        self.assertEqual(str(refused.exception), upkeep.RESTART_WORKING)
+        self.assertEqual(self.keep.restart(False)['versions']['upgrade']['state'],
+                         'restarting')
+        self.assertEqual((self.keep.restarting, left),
+                         (['/bin/sh', str(self.root / 'studio'), 'serve'], ['left']))
+
+    def test_a_version_that_is_not_the_one_shown_is_not_installed(self):
+        self.release('v99.0.0')
+        self.keep.look()
+
+        def fetch(repository, ref, into):
+            (into / 'tree').mkdir()
+            (into / 'tree' / 'VERSION').write_text('1.0.0\n')
+            return into / 'tree', 'c' * 40
+
+        with mock.patch.object(upkeep, 'fetch_tree', fetch), \
+                mock.patch.object(upkeep.companion, 'supervise') as ran:
+            self.keep.upgrade(False, '99.0.0')
+            settle(self.keep)
+        ran.assert_not_called()
+        upgrade = self.keep.report()['versions']['upgrade']
+        self.assertEqual(upgrade['state'], 'failed')
+        self.assertEqual(upgrade['says'], f'Presentation Studio 99.0.0 was not installed: '
+                         f'{self.source} has version 1.0.0 at refs/tags/v99.0.0.')
+        with self.assertRaises(WorkspaceError) as refused:
+            self.keep.restart(False)
+        self.assertEqual(str(refused.exception), upkeep.NO_RESTART)
 
 
 if __name__ == '__main__':

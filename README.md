@@ -64,7 +64,19 @@ sh installer/install.sh
 
 Or double-click `Install Presentation Studio.command` in the `installer` folder.
 
-The installer says what it is about to do and asks before changing anything. It adds Presentation Studio to Claude Code and Codex, whichever you have, then offers the companion skills.
+The installer says what it is about to do and asks before changing anything. It installs Presentation Studio in `~/.local/share/presentation-studio`, adds it to Claude Code and Codex, whichever you have (`--target claude` or `--target codex` names one), and writes the `studio` command that opens it, with "Open Presentation Studio" in the Applications folder inside your home folder on a Mac. Then it asks about each companion skill in turn: said yes to, it is fetched at the exact revision Presentation Studio was tested with, checked file for file, and installed by its own installer, which needs Node. It ends by saying what this computer still lacks, and how to get it.
+
+The same installer does the rest:
+
+| Command | What it does |
+| --- | --- |
+| `sh installer/install.sh --dry-run` | Says what an install would do, and changes nothing |
+| `sh installer/install.sh --companions install` | Brings the companion skills without asking about each |
+| `sh installer/install.sh check` | Says what is installed and what is missing |
+| `sh installer/install.sh rollback` | Goes back to the version installed before |
+| `sh installer/install.sh uninstall` | Removes what it added; installed versions and the companion skills stay |
+
+It changes nothing while Presentation Studio is open: close it first. Your brand skill is not installed from here; name its repository in Settings, on the page.
 
 ## Your first deck
 

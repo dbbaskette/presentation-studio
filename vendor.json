@@ -403,6 +403,54 @@
       "from": "docs/shared-studios.md",
       "revision": "01ee5f61c3c460013fd6a3226f112d6c80ec0ee9",
       "note": "identical"
+    },
+    {
+      "path": "installer/install.py",
+      "from": "installer/install.py",
+      "revision": "01ee5f61c3c460013fd6a3226f112d6c80ec0ee9",
+      "note": "renamed; the helper's command is `presentation`, which runs the runner's studio.py, or guidance sync after `guidance`; the installed copy is checked with sync_guidance --help in place of training.py status; no pandoc or Word-copy note; the brand note says to install it from Settings"
+    },
+    {
+      "path": "installer/install.sh",
+      "from": "installer/install.sh",
+      "revision": "01ee5f61c3c460013fd6a3226f112d6c80ec0ee9",
+      "note": "renamed"
+    },
+    {
+      "path": "installer/Install Presentation Studio.command",
+      "from": "installer/Install Training Studio.command",
+      "revision": "01ee5f61c3c460013fd6a3226f112d6c80ec0ee9",
+      "note": "renamed"
+    },
+    {
+      "path": "installer/companions.json",
+      "from": "installer/companions.json",
+      "revision": "01ee5f61c3c460013fd6a3226f112d6c80ec0ee9",
+      "note": "identical: harness-research 0.8.0 and harness-slides 0.14.1 at the same commits and digests"
+    },
+    {
+      "path": "bootstrap/presentation-studio/SKILL.md",
+      "from": "bootstrap/training-studio/SKILL.md",
+      "revision": "01ee5f61c3c460013fd6a3226f112d6c80ec0ee9",
+      "note": "renamed; the description is the chat skill's"
+    },
+    {
+      "path": "skills/presentation-studio/scripts/validate_package.py",
+      "from": "skills/training-studio/scripts/validate_package.py",
+      "revision": "01ee5f61c3c460013fd6a3226f112d6c80ec0ee9",
+      "note": "the required files and loading sets are Presentation Studio's; the rules and budgets are unchanged"
+    },
+    {
+      "path": "tests/test_installer.py",
+      "from": "tests/test_installer.py",
+      "revision": "01ee5f61c3c460013fd6a3226f112d6c80ec0ee9",
+      "note": "renamed; the helper's tests run the runner and guidance sync; training-only checks (training.py, Yoodli profile, pandoc) are replaced or removed"
+    },
+    {
+      "path": "tests/test_package.py",
+      "from": "tests/test_package.py",
+      "revision": "01ee5f61c3c460013fd6a3226f112d6c80ec0ee9",
+      "note": "on Presentation Studio's required files and loading sets"
     }
   ]
 }
