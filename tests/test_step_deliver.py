@@ -31,6 +31,7 @@ class Case(unittest.TestCase):
         deck = self.root / build.DECK
         deck.parent.mkdir(parents=True)
         deck.write_bytes(b'PK\x03\x04 a rendered deck')
+        build.write_state(self.root, {**build.EMPTY, 'deck': build.DECK.as_posix()})
         self.slides = runner_support.stand_in_slides()
         self.tool = self.slides.run
 
@@ -67,7 +68,7 @@ class GoogleTests(Case):
         self.assertEqual(decks.read_run(self.root)['revisions'][0]['pptx'], 'work/deck.pptx')
 
     def test_a_deck_not_rendered_is_refused(self):
-        (self.root / build.DECK).unlink()
+        build.write_state(self.root, build.EMPTY)
         with self.assertRaises(WorkspaceError):
             deliver.deliver(self.root, self.run_, self.slides)
         self.assertFalse((self.root / decks.DELIVER).exists())
@@ -101,11 +102,16 @@ class AgainTests(Case):
         self.assertEqual(decks.state(run, self.root), 'changes asked at gate:build')
         self.assertEqual(stages.survey(run).next.name, 'build-sections')
         # The person deleted the first file in Drive: the slides tool reports it missing.
+        # Every delivery is a new import, so whether the earlier file is still there is
+        # never asked: its absence cannot stop the second delivery.
         self.tool.gone.add(first['fileId'])
         run['gates']['gate:build'] = {'state': 'approved'}
         second = deliver.deliver(self.root, run, self.slides)
         self.assertEqual(self.imports(), 2)
         self.assertNotEqual(second['fileId'], first['fileId'])
+        self.assertEqual(set(self.tool.files), {first['fileId'], second['fileId']})
+        self.assertFalse(any(call[:2] in (['drive', 'export'], ['drive', 'check']) and
+                             first['fileId'] in call for call in self.tool.calls))
         self.assertEqual(second['revision'], 2)
         self.assertEqual(json.loads((self.root / decks.DELIVER).read_text())['url'],
                          second['url'])
@@ -123,7 +129,7 @@ class AgainTests(Case):
                 {'id': 'section-2', 'file': 'section-2.json', 'slides': ['b']}]},
             'sections': {'section-1': {'file': 'x', 'round': 0},
                          'section-2': {'file': 'y', 'round': 0}},
-            'rounds': [{'slides': []}], 'repaired': 2})
+            'rounds': [{'slides': []}], 'repaired': 2, 'deck': build.DECK.as_posix()})
         self.assertEqual(build.to_draw(self.root), [])
         deliver.deliver(self.root, self.run_, self.slides)
         deliver.again(self.root, decks.read_run(self.root), self.slides, 'Calmer.')

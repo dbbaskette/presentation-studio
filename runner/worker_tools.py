@@ -26,7 +26,9 @@ checked here before anything is kept. Each job has a folder that only the runner
   returns (problems, the checks that ran, warnings, the text to keep), and the draft is
   handed back with `submit_artifact`. The check must be a function a module under runner
   defines at its top level: job.json names it, and the server, which runs apart from the
-  runner, imports it by that name and registers it there too.
+  runner, imports it by that name and registers it there too. One registered with
+  `drawn=True` is checked as `check(text, spec, slides, scratch)`, with the slides tool and
+  a folder for drafts, and its spec names its 'brand'.
 - A check that cannot run for want of what it needs is recorded as unavailable, for the
   gate. It is not held against the worker.
 - `finding` is the ID of the one research question the job answers. An accepted finding is in
@@ -588,11 +590,13 @@ def _named(check) -> str | None:
     return f'{module}:{name}' if found is check else None
 
 
-def register(kind: str, check, extension: str = '.json') -> None:
+def register(kind: str, check, extension: str = '.json', drawn: bool = False) -> None:
     """Add a kind of draft that is handed back with submit_artifact. `check(text, spec)`
     returns (problems, the checks that ran, warnings, the text to keep). It must be a
     function a module under runner defines at its top level: job.json names it, and the
-    server, which runs apart, imports it by that name."""
+    server, which runs apart, imports it by that name. A kind that is `drawn` is checked
+    as `check(text, spec, slides, scratch)`, with the slides tool and a folder for drafts,
+    and its spec names the brand it is checked against."""
     call = _named(check)
     if not isinstance(kind, str) or not kind or kind in DRAWN or call is None:
         raise WorkspaceError(f'"{kind}" cannot be registered as a kind of draft: its check '
@@ -600,7 +604,13 @@ def register(kind: str, check, extension: str = '.json') -> None:
                              'level.')
     VALIDATORS[kind] = check
     EXTENSIONS[kind] = extension
-    REGISTERED[kind] = {'call': call, 'extension': extension}
+    REGISTERED[kind] = {'call': call, 'extension': extension,
+                        **({'drawn': True} if drawn else {})}
+
+
+def drawn(kind: str) -> bool:
+    """Whether a kind's check asks the slides tool."""
+    return kind in DRAWN or bool((REGISTERED.get(kind) or {}).get('drawn'))
 
 
 def validator(kind: str, registered: dict | None = None):
@@ -610,7 +620,7 @@ def validator(kind: str, registered: dict | None = None):
     if kind not in VALIDATORS and isinstance(named, dict):
         module, _, name = str(named.get('call')).partition(':')
         register(kind, getattr(importlib.import_module(module), name),
-                 named.get('extension') or '.json')
+                 named.get('extension') or '.json', bool(named.get('drawn')))
     return VALIDATORS.get(kind)
 
 
@@ -746,7 +756,7 @@ def prepare(folder: Path, inputs: dict[str, str] | None = None,
                                  + ', '.join(VALIDATORS) + '.')
         if spec.get('scope') not in (None, *SCOPES):
             raise WorkspaceError(f"{name}: the scope is one of {', '.join(SCOPES)}.")
-        if spec['kind'] in DRAWN and not spec.get('brand'):
+        if drawn(spec['kind']) and not spec.get('brand'):
             raise WorkspaceError(f'{name} needs the brand it is checked against.')
         if spec.get('rules'):
             spec['rules'] = [rule if isinstance(rule, dict) else reference(rule)
@@ -1053,7 +1063,7 @@ class WorkerTools:
         check = validator(spec['kind'], self.job.get('checks'))
         if check is None:
             raise Refusal(f"Nothing here can check a {spec['kind']}, so it was not kept.")
-        if spec['kind'] not in DRAWN:
+        if not drawn(spec['kind']):
             return check(text, spec)
         problems, ran, warnings, kept = check(text, spec, self.slides(), self.folder / 'drafts')
         for outcome in ran:

@@ -12,7 +12,9 @@ What a caller needs to know
   here: {"options": [{"name", "direction": {"focal", "neutral", "meanings"?, "motif"?},
   "why", "composition"}]}, two or three of them, with different names and directions.
   `composition` is the outline's first content slide drawn in that direction: one slide in
-  the composition format, or a whole composition holding that one slide.
+  the composition format, or a whole composition holding that one slide. The kind is
+  registered as drawn, so each option's composition is compiled by the slides tool while
+  the worker can still put it right.
 - `brand` is the path of the deck's exported brand contract. The direction's colours must
   be colour roles the contract names.
 - `preview_options` compiles and previews each option in work/look/<n>/ (never shared) and
@@ -25,6 +27,7 @@ What a caller needs to know
 from __future__ import annotations
 
 import json
+import secrets
 import shutil
 from pathlib import Path
 
@@ -33,11 +36,11 @@ import home
 from workspace import WorkspaceError, write_atomic
 
 from runner import briefs, decks, slides as slides_tool, worker_tools
-from runner.steps import Work, build
+from runner.steps import Work, build, outline as outline_step
 
 NAME = 'look'
 GATE = 'gate:look'
-OUTLINE = 'outline.json'
+OUTLINE = outline_step.OUTLINE
 OPTIONS = Path('work') / 'look'
 KEPT = OPTIONS / 'options.json'
 LOOK_MD = 'look.md'
@@ -104,7 +107,9 @@ def look_work(root, run: dict, request: dict | None, error: str | None, brand,
     if error:
         lines.append(f'An earlier try at this job did not work: {error}\n'
                      'Take care not to end the same way.')
-    spec = {'kind': 'look', 'slide': slide.get('id'), 'colours': colours(brand)}
+    spec = {'kind': 'look', 'brand': str(brand), 'slide': slide.get('id'),
+            'title': outline.get('title') or run.get('title') or 'Deck',
+            'colours': colours(brand)}
     return Work(guidance=briefs.guidance('look'), task='\n\n'.join(lines), profile='write',
                 name=NAME, prepared={'inputs': inputs, 'artifacts': {NAME: spec},
                                      'ask': False})
@@ -161,9 +166,9 @@ def _option(number: int, option, spec: dict) -> list[str]:
     return problems
 
 
-def check_look(text: str, spec: dict):
-    """The looks a worker proposed. Returns problems, the checks that ran, warnings and the
-    text to keep."""
+def check_look(text: str, spec: dict, slides, scratch: Path):
+    """The looks a worker proposed: their shape, and each option's composition compiled by
+    the slides tool. Returns problems, the checks that ran, warnings and the text to keep."""
     try:
         given = json.loads(text)
     except ValueError as failure:
@@ -184,10 +189,25 @@ def check_look(text: str, spec: dict):
                       for option in options if isinstance(option, dict)]
         if len(set(directions)) != len(directions):
             problems.append('Each option has a direction of its own.')
-    return problems, [worker_tools.result('look.options', problems)], [], text
+    ran = [worker_tools.result('look.options', problems)]
+    if problems:
+        return problems, ran, [], text
+    compiled = []
+    for number, option in enumerate(options, start=1):
+        draft = Path(scratch) / f'look-{number}-{secrets.token_hex(4)}.json'
+        draft.parent.mkdir(parents=True, exist_ok=True)
+        draft.write_text(json.dumps(_composition(option, spec.get('title') or 'Deck')),
+                         encoding='utf-8')
+        try:
+            slides.compile(draft, spec['brand'])
+        except WorkspaceError as refusal:
+            compiled += [f"Option {number} (\"{option['name']}\") does not compile: {line}"
+                         for line in worker_tools.said_no(refusal)]
+    ran.append(worker_tools.result('look.compile', compiled))
+    return compiled, ran, [], text
 
 
-worker_tools.register(NAME, check_look)
+worker_tools.register(NAME, check_look, drawn=True)
 
 
 def keep_look(root, run: dict, handed) -> Path:

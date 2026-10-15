@@ -43,8 +43,12 @@ class Case(unittest.TestCase):
         decks.write_run(self.root, self.run_)
         (self.root / 'outline.json').write_text(json.dumps(OUTLINE), encoding='utf-8')
         self.slides = runner_support.stand_in_slides()
+        self.scratch = Path(holder.name).resolve() / 'scratch'
         self.brand = runner_support.stand_in_brand()   # its folder lasts as long as it does
         self.contract = build.export_brand(self.root, self.run_, self.brand)
+
+    def check(self, given, spec):
+        return look.check_look(json.dumps(given), spec, self.slides, self.scratch)
 
     def spec(self):
         return look.look_work(self.root, self.run_, None, None, self.contract,
@@ -54,11 +58,20 @@ class Case(unittest.TestCase):
 class CheckTests(Case):
     def test_one_option_is_refused_and_three_accepted(self):
         spec = self.spec()
-        problems, *_ = look.check_look(json.dumps(options(1)), spec)
+        problems, *_ = self.check(options(1), spec)
         self.assertEqual(problems, ['Offer two or three options, not 1.'])
-        problems, checks, _, _ = look.check_look(json.dumps(options(3)), spec)
+        problems, checks, _, _ = self.check(options(3), spec)
         self.assertEqual(problems, [])
-        self.assertEqual(checks[0]['status'], 'passed')
+        self.assertEqual([check['status'] for check in checks], ['passed', 'passed'])
+
+    def test_an_option_that_does_not_compile_is_refused(self):
+        broken = options(2)
+        broken['options'][1]['composition'] = {**sketch(FIRST, 'l1_'),
+                                               'canvas': {'type': 'teapot'}}
+        problems, *_ = self.check(broken, self.spec())
+        self.assertTrue(problems)
+        self.assertTrue(all(problem.startswith('Option 2 ("Bold rule") does not compile')
+                            for problem in problems), problems)
 
     def test_a_worker_hands_it_back_through_submit_artifact(self):
         work = look.look_work(self.root, self.run_, None, None, self.contract,
@@ -70,12 +83,15 @@ class CheckTests(Case):
         self.assertIn(f"`{FIRST['id']}`", work.task)
         folder = self.root.parent / 'job'
         worker_tools.prepare(folder, **work.prepared)
-        tools = worker_tools.WorkerTools(folder)
+        tools = worker_tools.WorkerTools(folder, slides=self.slides)
         said = tools.submit_artifact('look', json.dumps(options(1)))
         self.assertFalse(said[0])
         self.assertIn('two or three', said[1])
         self.assertTrue(tools.submit_artifact('look', json.dumps(options(2)))[0])
         self.assertIs(worker_tools.VALIDATORS['look'], look.check_look)
+        job = json.loads((folder / 'job.json').read_text())
+        self.assertEqual(job['checks']['look'], {'call': 'runner.steps.look:check_look',
+                                                 'extension': '.json', 'drawn': True})
 
     def test_colours_slide_and_names_are_checked(self):
         spec = self.spec()
@@ -87,9 +103,9 @@ class CheckTests(Case):
                                     'shade': 1}), 'leave out shade'),
                 (options(composition={**sketch(FIRST, 'l1_'), 'id': 'other'}), 'its ID'),
                 (options(name='Same'), 'a name of its own')):
-            problems, *_ = look.check_look(json.dumps(wrong), spec)
+            problems, *_ = self.check(wrong, spec)
             self.assertTrue(any(text in problem for problem in problems), (text, problems))
-        problems, *_ = look.check_look('not json', spec)
+        problems, *_ = look.check_look('not json', spec, self.slides, self.scratch)
         self.assertIn('not valid JSON', problems[0])
 
 

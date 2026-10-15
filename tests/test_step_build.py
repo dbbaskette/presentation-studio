@@ -156,7 +156,7 @@ class LoopTests(Deck):
     def test_sections_are_drawn_put_together_and_pictured(self):
         made = self.built()
         self.assertEqual(build.to_draw(self.root), [])
-        shots = json.loads((self.root / build.SHOTS / 'shots.json').read_text())
+        shots = json.loads((build.shots(self.root) / 'shots.json').read_text())
         self.assertEqual([one['number'] for one in shots['slides']],
                          [slide['number'] for slide in made['slides']])
         self.assertEqual(len(made['slides']), len(OUTLINE['slides']))
@@ -197,7 +197,12 @@ class LoopTests(Deck):
         self.review(grave)
         deck = build.render(self.root, self.run_, self.slides, brand=self.brand)
         self.assertEqual(deck, self.root / build.DECK)
-        self.assertEqual(deck.read_bytes()[:4], build.PPTX)
+        last = build.read_state(self.root)['rounds'][-1]
+        # The deck delivered is the one previewed and reviewed, not a fresh render.
+        self.assertEqual(deck.read_bytes(), (self.root / last['file']).read_bytes())
+        self.assertEqual(build._digest(deck), last['deck'])
+        self.assertNotIn(['compose', 'render'], [call[:2] for call in self.slides.run.calls])
+        self.assertEqual(build.delivered_deck(self.root, self.run_), deck)
         shown = build.gate_view(self.root, self.run_)
         self.assertEqual(shown['round'], 1)
         self.assertEqual(shown['pairs'], [])
@@ -233,6 +238,31 @@ class LoopTests(Deck):
         self.assertEqual(build.gate_view(self.root, self.run_)['changed'], made['changed'])
 
 
+class DeliveredDeckTests(Deck):
+    def test_a_previewed_deck_that_changed_is_not_delivered(self):
+        self.built()
+        last = build.read_state(self.root)['rounds'][-1]
+        (self.root / last['file']).write_bytes(b'PK\x03\x04 something else')
+        with self.assertRaises(WorkspaceError) as caught:
+            build.render(self.root, self.run_, self.slides)
+        self.assertIn('not here as it was', str(caught.exception))
+        self.assertFalse((self.root / build.DECK).exists())
+
+    def test_a_new_round_takes_the_earlier_deck_away(self):
+        self.built()
+        build.render(self.root, self.run_, self.slides)
+        build.whole(self.root, self.run_, self.slides, 'local')
+        self.assertFalse((self.root / build.DECK).exists())
+        with self.assertRaises(WorkspaceError):
+            build.delivered_deck(self.root, self.run_)
+
+    def test_a_deck_left_on_disk_is_not_delivered_unrecorded(self):
+        (self.root / build.DECK).parent.mkdir(parents=True, exist_ok=True)
+        (self.root / build.DECK).write_bytes(b'PK\x03\x04 left behind')
+        with self.assertRaises(WorkspaceError):
+            build.delivered_deck(self.root, self.run_)
+
+
 class PairsTests(Deck):
     route = 'existing'
 
@@ -261,7 +291,7 @@ class PairsTests(Deck):
 
 
 class SelectedTests(unittest.TestCase):
-    def test_selected_renders_the_patched_deck_with_its_pictures(self):
+    def selected(self):
         holder = tempfile.TemporaryDirectory()
         self.addCleanup(holder.cleanup)
         root = Path(holder.name) / 'deck'
@@ -279,12 +309,38 @@ class SelectedTests(unittest.TestCase):
         existing.keep_patch(root, json.dumps({'sourceSha256': found['sha256'], 'operations': [
             {'slide': 2, 'object': item['id'], 'expectedHash': item['contentHash'],
              'text': 'Run Tanzu faster'}]}))
+        return root, run, slides, found
+
+    def test_selected_renders_the_patched_deck_with_its_pictures(self):
+        root, run, slides, found = self.selected()
         deck = build.render(root, run, slides)
         self.assertEqual(deck, root / existing.PATCHED)
+        self.assertEqual(build.delivered_deck(root, run), deck)
         shown = build.gate_view(root, run)
         self.assertEqual([slide['number'] for slide in shown['slides']],
                          [slide['number'] for slide in found['slides']])
         self.assertTrue(all(pair['after'] for pair in shown['pairs']))
+
+
+    def test_its_pictures_reuse_the_one_preview_file_in_drive(self):
+        root, run, slides, _ = self.selected()
+        build.render(root, run, slides, renderer='drive')
+        kept = json.loads((root / 'work' / 'build' / 'drive-preview.json').read_text())
+        build.render(root, run, slides, renderer='drive')
+        previews = [ident for ident in slides.run.files if ident.startswith('stand-in-preview')]
+        self.assertEqual(previews, [kept['id']])
+        self.assertEqual(slides.run.files[kept['id']]['uploads'], 2)
+        asked = [call for call in slides.run.calls if call[:1] == ['review']]
+        self.assertIn(kept['id'], asked[-1])
+
+    def test_a_picture_that_fails_leaves_no_patched_deck(self):
+        root, run, slides, _ = self.selected()
+        slides.run.fails['review'] = 'The renderer stopped.'
+        with self.assertRaises(WorkspaceError):
+            build.render(root, run, slides)
+        self.assertFalse((root / existing.PATCHED).exists())
+        with self.assertRaises(WorkspaceError):
+            build.delivered_deck(root, run)
 
 
 class RefusalTests(Deck):

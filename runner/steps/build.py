@@ -37,9 +37,12 @@ What a caller needs to know
   back that was not drawn again since the last round. A review sends back each section with
   a major or critical finding about how one of its slides is drawn, for at most REPAIRS
   rounds; after that the findings stand for the person.
-- `whole` copies the round's contact sheet to contact-sheet.png. `render` delivers the
-  deck that was looked at as a new file, work/deck.pptx; at the 'selected' level it makes
-  work/patched.pptx with `existing.apply_patch` and pictures it. With `brand` it runs the
+- `whole` copies the round's contact sheet to contact-sheet.png and records the previewed
+  deck and its hash. `render` copies that deck, the one the reviewer looked at, to
+  work/deck.pptx once its hash still matches; nothing is rendered afresh. At the 'selected'
+  level it makes work/patched.pptx with `existing.apply_patch` and pictures it, under the
+  computer's one turn at the renderer and through the deck's one Drive preview file.
+  Only the deck `render` recorded is delivered: a new round removes it. With `brand` it runs the
   brand's own audit over the deck, which `gate_view` shows.
 - Nothing here starts a worker. A job is a `Work`; what it hands back is given to the
   matching keep function.
@@ -277,13 +280,10 @@ BUILD = Path('work') / 'build'
 START = BUILD / 'start'
 TOLD = BUILD / 'told'
 DRAWN = BUILD / 'drawn'
-SHOTS = BUILD / 'preview'          # existing.AFTER_SHOTS
 STATE = BUILD / 'state.json'
 DECK = Path('work') / 'deck.pptx'
-PATCHED = Path('work') / 'patched.pptx'     # existing.PATCHED
 SHEET = 'contact-sheet.png'
 REVIEWS = Path('reviews')
-OUTLINE = 'outline.json'           # outline.OUTLINE
 SECTION = re.compile(r'^section-[1-9]\d{0,2}$')
 PNG = b'\x89PNG\r\n\x1a\n'
 PPTX = b'PK\x03\x04'
@@ -297,6 +297,22 @@ def _tools():
     they are first used, not with this module."""
     from runner import worker_tools
     return worker_tools
+
+
+def _existing():
+    """The existing-deck step, which imports the worker tools: imported when first used."""
+    from runner.steps import existing
+    return existing
+
+
+def shots(root) -> Path:
+    """Where the pictures of the last round are: existing.AFTER_SHOTS, which `pairs` reads."""
+    return Path(root) / _existing().AFTER_SHOTS
+
+
+def _outline_path(root) -> Path:
+    from runner.steps import outline
+    return Path(root) / outline.OUTLINE
 
 
 def read_state(root) -> dict:
@@ -477,11 +493,11 @@ def start(root, run: dict, slides, brand) -> dict:
     worker with tools and no files. Whatever an earlier start built is cleared."""
     root, brand = Path(root), Path(brand)
     try:
-        outline = json.loads((root / OUTLINE).read_text(encoding='utf-8'))
+        outline = json.loads(_outline_path(root).read_text(encoding='utf-8'))
     except (OSError, ValueError):
         raise WorkspaceError('There is no approved outline to build the deck from.') from None
     work, folder = root / BUILD, root / START
-    for old in (folder, root / TOLD, root / DRAWN, root / SHOTS, *work.glob('whole-*')):
+    for old in (folder, root / TOLD, root / DRAWN, shots(root), *work.glob('whole-*')):
         shutil.rmtree(old, ignore_errors=True)
     work.mkdir(parents=True, exist_ok=True)
     source = work / f'outline-{secrets.token_hex(3)}.json'
@@ -554,7 +570,7 @@ def to_draw(root) -> list[str]:
 
 def _shown(root: Path, slides: list[dict]) -> list[dict]:
     return [{**{key: slide[key] for key in ('number', 'id', 'title')},
-             'image': str(root / SHOTS / f"{slide['number']}.png")} for slide in slides]
+             'image': str(shots(root) / f"{slide['number']}.png")} for slide in slides]
 
 
 def _note(run: dict, request) -> str | None:
@@ -658,7 +674,7 @@ def whole(root, run: dict, slides, renderer) -> dict:
     if left:
         raise WorkspaceError('These sections are not drawn yet: ' + ', '.join(left) + '.')
     start_folder, work = root / began['folder'], root / BUILD
-    folder, shots = work / f'whole-{secrets.token_hex(3)}', root / SHOTS
+    folder, pictures = work / f'whole-{secrets.token_hex(3)}', shots(root)
     drawn = state['sections']
     try:
         folder.mkdir(parents=True)
@@ -677,7 +693,10 @@ def whole(root, run: dict, slides, renderer) -> dict:
         if (folder / 'preview').resolve() not in file.parents \
                 or file.read_bytes()[:4] != PPTX:
             raise WorkspaceError('The renderer did not leave a deck that can be opened.')
-        pictured = _tools().pictures(shown, folder / 'preview', shots)
+        digest = str(shown['deckSha256'])
+        if _digest(file) != digest:
+            raise WorkspaceError('The deck the renderer left is not the one it pictured.')
+        pictured = _tools().pictures(shown, folder / 'preview', pictures)
         sheet = shown.get('contactSheet')
         sheet = Path(str(sheet)).resolve() if sheet else None
         if sheet is not None and ((folder / 'preview').resolve() not in sheet.parents
@@ -685,10 +704,11 @@ def whole(root, run: dict, slides, renderer) -> dict:
             sheet = None
     except (WorkspaceError, OSError, KeyError, ValueError, TypeError) as refusal:
         shutil.rmtree(folder, ignore_errors=True)
-        shutil.rmtree(shots, ignore_errors=True)
+        shutil.rmtree(pictures, ignore_errors=True)
         raise WorkspaceError(f'The slides could not be put together and rendered. {refusal} '
                              'Nothing of that try was kept.') from None
-    home.write_json(shots / existing_shots(), {'slides': [
+    (root / DECK).unlink(missing_ok=True)   # a deck rendered from an earlier round
+    home.write_json(pictures / _existing().SHOTS, {'slides': [
         {'number': slide['number'], 'image': f"{slide['number']}.png"} for slide in pictured]})
     if sheet is not None:
         shutil.copyfile(sheet, root / SHEET)
@@ -697,12 +717,13 @@ def whole(root, run: dict, slides, renderer) -> dict:
             shutil.rmtree(old, ignore_errors=True)
     before = {slide['number']: slide.get('sha256')
               for slide in (state['rounds'][-1]['slides'] if state['rounds'] else ())}
-    slides_kept = [{**slide, 'sha256': _digest(shots / f"{slide['number']}.png")}
+    slides_kept = [{**slide, 'sha256': _digest(pictures / f"{slide['number']}.png")}
                    for slide in pictured]
     made = {'at': home.now(), 'folder': folder.relative_to(root).as_posix(),
             'preview': (folder / 'preview').relative_to(root).as_posix(),
             'compiled': (folder / 'compiled').relative_to(root).as_posix(),
-            'deck': shown['deckSha256'], 'review': None,
+            'file': file.relative_to(root.resolve()).as_posix(), 'deck': digest,
+            'review': None,
             'made_from': {ident: entry['file'] for ident, entry in drawn.items()},
             'changed': [slide['number'] for slide in slides_kept
                         if before and before.get(slide['number']) != slide['sha256']],
@@ -711,12 +732,6 @@ def whole(root, run: dict, slides, renderer) -> dict:
     state.update(repair=[], asked=None, deck=None, audit=None, auditNote=None)
     write_state(root, state)
     return made
-
-
-def existing_shots() -> str:
-    """The name of the record beside a folder of pictures, as `existing.pairs` reads it."""
-    from runner.steps import existing
-    return existing.SHOTS
 
 
 # --- the review ----------------------------------------------------------------------------
@@ -893,39 +908,57 @@ def audited(report) -> dict:
             'warnings': len(report.get('warnings') or ()), 'messages': messages}
 
 
-def _patched_pictures(root: Path, deck: Path, slides, renderer) -> None:
-    shots, scratch = root / SHOTS, root / BUILD / f'patched-{secrets.token_hex(3)}'
-    shutil.rmtree(shots, ignore_errors=True)
+def _patched_pictures(root: Path, run: dict, deck: Path, slides, renderer) -> None:
+    """Picture the patched deck into the last round's folder, under the computer's one turn
+    at the renderer and through the deck's one preview file in Drive."""
+    tools, settings = _tools(), how(root, run, renderer)
+    folder, scratch = shots(root), root / BUILD / f'patched-{secrets.token_hex(3)}'
+    kept = Path(settings['kept'])
+    shutil.rmtree(folder, ignore_errors=True)
     try:
-        made = slides.pictures_of(deck, scratch, _drawer(renderer))
-        shots.mkdir(parents=True)
+        with tools.one_at_a_time(Path(settings['lock'])):
+            known = home.read_json(kept, {})
+            known = known if isinstance(known, dict) else {}
+            made = slides.pictures_of(deck, scratch, _drawer(settings),
+                                      file_id=known.get('id'))
+            if made.get('fileId') and made['fileId'] != known.get('id'):
+                home.write_json(kept, {**(settings.get('named') or {}),
+                                       'id': made['fileId'], 'url': made.get('url')})
+        folder.mkdir(parents=True)
         listed = []
         for one in made['slides']:
-            (shots / f"{one['number']}.png").write_bytes(_tools().picture(Path(one['image'])))
+            (folder / f"{one['number']}.png").write_bytes(tools.picture(Path(one['image'])))
             listed.append({'number': one['number'], 'image': f"{one['number']}.png"})
-        home.write_json(shots / existing_shots(), {'slides': listed})
+        home.write_json(folder / _existing().SHOTS, {'slides': listed})
         sheet = made.get('contactSheet')
         if sheet and Path(sheet).is_file() and Path(sheet).read_bytes()[:8] == PNG:
             shutil.copyfile(sheet, root / SHEET)
+    except BaseException:
+        shutil.rmtree(folder, ignore_errors=True)
+        deck.unlink(missing_ok=True)
+        raise
     finally:
         shutil.rmtree(scratch, ignore_errors=True)
 
 
 def render(root, run: dict, slides, brand=None, renderer='local') -> Path:
-    """The deck as a new PowerPoint file: work/deck.pptx, made from the last round's build;
-    at the 'selected' level, work/patched.pptx with only the planned changes, pictured.
-    With `brand`, the brand's own audit is run over it for the gate."""
+    """The deck to deliver: work/deck.pptx, a copy of the deck the last round previewed and
+    its reviewer looked at, once its hash is the one that round recorded; at the 'selected'
+    level, work/patched.pptx with only the planned changes, pictured. With `brand`, the
+    brand's own audit is run over it for the gate."""
     root = Path(root)
     state = read_state(root)
     if _level(run) == 'selected':
-        from runner.steps import existing
-        deck = existing.apply_patch(root, run, slides)
-        _patched_pictures(root, deck, slides, renderer)
+        deck = _existing().apply_patch(root, run, slides)
+        _patched_pictures(root, run, deck, slides, renderer)
     else:
         last = _last(state)
-        deck = root / DECK
+        seen, deck = root / str(last.get('file')), root / DECK
         deck.unlink(missing_ok=True)
-        slides.render(root / last['compiled'], deck)
+        if not last.get('file') or not seen.is_file() or _digest(seen) != last['deck']:
+            raise WorkspaceError('The deck that was previewed and reviewed is not here as it '
+                                 'was, so it is not delivered. Put the deck together again.')
+        shutil.copyfile(seen, deck)
     audit, note = None, None
     form = run.get('form') or {}
     if brand is None:
@@ -942,11 +975,11 @@ def render(root, run: dict, slides, brand=None, renderer='local') -> Path:
 
 
 def delivered_deck(root, run: dict) -> Path:
-    """The deck to deliver: the one `render` made."""
+    """The deck to deliver: the one `render` made for the last round, and nothing else."""
     root = Path(root)
     kept = read_state(root).get('deck')
-    deck = root / (kept or (PATCHED if _level(run) == 'selected' else DECK))
-    if not deck.is_file():
+    deck = root / kept if kept else None
+    if deck is None or not deck.is_file():
         raise WorkspaceError('The deck has not been rendered yet.')
     return deck
 
@@ -961,14 +994,14 @@ def gate_view(root, run: dict) -> dict:
     """What gate:build shows: each slide's picture and what the review found on it, the
     contact sheet, the before and after of an existing deck, the slides that changed since
     the round before, and the brand's audit. The gate is set waiting."""
-    from runner.steps import existing
+    existing = _existing()
     root = Path(root)
     state = read_state(root)
     if state['rounds']:
         last = state['rounds'][-1]
         found = ((last.get('review') or {}).get('findings')) or []
         listed = [{'number': slide['number'], 'title': slide['title'],
-                   'image': str(root / SHOTS / f"{slide['number']}.png"),
+                   'image': str(shots(root) / f"{slide['number']}.png"),
                    'findings': [{key: finding.get(key) for key in (
                        'severity', 'about', 'question', 'note', 'fix')}
                        for finding in ordered(found) if finding['slide'] == slide['id']]}
@@ -976,10 +1009,10 @@ def gate_view(root, run: dict) -> dict:
         changed = list(last.get('changed') or ())
     else:
         titles = _titles(root)
-        shots = home.read_json(root / SHOTS / existing_shots(), {}) or {}
+        pictured = home.read_json(shots(root) / _existing().SHOTS, {}) or {}
         listed = [{'number': one['number'], 'title': titles.get(one['number'], ''),
-                   'image': str(root / SHOTS / one['image']), 'findings': []}
-                  for one in shots.get('slides') or ()]
+                   'image': str(shots(root) / one['image']), 'findings': []}
+                  for one in pictured.get('slides') or ()]
         changed = []
     sheet = root / SHEET
     gate = (run.setdefault('gates', {})).get('gate:build') or {}
