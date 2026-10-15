@@ -704,6 +704,32 @@ class FindingTests(JobCase):
                       '25 words.', said)
         self.assertIsNone(worker_tools.collect(self.job)['finding'])
 
+    def test_a_headline_over_the_command_s_length_is_refused_while_it_can_be_fixed(self):
+        tools = self.research()
+        long = ' '.join(['extraordinarily'] * 25)
+        said = self.refused(self.submit(tools, headline=long))
+        self.assertIn(f'The headline is {len(long):,} characters. Give the answer in one '
+                      'sentence of at most 300 characters.', said)
+        self.assertIsNone(worker_tools.collect(self.job)['finding'])
+
+    def test_a_headline_of_exactly_the_most_words_is_kept(self):
+        tools = self.research()
+        self.ok(self.submit(tools, headline=' '.join(['word'] * 25)))
+        self.assertEqual(worker_tools.collect(self.job)['finding']['headline'],
+                         ' '.join(['word'] * 25))
+
+    def test_a_missing_or_blank_headline_is_empty(self):
+        tools = self.research()
+        for headline in (None, '\ufeff', ' \ufeff \n'):
+            said = self.refused(self.submit(tools, headline=headline))
+            self.assertIn('The headline is empty: give the answer in one sentence.', said)
+        self.assertIsNone(worker_tools.collect(self.job)['finding'])
+
+    def test_a_headline_over_two_lines_is_kept_as_one(self):
+        tools = self.research()
+        self.ok(self.submit(tools, headline='Two\nlines'))
+        self.assertEqual(worker_tools.collect(self.job)['finding']['headline'], 'Two lines')
+
     def test_a_quote_that_is_not_there_is_refused(self):
         tools = self.research()
         said = self.refused(self.submit(tools, 'Capacity always holds during a restart.'))

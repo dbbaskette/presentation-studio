@@ -124,6 +124,7 @@ SUBMISSIONS = 6         # times one draft or finding may be handed back
 QUOTE = (20, 900)       # the shortest and longest quote, in characters
 SUMMARY = 1500
 HEADLINE = 25           # words in a finding's headline
+HEADLINE_UNITS = 300    # harness-research's limit on a headline, in UTF-16 code units
 NOTES = 4000
 QUESTION = 1000
 PASSAGES = 20
@@ -1498,13 +1499,18 @@ class WorkerTools:
         self._allowed('finding', 'This finding')
         passages = self._passages(evidence)
         problems, kept = [], []
-        headline = ' '.join(headline.split()) if isinstance(headline, str) else ''
-        words = len(headline.split())
+        # U+FEFF is whitespace to harness-research's trim but not to split(), so it goes first.
+        parts = headline.replace('\ufeff', ' ').split() if isinstance(headline, str) else []
+        headline, words = ' '.join(parts), len(parts)
+        units = len(headline.encode('utf-16-le', 'surrogatepass')) // 2
         if not words:
             problems.append('The headline is empty: give the answer in one sentence.')
         elif words > HEADLINE:
             problems.append(f'The headline is {words} words. Give the answer in one sentence '
                             f'of at most {HEADLINE} words.')
+        elif units > HEADLINE_UNITS:
+            problems.append(f'The headline is {units:,} characters. Give the answer in one '
+                            f'sentence of at most {HEADLINE_UNITS} characters.')
         if status not in STATUSES:
             problems.append('status must be one of: ' + ', '.join(STATUSES) + '.')
         if not isinstance(summary, str) or not summary.strip():
