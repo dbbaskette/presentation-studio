@@ -3351,14 +3351,14 @@ function planRow(gate, item, readonly) {
   // The runner refuses a plan with every question dropped: research needs one to look up.
   const last = !dropped && list(gate.questions)
     .filter((one) => !held.dropped.includes(one.id)).length < 2;
-  const row = make('li', 'review-row' + (dropped ? ' review-off' : ''));
+  const row = make('li', 'review-row' + (dropped && !readonly ? ' review-off' : ''));
   add(row, make('p', 'row-title', title), make('p', '', item.question),
     item.search ? make('p', 'quiet', 'Searched for: ' + item.search) : null);
   if (readonly) return row;
   if (dropped) add(row, make('p', 'quiet', 'Dropped: it is not researched.'));
   if (rewording) {
     add(row, field('reword-' + item.id, 'New wording for “' + title + '”', held.reword,
-      item.id, { long: true, limit: 1000, typed: () => reviewChanged(gate) }));
+      item.id, { long: true, limit: LINE, typed: () => reviewChanged(gate) }));
   }
   const redraw = (key) => {
     paintPlan(gate, byId('plan-list'), false);
@@ -3867,7 +3867,10 @@ function costCard(run) {
 // nothing, and nothing is sent until the button is pressed.
 
 const REVIEWED = ['gate:research-plan', 'gate:research', 'gate:outline'];
-const ADDED = 10; // questions added at once: the runner takes no more
+// As runner/marks.py has them: ADDED questions added at once, and LINE characters in a line
+// written against an item. The runner refuses more.
+const ADDED = 10;
+const LINE = 1000;
 const FINDING_WORDS = { supported: ['done', 'Answered'], insufficient: ['late', 'Not settled'],
   unavailable: ['late', 'Not found'], contradicted: ['review', 'Contradicted'],
   pending: ['out', 'Not answered'] };
@@ -4086,7 +4089,7 @@ function paintAdded(gate, node) {
   // The runner refuses more than ADDED at once, so no more are taken here.
   const full = held.added.length >= ADDED;
   const box = field('added-question', 'A question to add', held, 'asking',
-    { long: true, limit: 1000, hint: full ? 'You have added ' + ADDED + ', as many as can '
+    { long: true, limit: LINE, hint: full ? 'You have added ' + ADDED + ', as many as can '
       + 'be added at once. Send these, and add more next time round.' : '' });
   const go = capsule('Add the question', 'quiet', () => {
     const text = String(held.asking || '').trim();
@@ -4102,6 +4105,7 @@ function paintAdded(gate, node) {
     focusKey('added-question');
   }, 'add-question');
   go.disabled = full;
+  if (full) go.setAttribute('aria-describedby', 'added-question-hint');
   node.replaceChildren(...(held.added.length ? [make('h3', 'row-title', 'Questions you added'),
     items] : []), box, add(make('div', 'bar'), go));
 }
