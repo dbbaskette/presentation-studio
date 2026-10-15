@@ -426,6 +426,36 @@ class CommandTests(unittest.TestCase):
             brand.run_command(['no-such-program-anywhere'])
 
 
+class CompanionsTests(unittest.TestCase):
+    """The brand skill draws through harness-slides and asks harness-research: it is told
+    the copies this runner uses, as harness-slides says a brand adapter is
+    (HARNESS_SLIDES_ROOT), so that both use one copy, wherever it was found."""
+
+    SAID = ('import os; print(os.environ.get("HARNESS_SLIDES_ROOT"), '
+            'os.environ.get("HARNESS_RESEARCH_ROOT"))')
+
+    def test_the_skill_is_told_the_companions_this_runner_found(self):
+        with tempfile.TemporaryDirectory() as folder, \
+                mock.patch.object(slides, 'find_runtime', lambda: Path(folder) / 'slides'), \
+                mock.patch('runner.research.find_runtime', lambda: Path(folder) / 'research'), \
+                mock.patch.dict(os.environ, {}):
+            os.environ.pop('HARNESS_SLIDES_ROOT', None)
+            os.environ.pop('HARNESS_RESEARCH_ROOT', None)
+            code, out, _ = brand.run_command([sys.executable, '-c', self.SAID])
+        self.assertEqual((code, out.split()), (0, [str(Path(folder) / 'slides'),
+                                                   str(Path(folder) / 'research')]))
+
+    def test_a_companion_not_found_or_named_already_is_left_alone(self):
+        def missing():
+            raise WorkspaceError('There is none.')
+        with mock.patch.object(slides, 'find_runtime', missing), \
+                mock.patch('runner.research.find_runtime', missing), \
+                mock.patch.dict(os.environ, {'HARNESS_SLIDES_ROOT': '/chosen/slides'}):
+            os.environ.pop('HARNESS_RESEARCH_ROOT', None)
+            code, out, _ = brand.run_command([sys.executable, '-c', self.SAID])
+        self.assertEqual(out.split(), ['/chosen/slides', 'None'])
+
+
 class StandInTests(unittest.TestCase):
     """The stand-in is a made-up brand that behaves as a brand skill does."""
 

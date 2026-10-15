@@ -22,6 +22,9 @@ What a caller needs to know
   'live'.
 - `audit` returns {'status', 'blockers': [...], 'warnings': [{'code', 'slide', 'says'}]}.
   A warning is not a refusal; the caller shows it.
+- The skill's command is told the harness-slides and harness-research this runner uses, in
+  HARNESS_SLIDES_ROOT and HARNESS_RESEARCH_ROOT, as harness-slides tells a brand adapter to
+  be told, so that the skill draws with the same copy wherever it was found.
 - When the skill says no, Refused is raised: a WorkspaceError that carries its lines.
 - No call here uses the network. Nothing a brand skill prints is ever run.
 - `Brand(run=...)` replaces how the command is run. The tests' stand-in, in
@@ -115,9 +118,29 @@ def companion(folder: Path, *names: str) -> Path | None:
     return None
 
 
+ROOTS = {'HARNESS_SLIDES_ROOT': 'slides', 'HARNESS_RESEARCH_ROOT': 'research'}
+
+
+def told() -> dict:
+    """This process's environment, with the harness-slides and harness-research this
+    runner uses named the way harness-slides tells a brand adapter to find them, unless
+    they are named already. A companion not found is not named."""
+    from runner import research, slides   # the companions; neither needs a brand skill
+    env = dict(os.environ)
+    for name, module in ROOTS.items():
+        if env.get(name):
+            continue
+        try:
+            env[name] = str((slides if module == 'slides' else research).find_runtime())
+        except WorkspaceError:
+            continue
+    return env
+
+
 def run_command(command: list[str], cwd: Path | None = None) -> tuple[int, str, str]:
-    """Run the command line once: (exit code, standard output, standard error)."""
-    return companions.run_command(command, cwd, TIMEOUT, 'The brand skill')
+    """Run the command line once: (exit code, standard output, standard error). The skill
+    is told which companions to use (`told`)."""
+    return companions.run_command(command, cwd, TIMEOUT, 'The brand skill', told())
 
 
 def _lines(err: str, code: int) -> list[str]:

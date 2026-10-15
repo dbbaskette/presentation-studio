@@ -20,7 +20,8 @@ What a caller needs to know
   name, or for a slide without sources the one at its place (brand only, polish) or any
   (redesign, rework). Brand only and polish keep each text as a whole text object or a
   whole run of that slide; redesign and rework may take part of one, cut on word
-  boundaries. `understand` is the worker's own. `notes` are exempt too: the inventory holds
+  boundaries. A slide read from slides that show no words at all, a picture alone, needs
+  a title all the same, and its title is not compared. `understand` is the worker's own. `notes` are exempt too: the inventory holds
   no speaker notes. The deck's title and each `focal` are not compared.
 - `same_slides` holds a slide for each original, in order. A content slide names its
   original as sources ['slide-<n>']; a cover, section or closing slide takes no `sources`
@@ -144,7 +145,9 @@ def verbatim(outline: dict, pages: dict, whole: bool = False, counted: bool = Fa
         texts = [text for one in numbers for text in pages.get(one) or ()]
         for field, text in _words(slide):
             plain = _norm(text)
-            if not plain:
+            if not plain or (field == 'title' and not texts and all(one in pages
+                                                                     for one in numbers)):
+                # A slide that shows no words, a picture alone, still needs a title.
                 continue
             if whole:
                 held = plain in texts

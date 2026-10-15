@@ -129,12 +129,13 @@ def _text(data: bytes) -> str:
 
 
 def run_command(command: list[str], cwd: Path | None, seconds: float,
-                said: str) -> tuple[int, str, str]:
-    """Run a command line once: (exit code, standard output, standard error)."""
+                said: str, env: dict | None = None) -> tuple[int, str, str]:
+    """Run a command line once: (exit code, standard output, standard error). `env` is
+    the whole environment it is given; None is this process's own."""
     stop, printed = STOP.get(), []
     with tempfile.TemporaryFile() as errors:
         try:
-            code, late = supervise(command, cwd, None, '', seconds, errors, printed.append,
+            code, late = supervise(command, cwd, env, '', seconds, errors, printed.append,
                                    stop)
         except OSError as failure:
             raise WorkspaceError(f'{said} could not be started ({failure}).')

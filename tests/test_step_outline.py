@@ -154,6 +154,17 @@ class RuleTests(Case):
         merged['slides'][0]['sources'] = ['slide-1']
         self.assertEqual(len(outline.verbatim_rule(INVENTORY, 'rework')(merged)), 2)
 
+    def test_a_slide_that_shows_no_words_takes_a_title_and_nothing_more(self):
+        bare = copy.deepcopy(INVENTORY)
+        bare['slides'][1].update(title='', objects=[
+            {'id': '4', 'type': 'pic', 'text': '', 'runs': []}])
+        pictured = extracted()
+        pictured['slides'][1].update(title='A photo of the data centre', points=[])
+        for level in ('brand-only', 'redesign'):
+            self.assertEqual(outline.verbatim_rule(bare, level)(pictured), [], level)
+        pictured['slides'][1]['points'] = [{'text': 'Capacity holds'}]
+        self.assertEqual(len(outline.verbatim_rule(bare, 'brand-only')(pictured)), 1)
+
     def test_the_writers_own_lines_are_not_compared(self):
         outline_ = extracted()
         outline_['slides'][0]['understand'] = 'Something new.'
