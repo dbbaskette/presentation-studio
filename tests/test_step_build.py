@@ -31,6 +31,11 @@ def drawn(spec: dict, extra=None) -> str:
                                                         'picture', 'notes')
                            if wanted.get(key)})
             continue
+        if wanted.get('bare'):   # drawn as before: a shape, and no words
+            slides.append({'id': wanted['id'], 'title': wanted['title'],
+                           'sources': wanted['sources'], 'notes': wanted['notes'],
+                           'canvas': {'type': 'box', 'id': f"{spec['prefix']}shape"}})
+            continue
         slide = sketch(BY_ID[wanted['id']], spec['prefix'])
         if extra:
             slide['canvas'] = {'type': 'stack', 'direction': 'column',
@@ -418,9 +423,9 @@ R = 'http://schemas.openxmlformats.org/officeDocument/2006/relationships'
 REL = 'http://schemas.openxmlformats.org/package/2006/relationships'
 
 
-def original(path: Path, count: int, pictured: int | None) -> None:
+def original(path: Path, count: int, pictured: int | None, media: str = 'image1.png') -> None:
     """A deck of `count` slides as PowerPoint writes one, with a picture alone on slide
-    `pictured`."""
+    `pictured`, kept as ppt/media/`media`."""
     ids = ''.join(f'<p:sldId id="{255 + n}" r:id="rId{n}"/>' for n in range(1, count + 1))
     rels = ''.join(f'<Relationship Id="rId{n}" Type="{R}/slide" Target="slides/slide{n}.xml"/>'
                    for n in range(1, count + 1))
@@ -442,9 +447,10 @@ def original(path: Path, count: int, pictured: int | None) -> None:
             if n == pictured:
                 deck.writestr(f'ppt/slides/_rels/slide{n}.xml.rels',
                               f'<Relationships xmlns="{REL}"><Relationship Id="rId2" '
-                              f'Type="{R}/image" Target="../media/image1.png"/>'
+                              f'Type="{R}/image" Target="../media/{media}"/>'
                               '</Relationships>')
-        deck.writestr('ppt/media/image1.png', png())
+        deck.writestr(f'ppt/media/{media}', png() if media.endswith('.png')
+                      else b'\x01\x00\x00\x00 an enhanced metafile')
 
 
 class WordlessTests(Deck):
@@ -524,33 +530,56 @@ class WordlessTests(Deck):
         other['layout'] = 'Quote'
         self.assertTrue(build.kept(others, spec), 'a slide the runner did not set')
 
-    def test_without_its_picture_it_takes_a_layout_with_no_picture_slot(self):
+    def falls_back(self) -> list[str]:
+        """Build the deck at brand only, and check the slide fell back to its earlier
+        drawing: a shape and its approved title, with a note at the gate. Returns the words
+        on each slide of the delivered deck."""
+        self.at('brand-only')
+        self.built()
+        began = build.read_state(self.root)['start']
+        self.assertEqual(began['wordless'], {})
+        self.assertEqual(began['titled'], [self.BARE])
+        compiled = self.root / build.read_state(self.root)['rounds'][-1]['compiled']
+        scene = json.loads((compiled / 'scene.json').read_text())
+        drawn_ids = [element['id'] for slide in scene['slides'] if slide['id'] == self.BARE
+                     for element in slide['elements']]
+        self.assertTrue(any(ident.endswith('shape') for ident in drawn_ids), drawn_ids)
+        notes = {slide['number']: slide.get('note')
+                 for slide in build.gate_view(self.root, self.run_)['slides']}
+        self.assertEqual(notes[3], "This slide is drawn with a title because its picture "
+                                   "can't be carried onto a layout without one.")
+        self.assertEqual([number for number, note in notes.items() if note], [3])
+        words = self.delivered_words()
+        self.assertIn(BY_ID[self.BARE]['title'], words[2])
+        return words
+
+    def test_a_slide_of_shapes_alone_keeps_its_drawing_under_its_title(self):
         original(self.root / existing.SOURCE, len(self.outline['slides']), None)
-        self.at('polish')
-        build.start(self.root, self.run_, self.slides, self.contract)
-        placed = build.read_state(self.root)['start']['wordless'][self.BARE]
-        self.assertEqual(placed, {'layout': 'Agenda'})
+        self.falls_back()
+
+    def test_a_picture_the_slides_tool_cannot_place_falls_back(self):
+        original(self.root / existing.SOURCE, len(self.outline['slides']), 3, 'image1.emf')
+        self.falls_back()
+
+    def test_a_template_without_a_title_less_layout_with_a_picture_slot_falls_back(self):
+        self.slides.run.layouts = tuple(layout for layout in self.slides.run.layouts
+                                        if layout[1] or not layout[3])
+        self.falls_back()
+
+    def test_a_template_with_no_layout_without_a_title_falls_back_and_goes_on(self):
+        self.slides.run.layouts = tuple(layout for layout in self.slides.run.layouts
+                                        if layout[1])
+        self.falls_back()
+        self.assertIsNone(decks.read_run(self.root).get('halted'))
 
     def test_redesign_draws_its_title_as_before(self):
         self.at('redesign', OUTLINE)
         self.built()
-        self.assertEqual(build.read_state(self.root)['start'].get('wordless') or {}, {})
+        began = build.read_state(self.root)['start']
+        self.assertEqual((began.get('wordless'), began.get('titled')), ({}, []))
         self.assertIn(BY_ID[self.BARE]['title'], self.delivered_words()[2])
-
-    def test_a_template_with_no_layout_without_a_title_stops_the_deck(self):
-        self.slides.run.layouts = tuple(layout for layout in self.slides.run.layouts
-                                        if layout[1])
-        self.at('brand-only')
-        with self.assertRaises(build.NoBareLayout) as caught:
-            build.start(self.root, self.run_, self.slides, self.contract)
-        said = str(caught.exception)
-        self.assertEqual(said, "This brand's template has no layout without a title, so "
-                               'slide 3, which had no words of its own, cannot be kept '
-                               'without words at Brand only: start the deck again at '
-                               'Redesign to have it drawn afresh.')
-        self.assertFalse((self.root / build.START).exists())
-        self.assertIsNone(build.read_state(self.root)['start'])
-
+        self.assertFalse(any(slide.get('note') for slide in
+                             build.gate_view(self.root, self.run_)['slides']))
 
 if __name__ == '__main__':
     unittest.main()

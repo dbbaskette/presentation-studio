@@ -39,10 +39,12 @@ What a caller needs to know
 - At brand-only and polish, a slide whose original shows no words (`outline.wordless`) is
   set by the runner, not its composer, on a template layout that shows no title
   (`bare_layout`, from `compose layouts`), with the original's picture in the layout's
-  slot where one can be carried (`existing.original_picture`). The start records them as
-  'wordless'; the composer hands each in as given, and `kept` refuses any other layout,
-  picture or drawing on it. A template with no such layout stops the deck before anything
-  is split: NoBareLayout, with the sentence NO_BARE_LAYOUT.
+  slot (`existing.original_picture`). That is done only when both the picture can be
+  carried and the template has such a layout with a picture slot: a slide is never left
+  blank. The start records them as 'wordless'; the composer hands each in as given, and
+  `kept` refuses any other layout, picture or drawing on it. Any other such slide is
+  recorded as 'titled': its composer draws it as before, with no words but its approved
+  title, and gate:build shows TITLED on it.
 - `to_draw` is every section not yet drawn, and every section a review or the person sent
   back that was not drawn again since the last round. A review sends back each section with
   a major or critical finding about how one of its slides is drawn, for at most REPAIRS
@@ -559,33 +561,20 @@ def _approval(root: Path, run: dict, outline: dict) -> list[str]:
             *([gate['note']] if gate.get('note') else [])]
 
 
-LEVEL_NAMES = {'brand-only': 'Brand only', 'polish': 'Polish'}
-NO_BARE_LAYOUT = ("This brand's template has no layout without a title, so {slides}, which "
-                  "had no words of {its} own, cannot be kept without words at {level}: "
-                  'start the deck again at Redesign to have {them} drawn afresh.')
+TITLED = ("This slide is drawn with a title because its picture can't be carried onto a "
+          'layout without one.')
 
 
-class NoBareLayout(WorkspaceError):
-    """The brand's template has no layout that shows no title, for a slide that had no
-    words at brand only or polish."""
-
-
-def bare_layout(listed, pictured: bool) -> str | None:
-    """The template layout for a slide that had no words: one that shows no title and has
-    no canvas; with a picture to carry, one with a slot for it, and without, one with no
-    empty slot; then the one with the fewest subtitle lines. None when there is none."""
+def bare_layout(listed) -> str | None:
+    """The template layout for a slide that had no words and whose picture is carried: one
+    that shows no title, has no canvas and has a picture slot; of those, the one with the
+    fewest subtitle lines. None when the template has none."""
     fits = [layout for layout in listed or () if isinstance(layout, dict)
             and isinstance(layout.get('name'), str) and not layout.get('title')
-            and not layout.get('canvas')]
+            and not layout.get('canvas') and layout.get('pictures')]
     if not fits:
         return None
-    best = min(fits, key=lambda layout: (bool(layout.get('pictures')) != pictured,
-                                         layout.get('subtitles') or 0))
-    return best['name']
-
-
-def _numbers(names: list[str]) -> str:
-    return names[0] if len(names) == 1 else ', '.join(names[:-1]) + f' and {names[-1]}'
+    return min(fits, key=lambda layout: layout.get('subtitles') or 0)['name']
 
 
 def wordless_slides(root, run: dict, outline: dict) -> list[str]:
@@ -596,25 +585,24 @@ def wordless_slides(root, run: dict, outline: dict) -> list[str]:
     return outlines.wordless(outline, outlines.inventory_of(root), _level(run))
 
 
-def _place_bare(root: Path, run: dict, outline: dict, bare: list[str], listed,
-                folder: Path) -> dict:
-    """Each slide in `bare` set on a template layout that shows no title, with the picture
-    of its original where one can be carried: {id: {'layout', 'picture'?: {src, alt}}}."""
-    placed, order = {}, [slide.get('id') for slide in slides_of(outline)]
+def _place_bare(root: Path, outline: dict, bare: list[str], listed,
+                folder: Path) -> tuple[dict, list[str]]:
+    """Each slide in `bare` whose original picture can be carried, set on a template layout
+    that shows no title and has a slot for it: ({id: {'layout', 'picture': {src, alt}}},
+    and the IDs of the others, which are drawn with their title)."""
+    placed, titled = {}, []
+    layout = bare_layout(listed)
+    by_id = {slide.get('id'): slide for slide in slides_of(outline)}
+    order = list(by_id)
     for ident in bare:
-        number = order.index(ident) + 1
-        picture = _existing().original_picture(root, number, folder)
-        layout = bare_layout(listed, picture is not None)
-        chosen = next((one for one in listed if one.get('name') == layout), {})
-        if picture and chosen.get('pictures'):
-            title = next(slide.get('title') for slide in slides_of(outline)
-                         if slide.get('id') == ident)
-            placed[ident] = {'layout': layout,
-                             'picture': {'src': picture['src'],
-                                         'alt': picture['alt'] or title}}
-        else:
-            placed[ident] = {'layout': layout}
-    return placed
+        picture = _existing().original_picture(root, order.index(ident) + 1, folder) \
+            if layout else None
+        if picture is None:
+            titled.append(ident)
+            continue
+        placed[ident] = {'layout': layout, 'picture': {
+            'src': picture['src'], 'alt': picture['alt'] or by_id[ident].get('title')}}
+    return placed, titled
 
 
 def start(root, run: dict, slides, brand) -> dict:
@@ -623,36 +611,20 @@ def start(root, run: dict, slides, brand) -> dict:
     work/build/start/, put the lead slides right, set each slide that had no words (at
     brand only and polish) on a template layout that shows no title, and rewrite each
     section's brief for a worker with tools and no files. Whatever an earlier start built
-    is cleared. A template with no such layout stops the deck with NO_BARE_LAYOUT."""
+    is cleared."""
     root, brand = Path(root), Path(brand)
     try:
         outline = json.loads(_outline_path(root).read_text(encoding='utf-8'))
     except (OSError, ValueError):
         raise WorkspaceError('There is no approved outline to build the deck from.') from None
     bare = wordless_slides(root, run, outline)
-    listed = None
-    if bare:
-        try:
-            listed = [layout for layout in slides.layouts(brand).get('layouts') or ()
-                      if isinstance(layout, dict)]
-        except WorkspaceError as refusal:
-            raise WorkspaceError(f'The deck could not be split into sections. {refusal}') \
-                from None
-        if bare_layout(listed, False) is None:
-            order = [slide.get('id') for slide in slides_of(outline)]
-            names = [f'slide {order.index(ident) + 1}' for ident in bare]
-            raise NoBareLayout(NO_BARE_LAYOUT.format(
-                slides=_numbers(names), its='its' if len(names) == 1 else 'their',
-                them='it' if len(names) == 1 else 'them',
-                level=LEVEL_NAMES[_level(run)]))
     work, folder = root / BUILD, root / START
     for old in (folder, root / TOLD, root / DRAWN, shots(root), *work.glob('whole-*')):
         shutil.rmtree(old, ignore_errors=True)
     work.mkdir(parents=True, exist_ok=True)
     source = work / f'outline-{secrets.token_hex(3)}.json'
     try:
-        if listed is None:
-            listed = slides.layouts(brand).get('layouts')
+        listed = slides.layouts(brand).get('layouts')
         whole = complete(outline, listed, _approval(root, run, outline), house(run))
         home.write_json(source, whole)
         slides.outline_start(source, brand, folder)
@@ -673,7 +645,7 @@ def start(root, run: dict, slides, brand) -> dict:
             sections.append({'id': ident, 'file': part, 'slides': ids})
         if not sections:
             raise WorkspaceError('The slides tool split the deck into no sections.')
-        placed = _place_bare(root, run, outline, bare, listed, folder / 'pictures')
+        placed, titled = _place_bare(root, outline, bare, listed, folder / 'pictures')
         home.write_json(folder / 'given' / 'outline.json', whole)
         told = root / TOLD
         write_atomic(told / 'compose-contract.txt', slides.compose_contract(brand))
@@ -686,7 +658,7 @@ def start(root, run: dict, slides, brand) -> dict:
     finally:
         source.unlink(missing_ok=True)
     began = {'folder': START.as_posix(), 'brand': str(brand), 'sections': sections,
-             'wordless': placed, 'at': home.now()}
+             'wordless': placed, 'titled': titled, 'at': home.now()}
     write_state(root, {**EMPTY, 'start': began})
     return began
 
@@ -1194,8 +1166,10 @@ def gate_view(root, run: dict) -> dict:
     if state['rounds']:
         last = state['rounds'][-1]
         found = ((last.get('review') or {}).get('findings')) or []
+        titled = set((state.get('start') or {}).get('titled') or ())
         listed = [{'number': slide['number'], 'title': slide['title'],
                    'image': str(shots(root) / f"{slide['number']}.png"),
+                   **({'note': TITLED} if slide.get('id') in titled else {}),
                    'findings': [{key: finding.get(key) for key in (
                        'severity', 'about', 'question', 'note', 'fix')}
                        for finding in ordered(found) if finding['slide'] == slide['id']]}

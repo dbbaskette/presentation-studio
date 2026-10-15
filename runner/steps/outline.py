@@ -214,8 +214,8 @@ def same_slides(outline: dict, count: int) -> list[str]:
 def wordless(outline: dict, inventory: dict | None, level: str | None) -> list[str]:
     """The IDs of the slides that, at brand only and polish, stand for an original slide
     that shows no words at all: their title is a label of the worker's, so the build draws
-    no words of theirs, and sets each on a template layout that shows no title
-    (`build.start`). None at any other level."""
+    no words of theirs, and sets each whose picture it can carry on a template layout that
+    shows no title (`build.start`). None at any other level."""
     if level not in LEVELS_COUNTED or not isinstance(inventory, dict):
         return []
     pages = pages_of(inventory)

@@ -3578,6 +3578,7 @@ function buildPanel(gate, readonly) {
   const pairs = new Map(list(gate.pairs).map((pair) => [pair.number, pair]));
   const slides = list(gate.slides).map((one) => ({ number: one.number, title: one.title,
     findings: list(one.findings), changed: changed.includes(one.number),
+    note: typeof one.note === 'string' ? one.note : null,
     where: pictureOf(view.path, one.image || { kind: 'build', ref: one.number }),
     mark: gate.round }));
   const findings = slides.reduce((all, one) => all + one.findings.length, 0);
@@ -3611,6 +3612,7 @@ function buildPanel(gate, readonly) {
           ? pictureAt(pictureOf(view.path, pair.after), 'Slide ' + one.number + ' after',
             gate.round) : make('p', 'quiet', 'There is no picture of it after yet.'))));
     }
+    if (one.note) parts.push(make('p', 'quiet', one.note));
     if (one.findings.length) parts.push(findingItems(one.findings));
     else parts.push(make('p', 'quiet', 'The review found nothing on this slide.'));
     if (!readonly) {

@@ -502,28 +502,6 @@ class LockTests(StudioCase):
         self.assertEqual(self.waiting(slow), 'gate:build')
 
 
-class BareLayoutTests(StudioCase):
-    def test_a_template_with_no_layout_without_a_title_stops_the_deck_at_the_build(self):
-        root = self.start()
-        said = build.NO_BARE_LAYOUT.format(slides='slide 3', its='its', them='it',
-                                           level='Brand only')
-
-        def refused(*args, **named):
-            raise build.NoBareLayout(said)
-
-        with mock.patch.object(build, 'start', refused):
-            for _ in range(5):
-                waiting = self.waiting(root)
-                if waiting is None:
-                    break
-                self.decide(root, waiting)
-        view = self.view(root)
-        self.assertEqual(view['state'], 'stopped')
-        self.assertEqual(view['sentence'], said)
-        self.assertIsNone(view['problem']['action'])
-        self.assertEqual(self.record(root)['halted']['step'], 'build-start')
-
-
 class ListTests(StudioCase):
     def test_decks_are_listed_by_what_they_need(self):
         waiting = self.start()
