@@ -1194,8 +1194,14 @@ function noteSheet(kind) {
     view.notes[key] = box.value;
   });
   const marked = markedSlides();
+  // At a stop reviewed item by item, what is marked in its list goes with the note too.
+  const gate = view.run && view.run.gate;
+  const listed = !gate || !REVIEWED.includes(gate.name) || !reviewOf(gate).extra ? ''
+    : gate.name === 'gate:outline' ? ' What you marked or edited in the outline goes with '
+      + 'your note.' : ' What you marked in the list goes with your note.';
   const hint = make('p', 'quiet', spec.hint + (marked.length ? ' The parts of the deck '
-    + 'that hold ' + slidesNamed(marked) + ', which you marked, are drawn again.' : ''));
+    + 'that hold ' + slidesNamed(marked) + ', which you marked, are drawn again.' : '')
+    + listed);
   hint.id = 'note-hint';
   const problem = problemLine();
   const submit = submitButton(spec.send, 'send');
@@ -3809,24 +3815,45 @@ function owns(object, key) {
   return Object.prototype.hasOwnProperty.call(object, key);
 }
 
-// The lines typed against items, trimmed, keeping those that say something. `unchanged`
-// leaves out a line that is what the item says already.
+// A line with its spaces made single, as the runner keeps it.
+function spaced(text) {
+  return String(text || '').trim().split(/\s+/).join(' ');
+}
+
+// A text cut to about `size` characters, to name a control by.
+function clipped(text, size) {
+  const said = spaced(text);
+  return said.length > size ? said.slice(0, size - 1).trimEnd() + '…' : said;
+}
+
+// The lines typed against items, as the runner keeps them, keeping those that say
+// something. `unchanged` leaves out a line that is what the item says already.
 function filled(lines, unchanged) {
   const kept = {};
   for (const [id, text] of Object.entries(lines || {})) {
-    const said = String(text || '').trim();
-    if (said && (!unchanged || said !== unchanged(id))) kept[id] = said;
+    const said = spaced(text);
+    if (said && (!unchanged || said !== spaced(unchanged(id)))) kept[id] = said;
   }
   return kept;
+}
+
+// The findings the runner leaves out now.
+function leftBefore(gate) {
+  return list(gate.items).filter((item) => item.left_out).map((item) => item.id);
 }
 
 // The findings the person leaves out: as the runner has them until they change it here.
 function leftOut(gate) {
   const held = chosenFor(gate);
-  if (!held.leftOut) {
-    held.leftOut = list(gate.items).filter((item) => item.left_out).map((item) => item.id);
-  }
+  if (!held.leftOut) held.leftOut = leftBefore(gate);
   return held.leftOut;
+}
+
+// How many findings are left out or brought back here, against what the runner has.
+function movedOut(gate, ids) {
+  const before = leftBefore(gate);
+  return ids.filter((id) => !before.includes(id)).length
+    + before.filter((id) => !ids.includes(id)).length;
 }
 
 // What the person has marked at a reviewed stop, as the runner takes it.
@@ -3839,7 +3866,7 @@ function marksOf(gate) {
   }
   if (gate.name === 'gate:research') {
     const again = {};
-    for (const [id, text] of Object.entries(held.again)) again[id] = String(text || '').trim();
+    for (const [id, text] of Object.entries(held.again)) again[id] = spaced(text);
     return { left_out: leftOut(gate).slice(), again, add: held.added.slice() };
   }
   if (gate.name === 'gate:outline') {
@@ -3851,8 +3878,21 @@ function marksOf(gate) {
   return {};
 }
 
+// What a request for changes at a reviewed stop carries, whether its button or the sheet
+// sends it: the marks, the findings left out only when that changed here, so one left out
+// in an earlier round is not asked for again, and the outline as edited.
+function changesOf(gate) {
+  const held = chosenFor(gate);
+  const marks = marksOf(gate);
+  if (gate.name === 'gate:research' && !movedOut(gate, marks.left_out)) {
+    return { again: marks.again, add: marks.add };
+  }
+  if (gate.name === 'gate:outline' && held.edited) return { ...marks, edited: held.work };
+  return marks;
+}
+
 // What a reviewed stop's button does now: its words, whether it approves, what goes with
-// it, and a tally of the marks.
+// it, and a tally of the marks. What goes with it is nothing only where nothing is marked.
 function reviewOf(gate) {
   const held = chosenFor(gate);
   const marks = marksOf(gate);
@@ -3864,7 +3904,7 @@ function reviewOf(gate) {
       count(sized(marks.add), 'added', 'added')].join(' · ');
     if (asked) {
       return { label: 'Send ' + count(asked + dropped, 'change', 'changes'), approve: false,
-        extra: marks, tally };
+        extra: changesOf(gate), tally };
     }
     if (dropped) {
       return { label: 'Approve without ' + count(dropped, 'question', 'questions'),
@@ -3873,16 +3913,14 @@ function reviewOf(gate) {
     return { label: 'Approve', approve: true, extra: null, tally };
   }
   if (gate.name === 'gate:research') {
-    const before = list(gate.items).filter((item) => item.left_out).map((item) => item.id);
-    const moved = marks.left_out.filter((id) => !before.includes(id)).length
-      + before.filter((id) => !marks.left_out.includes(id)).length;
+    const moved = movedOut(gate, marks.left_out);
     const asked = sized(marks.again) + sized(marks.add);
     const tally = [count(sized(marks.again), 'to research again', 'to research again'),
       count(marks.left_out.length, 'left out', 'left out'),
       count(sized(marks.add), 'added', 'added')].join(' · ');
     if (asked) {
       return { label: 'Send ' + count(asked + moved, 'change', 'changes'), approve: false,
-        extra: marks, tally };
+        extra: changesOf(gate), tally };
     }
     if (moved) {
       return { label: marks.left_out.length ? 'Approve, leaving out '
@@ -3897,14 +3935,16 @@ function reviewOf(gate) {
     + (held.edited ? ' · edited here' : '');
   if (slides) {
     return { label: 'Send ' + count(slides, 'change', 'changes'), approve: false,
-      extra: { ...marks, ...(edited || {}) }, tally };
+      extra: changesOf(gate), tally };
   }
   return { label: 'Approve', approve: true, extra: edited, tally };
 }
 
-function sendReview(gate, pressed) {
+// Do what a reviewed stop's button says. What refuses it is said in `problem` where one is
+// given, or else at the head of the deck.
+function sendReview(gate, pressed, problem) {
   const made = reviewOf(gate);
-  decide(made.approve ? 'approve' : 'changes', '', null, pressed, made.extra);
+  decide(made.approve ? 'approve' : 'changes', '', problem || null, pressed, made.extra);
 }
 
 // Two to four numbers in a row, each with what it counts.
@@ -3924,10 +3964,16 @@ function fullText(summary, label, text, key) {
   return add(node, make('summary', '', summary), documentPart(label, text));
 }
 
-// The tally of the marks and the button that sends them, at the foot of the items.
+// The tally of the marks and the button that sends them, at the foot of the items. The
+// tally is made once and only its words change, so what it says is read out as it changes.
+// What refuses the decision is said beside the button.
 function reviewBar(gate) {
   const node = make('div', 'review-bar');
   node.id = 'review-bar';
+  const tally = make('p', 'quiet');
+  tally.id = 'review-tally';
+  tally.setAttribute('role', 'status');
+  add(node, tally, alertLine('review-problem'), make('div', 'bar'));
   paintReviewBar(gate, node);
   return node;
 }
@@ -3935,10 +3981,12 @@ function reviewBar(gate) {
 function paintReviewBar(gate, node) {
   if (!node) return;
   const made = reviewOf(gate);
-  const tally = make('p', 'quiet', made.tally);
-  tally.setAttribute('role', 'status');
-  const go = capsule(made.label, '', () => sendReview(gate, go), 'review-send');
-  node.replaceChildren(tally, add(make('div', 'bar'), go));
+  const problem = node.querySelector('#review-problem');
+  node.querySelector('#review-tally').textContent = made.tally;
+  // What was refused before is not what the marks say now.
+  say(problem, '');
+  const go = capsule(made.label, '', () => sendReview(gate, go, problem), 'review-send');
+  node.querySelector('.bar').replaceChildren(go);
 }
 
 // A mark changed: the tally, this button and the toolbar's say so at once.
@@ -3966,7 +4014,7 @@ function paintAdded(gate, node) {
       reviewChanged(gate);
       focusKey('added-question');
     }, 'unadd ' + index);
-    take.setAttribute('aria-label', 'Take back “' + text + '”');
+    take.setAttribute('aria-label', 'Take it back: “' + clipped(text, 60) + '”');
     items.append(add(make('li', 'review-row'), make('p', '', text),
       add(make('div', 'bar'), take)));
   });
@@ -3995,9 +4043,7 @@ function paintAdded(gate, node) {
 function extraFor(gate, decision) {
   const held = chosenFor(gate);
   if (REVIEWED.includes(gate.name)) {
-    if (decision === 'approve') return reviewOf(gate).extra;
-    const marks = marksOf(gate);
-    return gate.name === 'gate:outline' && held.edited ? { ...marks, edited: held.work } : marks;
+    return decision === 'approve' ? reviewOf(gate).extra : changesOf(gate);
   }
   if (gate.name === 'gate:classify' && decision === 'approve' && held.wrong
       && gate.kind === 'document') {
@@ -4079,7 +4125,8 @@ async function decide(decision, note, problem, pressed, extra) {
       say(problem, failure.message + ' Nothing was decided.');
       return;
     }
-    // Approve has no sheet: what refused it is said at the head of the deck.
+    // A decision pressed in the toolbar has no sheet, whether it approves or sends what was
+    // marked: what refused it is said at the head of the deck.
     if (turn !== view.turn) return;
     view.steered = failure.message + ' Nothing was decided.';
     paintDeck(false);
@@ -4149,11 +4196,14 @@ function deckActions(run, lead) {
   };
   if (run.gate && !run.question) {
     // Approve acts at once: what it does is said beside the gate before it is pressed. At
-    // a stop reviewed item by item it says what it will do with the marks.
-    const reviewed = REVIEWED.includes(run.gate.name);
-    const approve = capsule(reviewed ? reviewOf(run.gate).label : 'Approve',
-      lead === 'approve' ? 'filled' : '', () => (reviewed ? sendReview(run.gate, approve)
-        : decide('approve', '', null, approve)), 'approve');
+    // a stop reviewed item by item it says what it will do with the marks. Pressed, it
+    // acts on the gate as it is then, as `decide` does.
+    const approve = capsule(REVIEWED.includes(run.gate.name) ? reviewOf(run.gate).label
+      : 'Approve', lead === 'approve' ? 'filled' : '', () => {
+      const gate = view.run.gate;
+      if (gate && REVIEWED.includes(gate.name)) sendReview(gate, approve);
+      else decide('approve', '', null, approve);
+    }, 'approve');
     const brand = run.gate.name === 'gate:look';
     actions.push(approve, capsule(brand ? 'Choose another brand' : 'Ask for changes', '',
       openSheet(brand ? 'rebrand' : 'changes', 'changes'), 'changes'));
