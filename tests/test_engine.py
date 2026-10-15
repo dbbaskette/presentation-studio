@@ -671,6 +671,39 @@ class FindingMarkTests(StudioCase):
         self.assertEqual(str(caught.exception), marks.AS_CHANGES)
 
 
+class OutlineMarkTests(StudioCase):
+    def test_slides_marked_for_changes_reach_the_outline_worker(self):
+        root = self.start()
+        slides = self.view(root)['gate']['slides']
+        moved = [slides[0], slides[2], slides[1], *slides[3:]]
+        # The scripted workers draw the outline they are given, as it now stands.
+        self.workers.outline_said = {**self.workers.outline_said, 'slides': moved}
+        read = []
+
+        def draw(tools, job):
+            read.append(json.loads(tools.read_input('The current outline')[1]))
+            self.workers.outline(tools, job)
+        self.workers.then('outline', draw)
+        self.engine.decide(root, 'gate:outline', 'changes', None, {
+            'edited': moved, 'slides': {slides[1]['id']: 'Split it in two.'}})
+        # The worker found the person's edit already kept when it began.
+        self.assertEqual([[one['id'] for one in outline['slides']] for outline in read],
+                         [[one['id'] for one in moved]])
+        kept = json.loads((root / 'outline.json').read_text())
+        self.assertEqual([one['id'] for one in kept['slides']], [one['id'] for one in moved])
+        task = self.workers.of('outline')[-1].task
+        self.assertIn(f"- Slide `{slides[1]['id']}`: Split it in two.", task)
+        self.assertEqual(self.record(root)['gates']['gate:outline']['round'], 2)
+
+    def test_a_slide_the_outline_does_not_have_is_refused(self):
+        root = self.start()
+        with self.assertRaises(WorkspaceError) as caught:
+            self.engine.decide(root, 'gate:outline', 'changes', None,
+                               {'slides': {'no-such-slide': 'Split it.'}})
+        self.assertEqual(str(caught.exception), 'There is no slide no-such-slide here.')
+        self.assertEqual(len(self.workers.of('outline')), 1)
+
+
 class DocumentTests(StudioCase):
     def test_a_pasted_document_is_classified_and_a_correction_switches_the_branch(self):
         root = self.start(route='document', research=True,
