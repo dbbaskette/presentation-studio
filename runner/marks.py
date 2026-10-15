@@ -72,7 +72,7 @@ def _texts(value) -> list[str]:
     if value is None:
         return []
     if not isinstance(value, list) or not all(isinstance(one, str) for one in value):
-        raise WorkspaceError('A question to add is text.')
+        raise WorkspaceError('Send each question to add as text.')
     texts = [' '.join(one.split()) for one in value]
     if any(not one for one in texts):
         raise WorkspaceError('A question to add is empty.')
@@ -83,13 +83,16 @@ def _texts(value) -> list[str]:
     return texts
 
 
-def check(gate: str, decision: str, extra: dict, ids) -> dict:
+def check(gate: str, decision: str, extra: dict | None, ids) -> dict:
     """The marks sent with a decision at `gate`, cleaned. Refuses, in a sentence, one that
     names what the stop does not have, says nothing where it must, or goes with Approve
     when it needs a worker."""
     if gate not in REVIEWED:
         return {}
-    ids, extra = list(ids), extra or {}
+    ids = list(ids)
+    if extra is not None and not isinstance(extra, dict):
+        raise WorkspaceError('What comes with a decision was not understood.')
+    extra = extra or {}
     if gate == 'gate:research-plan':
         marked = {'dropped': _ids(extra.get('dropped'), ids, 'question'),
                   'reword': _lines(extra.get('reword'), ids, 'question', True),
@@ -103,7 +106,7 @@ def check(gate: str, decision: str, extra: dict, ids) -> dict:
     elif gate == 'gate:research':
         marked = {'again': _lines(extra.get('again'), ids, 'question', False),
                   'add': _texts(extra.get('add'))}
-        if 'left_out' in extra:
+        if extra.get('left_out') is not None:
             marked['left_out'] = _ids(extra.get('left_out'), ids, 'question')
             if ids and set(marked['left_out']) >= set(ids):
                 raise WorkspaceError(ALL_LEFT_OUT)

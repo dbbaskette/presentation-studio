@@ -76,6 +76,31 @@ class CheckTests(unittest.TestCase):
             marks.check('gate:outline', 'approve', {'slides': {'what-it-does': 'Split.'}},
                         SLIDES)
 
+    def test_a_line_must_be_text_and_not_too_long(self):
+        for line, said in ((7, 'What you wrote for instance-min is not text.'),
+                           ('x' * 1001, 'Say it for instance-min in at most 1,000 characters.')):
+            with self.subTest(line=line):
+                with self.assertRaises(WorkspaceError) as caught:
+                    marks.check('gate:research-plan', 'changes',
+                                {'reword': {'instance-min': line}}, QUESTIONS)
+                self.assertIn(said, str(caught.exception))
+
+    def test_a_null_line_is_an_empty_one_and_a_null_leave_out_is_none(self):
+        self.assertEqual(marks.check('gate:research', 'changes',
+                                     {'again': {'instance-min': None}}, QUESTIONS),
+                         {'again': {'instance-min': ''}})
+        self.assertEqual(marks.check('gate:research', 'approve', {'left_out': None}, QUESTIONS),
+                         {})
+
+    def test_what_comes_with_a_decision_must_be_an_object(self):
+        for gate in marks.REVIEWED:
+            with self.subTest(gate=gate):
+                with self.assertRaises(WorkspaceError) as caught:
+                    marks.check(gate, 'changes', ['x'], QUESTIONS)
+                self.assertEqual(str(caught.exception),
+                                 'What comes with a decision was not understood.')
+        self.assertEqual(marks.check('gate:build', 'approve', ['x'], []), {})
+
     def test_what_asks_a_worker(self):
         self.assertFalse(marks.asks({}))
         self.assertFalse(marks.asks({'left_out': ['instance-min']}))
@@ -119,6 +144,7 @@ class WordsTests(unittest.TestCase):
         self.assertEqual(marks.new_id('What does a rolling restart cost?',
                                       ['what-does-a-rolling-restart']),
                          'what-does-a-rolling-restart-2')
+        self.assertEqual(marks.new_id('Why?', ['why', 'why-2']), 'why-3')
         self.assertEqual(marks.new_id('???', []), 'question')
 
     def test_the_first_sentence(self):
