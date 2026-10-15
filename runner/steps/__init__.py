@@ -2,6 +2,7 @@
 engine and holds no state of its own.
 
     intake     taking in a document or a Google Doc, and telling a spec from material
+    outline    writing, extracting and restructuring the outline
     build      what a deck is drawn from: the runner's own rules for a section and a review
 
 Every step that sets up a worker's job returns a `Work`: what the worker is told (`guidance`
