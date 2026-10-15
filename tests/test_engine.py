@@ -2,15 +2,17 @@
 with the slides tool, a brand skill and harness-research as stand-ins. Nothing real is
 started, rendered or sent."""
 import json
+import threading
+import time
 import unittest
 from pathlib import Path
 from unittest import mock
 
 import runner_support
-from runner_support import FORM, OUTLINE, StudioCase, asks, fails
+from runner_support import OUTLINE, StudioCase, asks, fails
 from workspace import WorkspaceError
 
-from runner import decks, stages, worker_tools
+from runner import decks, stages
 from runner.steps import build
 
 
@@ -226,7 +228,7 @@ class HaltTests(StudioCase):
 
     def test_a_deck_that_spent_what_it_may_stops_and_asks(self):
         from dataclasses import replace
-        self.settings.save(replace(self.settings.load(), training_dollars=1.0))
+        self.settings.save(replace(self.settings.load(), deck_dollars=1.0))
         self.workers.cost = 0.75
         self.workers.then('outline', asks('One thing first?'))
         root = self.start()
@@ -363,6 +365,34 @@ class PictureTests(StudioCase):
                     self.engine.picture(root, kind, ref)
         with self.assertRaises(WorkspaceError):
             self.engine.picture(root, 'secret', 1)
+
+
+class LockTests(StudioCase):
+    def test_a_render_in_hand_never_holds_up_a_decision_on_another_deck(self):
+        slow, other = self.start(), self.start(title='Another deck')
+        entered, release, real = threading.Event(), threading.Event(), build.render
+
+        def held(root, *args, **named):
+            if Path(root) == slow:
+                entered.set()
+                release.wait(30)
+            return real(root, *args, **named)
+
+        with mock.patch.object(build, 'render', held):
+            self.decide(slow)                       # the outline; the look waits next
+            going = threading.Thread(target=self.decide, args=(slow,))
+            going.start()                           # the look; the build runs to its render
+            try:
+                self.assertTrue(entered.wait(60), 'the render was reached')
+                clock = time.monotonic()
+                self.engine.decide(other, 'gate:outline', 'changes', 'Shorter, please.')
+                self.assertLess(time.monotonic() - clock, 10,
+                                "a decision waited for another deck's render")
+                self.assertEqual(self.waiting(other), 'gate:outline')
+            finally:
+                release.set()
+                going.join(60)
+        self.assertEqual(self.waiting(slow), 'gate:build')
 
 
 class ListTests(StudioCase):

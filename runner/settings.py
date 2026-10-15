@@ -4,7 +4,7 @@ how a deck's previews are rendered.
 What a caller needs to know
 ---------------------------
     chosen = settings.load()                      # the defaults when nothing is saved
-    settings.save(replace(chosen, agent='codex', training_dollars=10))
+    settings.save(replace(chosen, agent='codex', deck_dollars=10))
 
 - Kept in the per-user data folder as `runner.json`, beside the workspace `gitstate`
   remembers there. Nothing here is written into the repository: two people who share a
@@ -14,7 +14,7 @@ What a caller needs to know
   agent takes (EFFORTS): which of them a model takes is what the agent lists. Claude Code
   lists nothing, so its models and their levels are kept in `claude-code-models.json`
   beside this file, and a level its model does not take is refused (`takes`).
-- `step_seconds` is how long one worker may run. `training_dollars` is what one deck
+- `step_seconds` is how long one worker may run. `deck_dollars` is what one deck
   may spend, where the agent reports spending, before it stops and asks. `parallel` is how
   many decks work at once.
 - `previews` is how a deck's slides are rendered to look at: `local`, with LibreOffice on
@@ -61,7 +61,7 @@ class Settings:
     model: str | None = None
     effort: str | None = None
     step_seconds: int = 900
-    training_dollars: float = 20.0
+    deck_dollars: float = 20.0
     parallel: int = 2
     previews: str | None = None
     brand_skill: str | None = None
@@ -70,7 +70,7 @@ class Settings:
 
     @property
     def limits(self) -> dict:
-        return {'step_seconds': self.step_seconds, 'training_dollars': self.training_dollars,
+        return {'step_seconds': self.step_seconds, 'deck_dollars': self.deck_dollars,
                 'parallel': self.parallel}
 
 
@@ -218,8 +218,8 @@ def check(chosen: Settings) -> Settings:
         effort=check_effort(chosen.effort, agent, chosen.model),
         step_seconds=number(chosen.step_seconds, 'The time for one step, in seconds,',
                             *SECONDS, True),
-        training_dollars=number(chosen.training_dollars,
-                                'What a deck may spend, in dollars,', 0.01, DOLLARS, False),
+        deck_dollars=number(chosen.deck_dollars,
+                            'What a deck may spend, in dollars,', 0.01, DOLLARS, False),
         parallel=number(chosen.parallel, 'How many decks run at once', *PARALLEL, True),
         previews=check_previews(chosen.previews), brand_skill=check_place(chosen.brand_skill),
         notify=check_notify(chosen.notify),

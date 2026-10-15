@@ -3,6 +3,8 @@
 What a caller needs to know
 ---------------------------
     record = deliver.deliver(root, run, slides, space=None)   # deliver.json, README, index
+    made = deliver.upload(root, run, slides)                   # the same in two: the upload,
+    record = deliver.record(root, run, made, space)            #   then what is written
     run = deliver.again(root, run, slides, note)               # reopen gate:build with a note
 
 - Output 'google' puts the rendered deck into Google Drive as Google Slides, always as a
@@ -50,11 +52,17 @@ def _rewrite(root: Path, run: dict, record: dict | None, space) -> None:
 
 def deliver(root, run: dict, slides, space=None) -> dict:
     """Deliver the rendered deck as the form asked: to Google Slides, or as a PowerPoint
-    file. Returns what deliver.json records."""
+    file. Returns what deliver.json records. A caller that must not hold its lock through
+    the upload calls `upload`, then `record` under its lock."""
+    return record(root, run, upload(root, run, slides), space)
+
+
+def upload(root, run: dict, slides) -> dict:
+    """Put the rendered deck where the form asked, and say what deliver.json will record.
+    Nothing in the deck's folder is written."""
     root = Path(root)
     deck = build.delivered_deck(root, run)
-    revisions = run.setdefault('revisions', [])
-    revision, at = len(revisions) + 1, home.now()
+    revision, at = len(run.get('revisions') or []) + 1, home.now()
     output = (run.get('form') or {}).get('output') or 'google'
     record = {'output': output, 'url': None, 'fileId': None, 'pptx': None,
               'revision': revision, 'at': at}
@@ -66,6 +74,16 @@ def deliver(root, run: dict, slides, space=None) -> dict:
             record.update(output='pptx', notice=NOT_CONNECTED)
     if record['output'] == 'pptx':
         record['pptx'] = deck.relative_to(root).as_posix()
+    return record
+
+
+def record(root, run: dict, made: dict, space=None) -> dict:
+    """Write deliver.json from what `upload` made, add the revision to the run, and write
+    the deck's README and the workspace's index again. Returns what deliver.json holds."""
+    root = Path(root)
+    revisions = run.setdefault('revisions', [])
+    revision, at = len(revisions) + 1, made['at']
+    record = {**made, 'revision': revision}
     write_atomic(root / decks.DELIVER, json.dumps(record, indent=2, ensure_ascii=False)
                  + '\n')
     where = {'url': record['url']} if record['url'] else {'pptx': record['pptx']}

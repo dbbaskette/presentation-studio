@@ -173,23 +173,20 @@ class Run:
         self.workers: dict[str, dict] = {}
 
 
-
 def sha256_of(path: Path) -> str | None:
+    """A file's SHA-256, or None when it cannot be read."""
     try:
         return hashlib.sha256(Path(path).read_bytes()).hexdigest()
     except OSError:
         return None
 
 
-
-
 def text_of(path: Path) -> str | None:
+    """A file's text, or None when it cannot be read."""
     try:
         return Path(path).read_text(encoding='utf-8')
     except OSError:
         return None
-
-
 
 
 class Jobs:
@@ -305,7 +302,7 @@ class Jobs:
         dollars = spent(record)[0] or 0.0
         limit = (record.get('limits') or {}).get('dollars')
         if limit is None:
-            limit = settings.load().training_dollars
+            limit = settings.load().deck_dollars
         return round(limit + record.get('cleared', 0.0) - dollars, 4)
 
     def _may_go(self, root: Path) -> bool:
@@ -319,7 +316,7 @@ class Jobs:
                 return True
             dollars = spent(record)[0] or 0.0
             limit = (record.get('limits') or {}).get('dollars') \
-                or settings.load().training_dollars
+                or settings.load().deck_dollars
             self._problem(root, None, 'stopped', (
                 f'This deck has spent ${dollars:,.2f}. It stops and asks each time it has spent '
                 f'another ${limit:,.2f}.'), 'Everything made so far is kept.', 'resume',

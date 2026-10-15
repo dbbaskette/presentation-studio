@@ -18,7 +18,7 @@ from runner_support import FORM, StudioCase, TeamCase
 
 import home
 import hub
-from runner import decks, gitstate, settings, team
+from runner import gitstate, settings, team
 from runner import engine as engines
 from workspace import WorkspaceError
 
@@ -265,6 +265,43 @@ class DriverTests(Team):
         self.assertIn('was uploaded on the computer that started it, and is never shared',
                       view['sentence'])
         self.assertEqual(view['problem']['action'], None)
+
+    def google_deck(self) -> Path:
+        """A deck from Google Slides whose inventory Alex approved before handing it over.
+        Its extract fails with these workers, which leaves it stopped on a problem."""
+        with self.be(self.alex):
+            root = Path(self.engine.start(
+                {**FORM, 'route': 'existing', 'level': 'polish',
+                 'source': {'kind': 'google', 'link': 'abc123'}})['path'])
+            self.engine.decide(root, 'gate:classify', 'approve')
+        self.drive(self.alex, root, 'hand-over')
+        self.fetch(self.blake)
+        return root
+
+    def test_a_deck_taken_after_its_inventory_draws_the_original_slides_again(self):
+        root = self.google_deck()
+        theirs = self.theirs(self.blake, root)
+        self.assertFalse((theirs / 'work').exists())
+        self.drive(self.blake, root)
+        with self.be(self.blake):
+            self.blake.engine.act(theirs, 'retry')
+            picture = self.blake.engine.picture(theirs, 'original', 1)
+        self.assertTrue(picture.startswith(b'\x89PNG'))
+        self.assertEqual(self.record(theirs)['gates']['gate:classify']['state'], 'approved',
+                         'the inventory was not put to the person again')
+
+    def test_a_google_deck_that_changed_since_it_was_read_stops_the_deck_taken_over(self):
+        from stand_ins import slides as stand_in
+        root = self.google_deck()
+        real = stand_in.invented
+        with mock.patch.object(stand_in, 'invented', lambda title: real(f'{title}, edited')):
+            self.drive(self.blake, root)
+            view = self.as_(self.blake, self.blake.engine.act, self.theirs(self.blake, root),
+                            'retry')
+        self.assertEqual((view['state'], view['problem']['action']), ('stopped', None))
+        self.assertIn('The deck in Google Slides changed since this deck was read from it',
+                      view['sentence'])
+        self.assertIn('Start a new deck from it', view['sentence'])
 
     def test_a_deck_cannot_be_taken_while_the_repository_cannot_be_reached(self):
         root = self.started()
@@ -659,6 +696,18 @@ class DeleteTests(Team):
 
 
 class BringTests(Team):
+    def test_a_deck_brought_in_under_a_name_a_teammate_has_is_refused_then_numbered(self):
+        root = self.started()
+        outside = self.base / 'outside' / 'restarts'
+        import shutil
+        shutil.copytree(root, outside, ignore=shutil.ignore_patterns('work', 'sources'))
+        with self.assertRaisesRegex(WorkspaceError, 'Alex already has a deck in '
+                                    'presentations/rolling-restarts, which this computer had '
+                                    'not seen yet, so this one was not brought in'):
+            self.as_(self.blake, self.blake.engine.bring, outside)
+        made = self.as_(self.blake, self.blake.engine.bring, outside)
+        self.assertEqual(made['id'], 'rolling-restarts-2')
+
     def test_a_deck_is_copied_in_taken_and_carried_on_at_its_waiting_gate(self):
         root = self.started()
         outside = self.base / 'outside' / 'restarts'

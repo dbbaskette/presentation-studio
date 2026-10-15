@@ -104,7 +104,7 @@ import runner  # noqa: F401  puts the core on the import path
 import computer
 import home
 import hub
-from workspace import WorkspaceError
+from workspace import WorkspaceError, write_atomic
 
 from runner import agents, companion, decks, documents, gitstate, settings, stages
 from runner import team, worker_tools
@@ -187,12 +187,18 @@ STALLED = ('Something went wrong while the runner picked its decks up ({failure}
 SAME_TIME = ('{name} started a deck in {folder}/{ident} at the same moment, and theirs was '
              'shared first. Yours was not started. Give it a different title, or look at '
              'theirs.')
+NAME_TAKEN = ('{name} already has a deck in {folder}/{ident}, which this computer had not '
+              'seen yet, so this one was not brought in. Bring it in again: now it gets a '
+              'folder of its own.')
 MOVED = ('{name} started a deck in {folder}/{was} while this computer could not reach the '
          'shared repository, and theirs was shared first. Yours is kept whole, and was moved '
          'to {folder}/{ident}.')
 GIVEN_ELSEWHERE = ('What this deck was made from was {how} on the computer that started it, '
                   'and is never shared, so this computer does not have it. Carry on with '
                   'this deck on that computer, or start it again here.')
+CHANGED_IN_GOOGLE = ('The deck in Google Slides changed since this deck was read from it, so '
+                     'what was decided about it no longer fits. Start a new deck from it as it '
+                     'is now.')
 AGAIN_HERE = ('carry on here: {steps} again, as what was made for them is kept on the '
               'computer that made it')
 NOT_WAITING = 'The {it} is not waiting for a decision now.'
@@ -376,15 +382,16 @@ class Engine(Jobs, Researching):
     def _store(self, root: Path, record: dict) -> None:
         decks.write_run(root, record)
 
-    def _commit(self, root: Path, what: str) -> None:
-        """Commit one deck's folder, saying what happened. Call it holding `files`. Nothing
-        is committed for a deck that stopped being this computer's while a step was in
-        hand: what the step wrote is put back, and the step ends."""
+    def _commit(self, root: Path, what: str, also=()) -> None:
+        """Commit one deck's folder, and the paths `also` names, saying what happened. Call
+        it holding `files`. Nothing is committed for a deck that stopped being this
+        computer's while a step was in hand: what the step wrote is put back, and the step
+        ends."""
         if self._run(root).gone:
             gitstate.discard(self.space(), root)
             raise _Gone('This deck is no longer run from this computer.')
         title = self._load(root).get('title') or root.name
-        gitstate.commit(self.space(), f'{title}: {what}', [root])
+        gitstate.commit(self.space(), f'{title}: {what}', [root, *also])
 
     # --- one driver for each deck ------------------------------------------------------------
 
@@ -683,7 +690,7 @@ class Engine(Jobs, Researching):
                 record.update(agent=agent, model=model, level_of_effort=effort,
                               driver=team.claim(space),
                               limits={'step_seconds': chosen.step_seconds,
-                                      'dollars': chosen.training_dollars})
+                                      'dollars': chosen.deck_dollars})
                 self._store(root, record)
                 self._commit(root, 'set up its run' + (
                     f", driven by {record['driver']['name']}" if record['driver'] else ''))
@@ -719,7 +726,7 @@ class Engine(Jobs, Researching):
                 break
         shutil.rmtree(root, ignore_errors=True)
 
-    def _claimed(self, root: Path, space: gitstate.Workspace) -> None:
+    def _claimed(self, root: Path, space: gitstate.Workspace, said: str = SAME_TIME) -> None:
         """Share the claim a new deck was committed with, before any work is done for it.
         Someone else's deck of the same name, started at the same moment, stands: this one
         is taken back and refused, naming them. Call it holding `files`."""
@@ -743,7 +750,7 @@ class Engine(Jobs, Researching):
             if (root / decks.RUN).is_file() and team.ours(space, decks.read_run(root)):
                 self._undo_start(space, root)
             self._step(space, push=False)
-            raise WorkspaceError(SAME_TIME.format(
+            raise WorkspaceError(said.format(
                 name=who['name'] if who else 'Someone else', folder=space.folder,
                 ident=root.name))
         self._unshared = None if report['shared'] else report.get('notice')
@@ -877,6 +884,7 @@ class Engine(Jobs, Researching):
                     settled = True
                     if self._settle(root, record):
                         continue
+                self._original(root, record)
                 step = first(record)
                 if step is None:
                     return
@@ -946,7 +954,7 @@ class Engine(Jobs, Researching):
             elif did('look-preview') and not (root / looks.OPTIONS / '1' / 'picture.png'
                                               ).is_file():
                 again.append('look-preview')
-        if did('patch') and not (root / existing.PATCH).is_file():
+        if did('patch') and (lacks or not (root / existing.PATCH).is_file()):
             again += ['patch', 'build-render']
         if any(did(name) for name in BUILT) and (
                 not build.read_state(root).get('start') and 'build-start' in names
@@ -967,6 +975,19 @@ class Engine(Jobs, Researching):
                 stages.BY_NAME[name].label.lower() for name in again)))
         return True
 
+    def _original(self, root: Path, record: dict) -> None:
+        """Draw the given deck's slides again, into work/, when the inventory was approved
+        on another computer and its pictures stayed there: gate:build shows them beside the
+        new ones. Nothing shared changes, so nothing is committed."""
+        if record.get('route') != 'existing' \
+                or gate_state(record, 'gate:classify') != 'approved' \
+                or decks.delivered(root) is not None \
+                or not (root / existing.SOURCE).is_file() \
+                or self._shots(root / existing.ORIGINAL_SHOTS):
+            return
+        existing.draw_original(root, record, self.slides(),
+                               self._renderer(root, stages.BY_NAME['inventory']))
+
     def _trouble(self, root: Path, failure: Exception) -> None:
         """Stop a deck on something a step refused or the runner did not expect."""
         if isinstance(failure, (_Gone, _Halted)):
@@ -983,14 +1004,14 @@ class Engine(Jobs, Researching):
             pass
 
     def _done(self, root: Path, step: stages.Step, clock: float, what: str,
-              record: dict | None = None) -> None:
+              record: dict | None = None, also=()) -> None:
         """Note a step of the runner's own that worked, and commit. Call it holding
         `files`."""
         record = record if record is not None else self._load(root)
         self._tried(record, step.name, home.now(), time.monotonic() - clock, 'kept')
         self._finish(record, step.name)
         self._store(root, record)
-        self._commit(root, what)
+        self._commit(root, what, also)
 
     def _last(self) -> None:
         """Share what the runner did last for a deck: no decision follows it."""
@@ -1183,38 +1204,61 @@ class Engine(Jobs, Researching):
     # --- the steps of the runner's own -------------------------------------------------------
 
     def _intake_source(self, root: Path, run: _Run, step: stages.Step) -> None:
-        """Take in what the form brought: the person's document, or the deck to improve."""
+        """Take in what the form brought: the person's document, or the deck to improve.
+        What is fetched or kept goes under sources/, which is never shared, so it is done
+        without `files`."""
         clock = time.monotonic()
+        record = self._load(root)
+        route, source = record['route'], dict((record['form'].get('source') or {}))
+        incoming = root / INCOMING
+        if route == 'document':
+            if not any(entry['readable'] for entry in documents.listed(root)):
+                if source.get('kind') == 'upload':
+                    source['data'] = (incoming / 'upload').read_bytes()
+                elif source.get('kind') == 'paste':
+                    source['text'] = (incoming / 'pasted.txt').read_text(encoding='utf-8')
+                intake.take_document(root, source, self.google() if self.google else None)
+            what = 'take in your document'
+        elif route == 'existing':
+            if not (root / existing.SOURCE).is_file():
+                if source.get('kind') == 'upload':
+                    source['data'] = (incoming / 'upload').read_bytes()
+                existing.fetch(root, source, self.slides(),
+                               source.get('kind') != 'google' or self._google_ready())
+                self._same_deck(root, step)
+            what = 'bring in your deck'
+        else:
+            what = 'take in the brief'
         with self.files:
-            record = self._load(root)
-            route, source = record['route'], dict((record['form'].get('source') or {}))
-            incoming = root / INCOMING
-            if route == 'document':
-                if not any(entry['readable'] for entry in documents.listed(root)):
-                    if source.get('kind') == 'upload':
-                        source['data'] = (incoming / 'upload').read_bytes()
-                    elif source.get('kind') == 'paste':
-                        source['text'] = (incoming / 'pasted.txt').read_text(encoding='utf-8')
-                    intake.take_document(root, source, self.google() if self.google else None)
-                what = 'take in your document'
-            elif route == 'existing':
-                if not (root / existing.SOURCE).is_file():
-                    if source.get('kind') == 'upload':
-                        source['data'] = (incoming / 'upload').read_bytes()
-                    existing.fetch(root, source, self.slides(),
-                                   source.get('kind') != 'google' or self._google_ready())
-                what = 'bring in your deck'
-            else:
-                what = 'take in the brief'
             shutil.rmtree(incoming, ignore_errors=True)
             self._done(root, step, clock, what)
 
+    def _same_deck(self, root: Path, step: stages.Step) -> None:
+        """A deck fetched again from Google Slides, on a computer that took it over, must be
+        the deck that was read before: what was decided was decided about that one. Its
+        slides are compared as the inventory lists them; an export's bytes differ each time."""
+        read = home.read_json(root / existing.INVENTORY, None)
+        before = read.get('slides') if isinstance(read, dict) else None
+        if before is None:
+            return
+        now = existing.read_deck(root, self.slides())
+        if now['slides'] != before:
+            self._problem(root, step.name, 'stopped', CHANGED_IN_GOOGLE, KEPT_SO_FAR,
+                          action=None)
+            raise _Halted()
+        if now['sha256'] != read.get('sha256'):    # the same slides, in a new file
+            with self.files:
+                write_atomic(root / existing.INVENTORY,
+                             json.dumps({**read, 'sha256': now['sha256']}, indent=2,
+                                        ensure_ascii=False) + '\n')
+
     def _inventory(self, root: Path, run: _Run, step: stages.Step) -> None:
         how = self._renderer(root, step)
-        clock = time.monotonic()
+        clock, slides = time.monotonic(), self.slides()
+        shared = existing.read_deck(root, slides)
+        existing.draw_original(root, self._load(root), slides, how)
         with self.files:
-            record = self._load(root)
-            existing.inventory(root, record, self.slides(), how)
+            record = existing.keep_inventory(root, self._load(root), shared)
             self._done(root, step, clock, 'list every slide of your deck', record)
 
     def _brand_step(self, root: Path, run: _Run, step: stages.Step) -> None:
@@ -1227,27 +1271,30 @@ class Engine(Jobs, Researching):
         how = self._renderer(root, step)
         self._contract(root)
         clock = time.monotonic()
+        shown = looks.draw_options(root, self._load(root), self.slides(), how)
         with self.files:
             record = self._load(root)
-            looks.preview_options(root, record, self.slides(), how)
+            looks.show_options(root, record, shown)
             self._done(root, step, clock, 'draw each look on a sample slide', record)
 
     def _build_start(self, root: Path, run: _Run, step: stages.Step) -> None:
         contract = self._contract(root)
         clock = time.monotonic()
+        began = build.start(root, self._load(root), self.slides(), contract)  # work/ only
+        count = len(began['sections'])
         with self.files:
-            record = self._load(root)
-            began = build.start(root, record, self.slides(), contract)
-            count = len(began['sections'])
             self._done(root, step, clock, f"split the deck into {count} section"
                        f"{'' if count == 1 else 's'}")
 
-    def _whole(self, root: Path, step: stages.Step, how: str) -> None:
-        """Put the drawn sections together and preview the deck. Call it holding `files`."""
-        record = self._load(root)
-        made = build.whole(root, record, self.slides(), how)
+    def _whole(self, root: Path, how: str) -> None:
+        """Put the drawn sections together and preview the deck, in work/, without `files`;
+        then share its contact sheet and commit."""
+        made = build.draw_whole(root, self._load(root), self.slides(), how)
         count = len(made['slides'])
-        self._commit(root, f"put the deck together: {count} slide{'' if count == 1 else 's'}")
+        with self.files:
+            build.share_sheet(root)
+            self._commit(root, f"put the deck together: {count} slide"
+                               f"{'' if count == 1 else 's'}")
 
     @staticmethod
     def _needs_whole(root: Path) -> bool:
@@ -1265,9 +1312,9 @@ class Engine(Jobs, Researching):
         how = self._renderer(root, step)
         self._contract(root)
         clock = time.monotonic()
+        if self._needs_whole(root):
+            self._whole(root, how)
         with self.files:
-            if self._needs_whole(root):
-                self._whole(root, step, how)
             self._done(root, step, clock, 'the deck is put together')
 
     def _build_render(self, root: Path, run: _Run, step: stages.Step) -> None:
@@ -1278,26 +1325,24 @@ class Engine(Jobs, Researching):
             skill = self._skill()
         except WorkspaceError:
             skill = None
+        build.render(root, self._load(root), self.slides(), brand=skill,  # work/ only
+                     renderer=how)
         with self.files:
-            record = self._load(root)
-            build.render(root, record, self.slides(), brand=skill, renderer=how)
             self._done(root, step, clock, 'render the deck to deliver')
 
     def _deliver(self, root: Path, run: _Run, step: stages.Step) -> None:
         clock = time.monotonic()
         space = self.space()
+        made = delivering.upload(root, self._load(root), self.slides())
         with self.files:
             record = self._load(root)
-            made = delivering.deliver(root, record, self.slides(), space)
+            made = delivering.record(root, record, made, space)
             record = self._load(root)
             record['driver'] = None     # a delivered deck has no driver
             where = made.get('url') or made.get('pptx') or ''
             self._done(root, step, clock, f"deliver revision {made['revision']}"
-                       + (f': {where}' if where else ''), record)
-            self._index(space)
+                       + (f': {where}' if where else ''), record, self._listed(space))
         self._last()
-
-    # --- research ----------------------------------------------------------------------------
 
     # --- the steps a worker does -------------------------------------------------------------
 
@@ -1414,14 +1459,11 @@ class Engine(Jobs, Researching):
         if build.to_draw(root):
             return self._draw(root, run, step, how)
         if self._needs_whole(root):
-            with self.files:
-                return self._whole(root, step, how)
+            return self._whole(root, how)
         if not self._reviewed(root):
             return self._review(root, run, step)
         with self.files:
             self._done(root, step, time.monotonic(), 'nothing more is sent back')
-
-    # --- limits and one job for one worker ---------------------------------------------------
 
     # --- what a person does ------------------------------------------------------------------
 
@@ -1489,7 +1531,10 @@ class Engine(Jobs, Researching):
                 named = self._numbers(extra)
                 gated = record['gates'].get(gate) or {}
                 record['gates'][gate] = {**gated, 'slides': named}
-                record = delivering.again(root, record, self.slides(), note, space)
+                try:
+                    record = delivering.again(root, record, self.slides(), note, space)
+                except ValueError:
+                    raise WorkspaceError(f'This deck has no {it} to change.') from None
                 record['gates'][gate].update(by=by)
                 for step in self._reopened(record, gate):
                     self._fresh(record, step)
@@ -1520,9 +1565,7 @@ class Engine(Jobs, Researching):
                     self._ask_again(root, named, note, at)
                 self._store(root, record)
                 said = f'ask for changes to the {it}'
-            self._commit(root, said)
-            if after:
-                self._index(space)
+            self._commit(root, said, self._listed(space) if after else ())
         if space.share == gitstate.SHARE[0]:
             self.share_soon()
         self.wake(root)
@@ -1613,7 +1656,7 @@ class Engine(Jobs, Researching):
                     record['halted'] = None
                     chosen = settings.load()
                     record['limits'] = {'step_seconds': chosen.step_seconds,
-                                        'dollars': chosen.training_dollars}
+                                        'dollars': chosen.deck_dollars}
                 self._store(root, record)
                 self._commit(root, {'pause': 'paused on the page',
                                     'stop': 'stopped on the page',
@@ -1727,6 +1770,17 @@ class Engine(Jobs, Researching):
             elif self._tags_unsent:
                 self._tags_unsent = team.send_tags(space) is not None
         return report
+
+    def _listed(self, space: gitstate.Workspace) -> list[Path]:
+        """The list of decks a step module just wrote, to commit with what it is part of: in
+        a workspace on this computer, the README; in a shared one nothing, as the file is
+        put back, to be written and shared on its own once the workspace is in step. Call it
+        holding `files`."""
+        index = space.root / 'README.md'
+        if space.address is None:
+            return [index]
+        gitstate.discard(space, index)
+        return []
 
     def _index(self, space: gitstate.Workspace) -> None:
         """The list of decks in the workspace's README. In a workspace on this computer it is
@@ -2026,7 +2080,7 @@ class Engine(Jobs, Researching):
             'problem': ({key: halted.get(key) for key in ('state', 'why', 'kept', 'action')}
                         if halted else None),
             'deliver': ({**said, 'revisions': list(record.get('revisions') or []),
-                         'download': bool(said.get('pptx')) or self._rendered(root, record)}
+                         'download': self._rendered(root, record)}
                         if said else None),
             'contactSheet': (root / build.SHEET).is_file()}
 
@@ -2397,7 +2451,7 @@ class Engine(Jobs, Researching):
                               agent=record.get('agent') or chosen.agent,
                               model=record.get('model') or chosen.model,
                               limits={'step_seconds': chosen.step_seconds,
-                                      'dollars': chosen.training_dollars})
+                                      'dollars': chosen.deck_dollars})
                 record.setdefault('schema', decks.SCHEMA)
                 record.setdefault('steps', {})
                 self._store(root, record)
@@ -2405,7 +2459,7 @@ class Engine(Jobs, Researching):
             except BaseException:  # a deck is brought in whole or not at all
                 self._undo_start(space, root)
                 raise
-            self._claimed(root, space)
+            self._claimed(root, space, NAME_TAKEN)
             home.remember(root, title)
         self.wake(root)
         return {'path': str(root), 'id': root.name}

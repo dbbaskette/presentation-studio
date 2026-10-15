@@ -9,6 +9,8 @@ What a caller needs to know
     work = build.section_work(root, run, section, request, error, renderer='local')
     build.keep_section(root, run, section, handed)            # what its composer handed in
     made = build.whole(root, run, slides, renderer)           # merged, compiled, previewed
+    made = build.draw_whole(root, run, slides, renderer)      # the same, work/ only; then
+    build.share_sheet(root)                                   #   contact-sheet.png
     work = build.review_work(root, run)                       # by a worker that drew none
     found = build.keep_review(root, run, handed)              # the findings, each with its section
     build.repair_sections(found)                              # the sections they send back
@@ -667,7 +669,25 @@ def whole(root, run: dict, slides, renderer) -> dict:
     """Merge the drawn sections with the lead slides, compile the whole deck and preview
     it. Its pictures go to work/build/preview/, and its contact sheet to the shared
     contact-sheet.png. Only the last round's build is kept, and a try that fails leaves
-    nothing. Returns the round."""
+    nothing. Returns the round. A caller that must not hold its lock through the drawing
+    calls `draw_whole`, then `share_sheet` under its lock."""
+    made = draw_whole(root, run, slides, renderer)
+    share_sheet(root)
+    return made
+
+
+def share_sheet(root) -> None:
+    """Copy the last round's contact sheet to the shared contact-sheet.png."""
+    root = Path(root)
+    state = read_state(root)
+    sheet = (state['rounds'][-1].get('sheet') if state['rounds'] else None)
+    if sheet and (root / sheet).is_file():
+        shutil.copyfile(root / sheet, root / SHEET)
+
+
+def draw_whole(root, run: dict, slides, renderer) -> dict:
+    """`whole`, writing nothing outside work/: the contact sheet waits in the round's
+    folder, as its `sheet`, for `share_sheet`."""
     root = Path(root)
     state = read_state(root)
     began = _started(state)
@@ -711,8 +731,6 @@ def whole(root, run: dict, slides, renderer) -> dict:
     (root / DECK).unlink(missing_ok=True)   # a deck rendered from an earlier round
     home.write_json(pictures / _existing().SHOTS, {'slides': [
         {'number': slide['number'], 'image': f"{slide['number']}.png"} for slide in pictured]})
-    if sheet is not None:
-        shutil.copyfile(sheet, root / SHEET)
     for old in work.glob('whole-*'):
         if old != folder:
             shutil.rmtree(old, ignore_errors=True)
@@ -725,6 +743,7 @@ def whole(root, run: dict, slides, renderer) -> dict:
             'compiled': (folder / 'compiled').relative_to(root).as_posix(),
             'file': file.relative_to(root.resolve()).as_posix(), 'deck': digest,
             'review': None,
+            'sheet': sheet.relative_to(root.resolve()).as_posix() if sheet else None,
             'made_from': {ident: entry['file'] for ident, entry in drawn.items()},
             'changed': [slide['number'] for slide in slides_kept
                         if before and before.get(slide['number']) != slide['sha256']],

@@ -5,6 +5,9 @@ What a caller needs to know
 ---------------------------
     path = existing.fetch(root, source, slides, google_ready)   # sources/original.pptx
     run  = existing.inventory(root, run, slides, renderer)      # classify.json, .md, pictures
+    shared = existing.read_deck(root, slides)                   # the same, in three parts:
+    existing.draw_original(root, run, slides, renderer)         #   work/original/ only
+    run  = existing.keep_inventory(root, run, shared)           #   the shared files and gate
     work = existing.patch_work(root, run, request, error)       # the 'selected' level's job
     existing.keep_patch(root, handed)                           # keep the plan: work/patch.json
     out  = existing.apply_patch(root, run, slides)              # work/patched.pptx, compared
@@ -161,17 +164,16 @@ def _build():
     return build
 
 
-def inventory(root, run: dict, slides, renderer) -> dict:
-    """Read the fetched deck: write classify.json and classify.md, draw its slides into
-    work/original/, and put the inventory in front of the person. The slides are pictured
-    as the build's are: under the computer's one turn at the renderer and through the
-    deck's one preview file in Drive (`build.picture_deck`); `renderer` is what
-    `build.how` takes."""
+def draw_original(root, run: dict, slides, renderer) -> None:
+    """Draw the fetched deck's slides into work/original/, with its shots.json, as the
+    build's previews are drawn: under the computer's one turn at the renderer and through
+    the deck's one preview file in Drive (`build.picture_deck`); `renderer` is what
+    `build.how` takes. Only work/ is written, so it may be done while the deck's shared
+    files are being read or shared."""
     root = Path(root)
     deck = root / SOURCE
     if not deck.is_file():
         raise WorkspaceError('The deck has not been brought in yet.')
-    shared = _shared(slides.pptx_inspect(deck), _source_name(root))
     folder = root / ORIGINAL_SHOTS
     if folder.exists():
         shutil.rmtree(folder)
@@ -179,12 +181,37 @@ def inventory(root, run: dict, slides, renderer) -> dict:
     shots = [{'number': one['number'],
               'image': os.path.relpath(one['image'], folder)} for one in drawn['slides']]
     write_atomic(folder / SHOTS, json.dumps({'slides': shots}, indent=2) + '\n')
+
+
+def read_deck(root, slides) -> dict:
+    """What `inventory` keeps of the fetched deck, read and not yet written."""
+    root = Path(root)
+    deck = root / SOURCE
+    if not deck.is_file():
+        raise WorkspaceError('The deck has not been brought in yet.')
+    return _shared(slides.pptx_inspect(deck), _source_name(root))
+
+
+def keep_inventory(root, run: dict, shared: dict) -> dict:
+    """Write classify.json and classify.md from `read_deck`, and put the inventory in front
+    of the person. Returns the run."""
+    root = Path(root)
     write_atomic(root / INVENTORY, json.dumps(shared, indent=2, ensure_ascii=False) + '\n')
     write_atomic(root / INVENTORY_MD, _table(shared))
     gate = (run.setdefault('gates', {})).get(GATE) or {}
     run['gates'][GATE] = {'state': 'waiting', 'round': int(gate.get('round') or 0) + 1}
     decks.write_run(root, run)
     return run
+
+
+def inventory(root, run: dict, slides, renderer) -> dict:
+    """Read the fetched deck: write classify.json and classify.md, draw its slides into
+    work/original/ (`draw_original`), and put the inventory in front of the person. A
+    caller that must not hold its lock through the drawing calls `read_deck` and
+    `draw_original` first, and `keep_inventory` under its lock."""
+    shared = read_deck(root, slides)
+    draw_original(root, run, slides, renderer)
+    return keep_inventory(root, run, shared)
 
 
 def _inventory(root: Path) -> dict:

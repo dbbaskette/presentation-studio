@@ -182,7 +182,7 @@ class Researching:
             task += (f'\n\nAn earlier try at this job did not work: {error}\nTake care not to '
                      'end the same way.')
         work = Work(briefs.guidance('research-question'), task, 'research',
-                           {'finding': ident, 'fetch': True, 'ask': False, 'sources': offered})
+                    {'finding': ident, 'fetch': True, 'ask': False, 'sources': offered})
         outcome, handed, started_at, folder = self._job(root, run, name,
                                                         f'Researching the question {ident}',
                                                         work, deck=False)

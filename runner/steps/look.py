@@ -6,6 +6,8 @@ What a caller needs to know
     work = look.look_work(root, run, request, error, brand, slides=None)   # the job
     look.keep_look(root, run, handed)                    # keep the options: work/look/options.json
     shown = look.preview_options(root, run, slides, renderer)   # [{'name', 'why', 'image'}]
+    shown = look.draw_options(root, run, slides, renderer)      # the same in two: work/ only,
+    look.show_options(root, run, shown)                          #   then look.md and the gate
     look.choose(root, run, name, note=None)              # look.json, outline.json, gate approved
 
 - The options are handed back as `look`, a kind checked by `check_look` and registered
@@ -252,7 +254,15 @@ def _markdown(shown: list[dict], options: list[dict]) -> str:
 
 def preview_options(root, run: dict, slides, renderer) -> list[dict]:
     """Draw each option: compile and preview it in work/look/<n>/. Writes look.md, which
-    lists them, and sets the gate waiting. Returns [{'name', 'why', 'image'}]."""
+    lists them, and sets the gate waiting. Returns [{'name', 'why', 'image'}]. A caller
+    that must not hold its lock through the drawing calls `draw_options`, then
+    `show_options` under its lock."""
+    return show_options(root, run, draw_options(root, run, slides, renderer))
+
+
+def draw_options(root, run: dict, slides, renderer) -> list[dict]:
+    """Compile and preview each option in work/look/<n>/. Only work/ is written. Returns
+    [{'name', 'why', 'image'}]."""
     root = Path(root)
     options, outline = _options(root), _outline(root)
     brand = root / build.CONTRACT
@@ -280,7 +290,13 @@ def preview_options(root, run: dict, slides, renderer) -> list[dict]:
                                  f'{refusal}') from None
         shown.append({'name': option['name'], 'why': option['why'],
                       'image': str(folder / 'picture.png')})
-    write_atomic(root / LOOK_MD, _markdown(shown, options))
+    return shown
+
+
+def show_options(root, run: dict, shown: list[dict]) -> list[dict]:
+    """Write look.md, which lists the drawn options, and set the gate waiting."""
+    root = Path(root)
+    write_atomic(root / LOOK_MD, _markdown(shown, _options(root)))
     gate = (run.setdefault('gates', {})).get(GATE) or {}
     run['gates'][GATE] = {**gate, 'state': 'waiting', 'round': int(gate.get('round') or 0) + 1}
     decks.write_run(root, run)
