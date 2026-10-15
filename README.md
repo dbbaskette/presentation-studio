@@ -29,8 +29,8 @@ At Brand only and Polish a slide with no words of its own, such as a picture alo
 The page stops at each of these and waits for you. Which ones apply depends on how you started.
 
 1. **Check what you brought** (documents and existing decks). You see the verdict, or the original slides as pictures.
-2. **Research plan and research** (only if you turned research on).
-3. **Outline.** A title, key message and notes for each slide. You can reorder, add and remove slides.
+2. **Research plan and research** (only if you turned research on). Each question is a line you can drop or reword, and you can add one. The findings that need a look come first, each with a one-sentence answer, what is not known and its sources; research any of them again, leave one out of the outline, or add a question. The full report is a click away.
+3. **Outline.** A title and what each slide must make clear, with its points and notes a click away. You can reorder, add and remove slides, and ask for changes to any one of them.
 4. **Brand.** Your cover, drawn in the brand you chose, so you can see it is the right one. Approve it, or choose another brand or variant and see the cover again. Nothing else is picked here: when the deck is built, each slide is designed on its own from what it says.
 5. **Build.** The whole deck in a slide viewer, plus a contact sheet and notes from the brand check. Redesigns show before and after. Each slide has its own **Ask for changes**.
 6. **Deliver.** A Google Slides deck by default, or a PowerPoint file.

@@ -1,6 +1,6 @@
 # Reviewing stops: deciding item by item
 
-Date: 2026-10-15. Status: agreed design, not built.
+Date: 2026-10-15. Status: built.
 
 ## Why
 
@@ -38,7 +38,7 @@ Every reviewed stop is drawn the same way.
    by the toolbar's main button:
    - no marks: **Approve**;
    - only marks that need no assistant: **Approve without 2 questions** (or **Approve,
-     leaving out 1**): one click applies them and approves;
+     leaving out 1 finding**): one click applies them and approves;
    - any mark that needs an assistant: **Send 3 changes**: the stop is reopened and comes
      back to the person.
    A line beside it tallies the marks: "1 to research again · 1 left out · 0 added".
@@ -115,16 +115,16 @@ Approve acts at once, as it does since the one-click change: no second question.
 
 - **`Engine.decide`** takes the marks above in `extra`, and a note is no longer needed for
   changes that carry marks. Each mark is checked before anything is written: an ID the stop
-  does not have, an empty line, a reworded question that is empty, a plan left with no
-  question, each is refused in one sentence and nothing moves. The page's server
-  (`/api/decide`) applies the same rule about the note.
+  does not have, an empty line for a slide or a rewording (a line to research again with
+  may be empty), a plan left with no question, each is refused in one sentence and
+  nothing moves. The page's server (`/api/decide`) applies the same rule about the note.
 - **The note a worker reads** is written by the runner from the marks, then the person's
   free text. Workers' briefs need no change for marks.
 - **The research views.** `_show_research_plan` gives each item's `id`, `title`, `question`
-  and `public_query`. `_show_research` gives, besides the report's text, `counts` by status
-  and each item's `id`, `title`, `question`, `status`, `headline`, `summary`, `limits`,
-  `left_out` and `sources` [{`title`, `origin`, `quote`}], read from harness-research's
-  record. A path on this computer is never sent.
+  and `public_query`. `_show_research` gives, besides the report's text, each
+  item's `id`, `title`, `question`, `status`, `headline`, `summary`, `limits`, `unknown`
+  (the first sentence of the limits), `left_out` and `sources` [{`title`, `origin`,
+  `quote`}], read from harness-research's record. A path on this computer is never sent.
 - **`submit_finding`** takes a `headline`, required, at most 25 words; one longer is
   refused with the count. The research-question brief says to give it. `Research.record`
   hands it to harness-research with the rest of the finding.
