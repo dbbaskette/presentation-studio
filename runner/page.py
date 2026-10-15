@@ -31,7 +31,16 @@ What a caller needs to know
     `/api/delete?path=` what deleting would do (`engine.leaving`), and `/api/computer`, the
     last look at this computer with what a deck needs here.
 - Changes (POST):
-  - `/api/setup/check` and `/api/setup`: see `setup`.
+  - `/api/setup/check` and `/api/setup`: see `setup`. The values every studio shares are
+    kept only in the studios config, so `/api/setup` and `/api/brand` write the ones they
+    change there, and are 409 and 400, with a sentence, when one changes while that file
+    cannot be read. `GET /api/setup` carries `shared`, what the file holds that
+    Presentation Studio can use; `shared_problem`, a sentence when it could not be read;
+    `team_moved`, {"repository", "branch", "says"} when it names a team repository this
+    computer's workspace is not a copy of; and `shared_notice`, a sentence about the values
+    the file already held when this computer's own moved there.
+  - `/api/shared` {"seen": true}: the notice about the shared values has been read and is
+    not shown again; answers the set-up.
   - `/api/decks` {"form", "uploads"?}: start a deck. `form` is what `decks.check_form`
     reads; `uploads` maps an uploaded file's name to its bytes in base64. Answers
     {"path", "id"}. It alone may carry up to DECKS_LIMIT bytes, and only with the key.
@@ -87,7 +96,7 @@ READS = ('/api/capabilities', '/api/setup', '/api/agents', '/api/models', '/api/
 WRITES = ('/api/setup/check', '/api/setup', '/api/decks', '/api/run', '/api/decide',
           '/api/answer', '/api/share', '/api/fetch', '/api/drive', '/api/publish',
           '/api/delete', '/api/bring', '/api/companions', '/api/upgrade', '/api/restart',
-          '/api/versions', '/api/brand', '/api/brand/install')
+          '/api/versions', '/api/brand', '/api/brand/install', '/api/shared')
 PNG = 'image/png'
 PPTX = 'application/vnd.openxmlformats-officedocument.presentationml.presentation'
 DECKS = '/api/decks'
@@ -306,6 +315,12 @@ class RunnerPage(server.Page):
             return server.as_json(HTTPStatus.OK, {'upkeep': self.keeper().dismiss(dismissed)})
         if path == '/api/brand':
             return server.as_json(HTTPStatus.OK, shaped(setup.save_brand, self.engine, sent))
+        if path == '/api/shared':
+            if sent.get('seen') is not True:
+                raise server.Refusal(HTTPStatus.BAD_REQUEST, 'Send {"seen": true} once the '
+                                     'notice about the shared values has been read.')
+            setup.seen()
+            return server.as_json(HTTPStatus.OK, setup.describe(self.engine))
         if path == '/api/brand/install':
             release = server.text(sent, 'release')
             return server.as_json(HTTPStatus.OK, {'upkeep': self.keeper().install_brand(

@@ -76,7 +76,7 @@ sh ~/.local/share/presentation-studio/studio
 
 A terminal window opens and the page opens in your browser. It works on this computer only. Leave the window open while you work.
 
-**2. Set it up, once.** Say where decks are kept: a folder on this computer to try things out, or your team's shared repository. Then choose your assistant, your name, the brand and where decks are delivered. If you already use Training Studio or Blog Studio, the answers they share are filled in for you (see [shared settings](#shared-settings)).
+**2. Set it up, once.** Say where decks are kept: a folder on this computer to try things out, or your team's shared repository. Then choose your assistant, your name, the brand and where decks are delivered. If you also use Training Studio or Blog Studio, the answers they share, such as the team repository and the assistant, are kept in one place for all of them, so a change in one studio is a change in all three (see [shared settings](#shared-settings)).
 
 **3. Press "New deck"** and choose how you are starting. Fill in the short form. It begins at once.
 
@@ -101,7 +101,9 @@ Keep your decks in your team's shared repository. They go in a `presentations/` 
 
 ## Shared settings
 
-`~/.config/studios-config.json` holds the choices common to every studio: your team repository, your name, your assistant and model, brand and output. Setup fills the page from it, so you answer each question once.
+`~/.config/studios-config.json` is the one place the choices common to every studio are kept: your team repository and branch, when to share, your name, your assistant with its model and level, the brand skill's repository and release, the brand and its variant, and the output. Presentation Studio keeps no copy of its own. It reads them from that file each time, and saving one of them in set-up or Settings writes it there, so Training Studio and Blog Studio see the change too. Limits, how slide previews are made and the other choices only Presentation Studio uses stay in its own settings.
+
+If the file cannot be read, Presentation Studio works on its built-in defaults, says so in one sentence on set-up and Status, and saves none of the shared choices until the file is fixed. It never writes over that file. [The runner](docs/runner.md#shared-values) has the details.
 
 ## If something goes wrong
 

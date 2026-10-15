@@ -797,6 +797,8 @@ class StudioCase(unittest.TestCase):
         self.real = (engines.slides_tool.Slides, engines.brand_skill.Brand)
         patches = [
             mock.patch.dict(os.environ, {'PRESENTATION_STUDIO_DATA': str(self.base / 'data'),
+                                         'STUDIOS_CONFIG': str(self.base /
+                                                               'studios-config.json'),
                                          'GIT_CONFIG_GLOBAL': str(self.base / 'gitconfig'),
                                          'GIT_CONFIG_NOSYSTEM': '1'}),
             mock.patch.object(worker_tools, 'fetch_once', self.web.opener),
@@ -934,8 +936,8 @@ class Notifier:
 
 
 class Person:
-    """One of two people who share a workspace: a data folder, a git identity, a clone of
-    the workspace and an engine of their own."""
+    """One of two people who share a workspace: a data folder, a studios config, a git
+    identity, a clone of the workspace and an engine of their own."""
 
     def __init__(self, name: str, env: dict):
         self.name, self.env = name, env
@@ -943,9 +945,9 @@ class Person:
 
 
 class TeamCase(StudioCase):
-    """Two people on one computer, standing in for two: each has a data folder and a git
-    identity, and both have joined one bare repository. `self.engine` is Alex's. Anything
-    done as one of them is done inside `with self.be(person):`."""
+    """Two people on one computer, standing in for two: each has a data folder, a studios
+    config and a git identity, and both have joined one bare repository. `self.engine` is
+    Alex's. Anything done as one of them is done inside `with self.be(person):`."""
 
     def set_up(self):
         self.remote = self.base / 'team-repo.git'
@@ -957,7 +959,7 @@ class TeamCase(StudioCase):
     def setUp(self):
         super().setUp()
         self.alex = Person('Alex', {name: os.environ[name] for name in (
-            'PRESENTATION_STUDIO_DATA', 'GIT_CONFIG_GLOBAL')})
+            'PRESENTATION_STUDIO_DATA', 'STUDIOS_CONFIG', 'GIT_CONFIG_GLOBAL')})
         self.alex.space, self.alex.engine = self.space, self.engine
         with self.be(self.alex):
             self.engine.share()     # the workspace's own files, so a teammate finds them
@@ -974,6 +976,7 @@ class TeamCase(StudioCase):
             f'[user]\n\tname = {name}\n\temail = {name.lower()}@example.com\n[init]\n\t'
             f"defaultBranch = main\n\ttemplateDir = {self.base / 'no-templates'}\n")
         made = Person(name, {'PRESENTATION_STUDIO_DATA': str(folder / 'data'),
+                             'STUDIOS_CONFIG': str(folder / 'studios-config.json'),
                              'GIT_CONFIG_GLOBAL': str(folder / 'gitconfig')})
         with mock.patch.dict(os.environ, made.env):
             self.settings.save(replace(self.settings.load(), previews='local'))
@@ -982,7 +985,8 @@ class TeamCase(StudioCase):
         return made
 
     def be(self, person: Person):
-        """Act as one of them: their data folder and their git identity."""
+        """Act as one of them: their data folder, their studios config and their git
+        identity."""
         from unittest import mock
         return mock.patch.dict(os.environ, person.env)
 

@@ -41,7 +41,8 @@ GETS = ('/api/capabilities', '/api/setup', '/api/agents', '/api/models', '/api/d
 POSTS = ('/api/setup/check', '/api/setup', '/api/decks', '/api/run', '/api/decide',
          '/api/answer', '/api/share', '/api/fetch', '/api/drive', '/api/publish',
          '/api/delete', '/api/bring', '/api/companions', '/api/upgrade', '/api/restart',
-         '/api/versions', '/api/computer', '/api/brand', '/api/brand/install')
+         '/api/versions', '/api/computer', '/api/brand', '/api/brand/install',
+         '/api/shared')
 BOTH = ('/api/setup', '/api/decks', '/api/run', '/api/delete', '/api/computer')
 LISTED = [{'name': 'gpt-6-sol', 'label': 'GPT-6-Sol (gpt-6-sol)', 'family': None,
            'about': 'Previous generation workhorse model.', 'default_level': 'medium',
@@ -181,7 +182,8 @@ class RuleTests(PageCase):
             '/api/upgrade': {'version': '99.0.0'},
             '/api/versions': {'dismiss': 'presentation-studio 99.0.0'},
             '/api/brand': {'repository': str(self.base / 'brand.git')},
-            '/api/brand/install': {'release': 'v1.2.0'}})
+            '/api/brand/install': {'release': 'v1.2.0'},
+            '/api/shared': {'seen': True}})
         self.reads = {target: target for target in GETS}
         self.reads.update({
             '/api/models': '/api/models?agent=claude',

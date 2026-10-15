@@ -1,14 +1,29 @@
-"""What this computer remembers for the runner: the agent to use by default, the limits, and
-how a deck's previews are rendered.
+"""What the runner is set to: the agent to use by default, the defaults a new deck starts
+with, the limits, how a deck's previews are rendered, and where the brand skill is installed
+from.
 
 What a caller needs to know
 ---------------------------
     chosen = settings.load()                      # the defaults when nothing is saved
     settings.save(replace(chosen, agent='codex', deck_dollars=10))
 
-- Kept in the per-user data folder as `runner.json`, beside the workspace `gitstate`
+- Two places hold them. The values every studio on this computer shares are kept only in
+  the studios config (`studios_config`), and read from it each time: the agent, its model
+  and its level (`assistant.agent`, `.model`, `.effort`), the person's name (`person.name`),
+  the brand skill's repository and release, the brand and its variant (`brand.repository`,
+  `.release`, `.brand`, `.variant`) and the output (`output`). SHARED names them. A value
+  there that would be refused here is the default, and so is every one of them while the
+  file cannot be read. The rest belong to Presentation Studio on this computer alone, and
+  are kept in the per-user data folder as `runner.json`, beside the workspace `gitstate`
   remembers there. Nothing here is written into the repository: two people who share a
   workspace can use different agents and different limits.
+- `save` writes into the studios config only the shared values that differ from what
+  `load` reads there now, then `runner.json`. Where a shared value changed and the file
+  cannot be read or written, it refuses before anything is kept, and the file is left as it
+  is. A value in the file that Presentation Studio cannot use is never written over by a
+  save that did not change it.
+- `own()` is what `runner.json` still holds of the shared values from before they were
+  shared, and `forget_own()` takes them out of it. See `setup.migrate`.
 - `model` is the model the agent is asked for and `effort` how hard it reasons, its
   reasoning level; None for each is the agent's own choice. A level is one of the words an
   agent takes (EFFORTS): which of them a model takes is what the agent lists. Claude Code
@@ -31,10 +46,11 @@ What a caller needs to know
   folder, from which the page installs and upgrades it; None until the person names one.
   `brand_release` is the release tag to install from it, None for the newest. Neither is
   needed to use a brand skill installed by hand. Whether the repository can be reached is
-  `brand_source`'s to say; here only its shape is checked. `brand_source()` gives both, and
-  is how every other part reads them.
-- `name` is the person's own name, as set-up shows it and offers to share with every studio;
-  None until they give it. git's own identity still signs each commit and each claim.
+  `brand_source`'s to say; here only its shape is checked, by `studios_config`'s own
+  `check_repository` and `check_release`. `brand_source()` gives both, and is how every
+  other part reads them.
+- `name` is the person's own name, as set-up shows it; None until they give it. git's own
+  identity still signs each commit and each claim.
 - `brand` and `variant` are the brand a new deck is offered first, as the brand skill names
   them, and `output` what it is made as: `google` (Google Slides) or `pptx`. None for
   either brand or variant is the first the installed brand skill lists: no brand is named
@@ -46,12 +62,12 @@ from __future__ import annotations
 import functools
 import json
 import re
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from pathlib import Path
 
 import runner  # noqa: F401  puts the core on the import path
 import home
-import hub
+import studios_config
 from workspace import WorkspaceError
 
 SCHEMA = 1
@@ -70,8 +86,15 @@ PREVIEWS = ('drive', 'local')   # how a deck's previews are rendered
 OUTPUTS = ('google', 'pptx')    # what a new deck is made as
 WORD = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._-]{0,79}$')   # a brand's or a variant's name
 NAME = 100                  # characters in a person's name
-ADDRESS = 2000              # characters in a repository's address
-RELEASE = re.compile(r'^[\w][\w.+-]{0,99}$')   # a release tag's name, as git takes it
+ADDRESS = studios_config.ADDRESS    # characters in a repository's address
+RELEASE = studios_config.RELEASE    # a release tag's name, as git takes it
+# The settings every studio shares, each with where the studios config keeps it: (group,
+# key), or (None, key) for a word at the top of the file.
+SHARED = {'agent': ('assistant', 'agent'), 'model': ('assistant', 'model'),
+          'effort': ('assistant', 'effort'), 'name': ('person', 'name'),
+          'brand': ('brand', 'brand'), 'variant': ('brand', 'variant'),
+          'output': (None, 'output'), 'brand_repository': ('brand', 'repository'),
+          'brand_release': ('brand', 'release')}
 
 
 @dataclass(frozen=True)
@@ -249,32 +272,9 @@ def check_choice(value, label: str) -> str | None:
     return None if value is None or value == '' else check_word(value, label)
 
 
-def check_repository(address) -> str | None:
-    """The brand skill's repository as an address git takes, or None for none."""
-    if address is None or address == '':
-        return None
-    if not isinstance(address, str) or not address.strip() or len(address) > ADDRESS \
-            or any(mark.isspace() or ord(mark) < 32 for mark in address.strip()) \
-            or address.strip().startswith('-'):
-        raise WorkspaceError("Give the brand skill's repository as one address, such as "
-                             'https://github.com/your-org/your-brand.git.')
-    if hub.ADDRESS_WITH_SECRET.match(address.strip()):
-        raise WorkspaceError('That address carries a password or token. Give the address '
-                             'without it; git signs in with your own credentials.')
-    return address.strip()
-
-
-def check_release(release, repository: str | None = None) -> str | None:
-    """A release tag's name, or None for the newest. A release needs a repository."""
-    if release is None or release == '':
-        return None
-    if not isinstance(release, str) or not RELEASE.match(release) or '..' in release:
-        raise WorkspaceError('Give the release as its tag, such as v1.4.0, or nothing for '
-                             'the newest.')
-    if repository is None:
-        raise WorkspaceError("A release is chosen from the brand skill's repository: give "
-                             'the repository too.')
-    return release
+# The brand skill's repository and release are checked as the studios config checks them.
+check_repository = studios_config.check_repository
+check_release = studios_config.check_release
 
 
 def brand_source() -> tuple[str | None, str | None]:
@@ -320,20 +320,109 @@ def check(chosen: Settings) -> Settings:
         brand_release=check_release(chosen.brand_release, repository))
 
 
-def load() -> Settings:
-    """What is saved on this computer. Anything missing or unusable is the default."""
-    kept = home.read_json(path(), None)
-    if not isinstance(kept, dict) or kept.get('schema') != SCHEMA:
-        return Settings()
-    known = {name: kept[name] for name in asdict(Settings()) if name in kept}
+def passes(check, *args):
+    """What a check makes of a value, or None where it refuses it."""
     try:
-        return check(Settings(**known))
+        return check(*args)
     except WorkspaceError:
-        return Settings()
+        return None
+
+
+def _group(found: dict, name: str) -> dict:
+    value = found.get(name)
+    return value if isinstance(value, dict) else {}
+
+
+def from_shared(found: dict) -> dict:
+    """The shared settings the studios config holds, by name, each as Presentation Studio
+    can use it and None where it cannot. A model or a level named for an agent Presentation
+    Studio does not have is not for it."""
+    assistant, person, brand = (_group(found, name)
+                                for name in ('assistant', 'person', 'brand'))
+    named = assistant.get('agent')
+    agent = None if named is None else passes(check_agent, named)
+    usable = named is None or agent is not None
+    model = passes(check_model, assistant.get('model')) if usable else None
+    effort = passes(check_effort, assistant.get('effort'), agent or Settings().agent,
+                    model) if usable else None
+    repository = brand.get('repository')
+    repository = passes(check_repository, repository) if isinstance(repository, str) else None
+    release = brand.get('release')
+    release = passes(check_release, release, repository) \
+        if isinstance(release, str) and repository else None
+    return {'agent': agent, 'model': model, 'effort': effort,
+            'name': passes(check_name, person.get('name')),
+            'brand': passes(check_word, brand.get('brand'), 'brand'),
+            'variant': passes(check_word, brand.get('variant'), 'variant'),
+            'output': found.get('output') if found.get('output') in OUTPUTS else None,
+            'brand_repository': repository, 'brand_release': release}
+
+
+def _kept() -> dict:
+    """What runner.json holds, or nothing when it cannot be used."""
+    kept = home.read_json(path(), None)
+    return kept if isinstance(kept, dict) and kept.get('schema') == SCHEMA else {}
+
+
+def load() -> Settings:
+    """The settings now: the shared ones from the studios config, the rest from this
+    computer. Anything missing or unusable is the default."""
+    kept = _kept()
+    known = {name: kept[name] for name in asdict(Settings())
+             if name in kept and name not in SHARED}
+    try:
+        mine = check(Settings(**known))
+    except WorkspaceError:
+        mine = Settings()
+    shared = from_shared(studios_config.read()[0])
+    return replace(mine, **{**shared, 'agent': shared['agent'] or Settings().agent,
+                            'output': shared['output'] or Settings().output})
+
+
+def changes(before: Settings, after: Settings) -> dict:
+    """The shared settings `after` changes from `before`, shaped as the studios config is."""
+    found = {}
+    for name, (group, key) in SHARED.items():
+        was, now = getattr(before, name), getattr(after, name)
+        if type(was) is type(now) and was == now:
+            continue
+        if group is None:
+            found[key] = now
+        else:
+            found.setdefault(group, {})[key] = now
+    return found
 
 
 def save(chosen: Settings) -> Settings:
-    """Remember these settings on this computer."""
+    """Keep these settings: each shared one that changed in the studios config, the rest on
+    this computer. A shared one that cannot be written is refused before anything is kept."""
     chosen = check(chosen)
-    home.write_json(path(), {'schema': SCHEMA, **asdict(chosen)})
+    changed = changes(load(), chosen)
+    if changed:
+        studios_config.update(changed)
+    home.write_json(path(), {'schema': SCHEMA, **{
+        name: value for name, value in asdict(chosen).items() if name not in SHARED}})
     return chosen
+
+
+def own() -> dict:
+    """The shared settings runner.json still holds from before they were shared, by name,
+    each that can be used. Nothing when it holds none."""
+    kept = _kept()
+    found = from_shared({
+        'assistant': {'agent': kept.get('agent'), 'model': kept.get('model'),
+                      'effort': kept.get('effort')},
+        'person': {'name': kept.get('name')},
+        'brand': {'repository': kept.get('brand_repository'),
+                  'release': kept.get('brand_release'),
+                  'brand': kept.get('brand'), 'variant': kept.get('variant')},
+        'output': kept.get('output')})
+    return {name: value for name, value in found.items() if value is not None}
+
+
+def forget_own() -> None:
+    """Take the shared settings out of runner.json, and leave the rest as it is."""
+    kept = _kept()
+    if any(name in kept for name in SHARED):
+        home.write_json(path(), {name: value for name, value in kept.items()
+                                 if name not in SHARED})

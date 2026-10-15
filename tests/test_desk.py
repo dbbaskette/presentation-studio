@@ -449,6 +449,33 @@ class ScreenTests(ScriptedPage, PageCase):
             self.assertIn(shown, shots['settings']['text'])
         self.assertEqual(self.posts(result), [])
 
+    def test_status_says_what_the_shared_file_says_and_offers_to_join_its_team(self):
+        described = self.get('setup')
+        other = 'git@example.com:team/other-decks.git'
+        moved = {**described, 'shared_problem': None,
+                 'team_moved': {'repository': other, 'branch': 'main',
+                                'says': 'The team repository your studios share is now '
+                                        f'{other}.'},
+                 'shared_notice': 'Presentation Studio now keeps the values every studio '
+                                  'shares only in one file.'}
+        seen = {**moved, 'shared_notice': None}
+        answers = self.answers(**{'GET /api/setup': [ok(moved)],
+                                  'GET /api/status': [ok(self.get('status'))],
+                                  'POST /api/shared': [ok(seen)]})
+        result = self.run_page(answers, [
+            {'click': 'Status'}, {'snapshot': 'status'}, {'click': 'Got it'},
+            {'snapshot': 'seen'}, {'click': 'Join it'}, {'snapshot': 'joining'}])
+        shots = result['snapshots']
+        for shown in ('Your other studios', moved['team_moved']['says'],
+                      moved['shared_notice']):
+            self.assertIn(shown, shots['status']['text'])
+        self.assertNotIn(moved['shared_notice'], shots['seen']['text'])
+        self.assertEqual(shots['joining']['fields']['The repository’s address'], other)
+        self.assertEqual(self.posts(result)[0], ('/api/shared', {'seen': True}))
+        # Joining is checked first, as any set-up is: nothing moves until it is saved.
+        self.assertEqual([address for address, _ in self.posts(result)[1:]],
+                         ['/api/setup/check'])
+
     def test_a_deck_is_paused_and_a_refusal_changes_nothing(self):
         path = self.started()
         refused = {'status': 409, 'body': {'error': 'Only a deck that is working can be '

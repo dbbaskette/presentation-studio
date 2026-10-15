@@ -73,6 +73,7 @@ class UpkeepCase(unittest.TestCase):
         git(self.base, 'init', '-q', '--bare', str(self.source))
         patch = mock.patch.dict(os.environ, {
             'PRESENTATION_STUDIO_DATA': str(self.base / 'data'),
+            'STUDIOS_CONFIG': str(self.base / 'studios-config.json'),
             'PRESENTATION_STUDIO_SOURCE': str(self.source)})
         patch.start()
         self.addCleanup(patch.stop)

@@ -129,6 +129,13 @@ class WordTests(unittest.TestCase):
         self.assertNotIn('for_all_studios', script)
         self.assertIn('shared by every studio on this computer', script)
 
+    def test_what_the_shared_file_says_is_read_from_the_set_up(self):
+        script = read('app.js')
+        for field in ('shared_problem', 'team_moved', 'shared_notice'):
+            with self.subTest(field):
+                self.assertIn('held.' + field, script)
+        self.assertIn("send('shared', { seen: true })", script)
+
     def test_no_brand_is_named(self):
         # Any brand: the brands offered are only those the brand skill on this computer has.
         for name in ('app.js', 'index.html', 'deck.css'):

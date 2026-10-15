@@ -198,7 +198,8 @@ const LOOK_SAYS = 'Once a day, Presentation Studio asks where it and its skills 
 const BRAND_SAYS = 'Your brand skill is released from a repository of its own. Name it here, '
   + 'and Presentation Studio installs and upgrades the brand skill from it, with your own git '
   + 'access and only after your yes. A brand skill you installed yourself is still found and '
-  + 'used.';
+  + 'used. Every studio on this computer shares the repository and release named here, so '
+  + 'saving changes them for all of them.';
 const BRAND_STEPS = ['The release is fetched with your own access: its ZIP through gh, where '
   + 'gh is signed in, or else the tag with git.',
 'Its own installer is run, and told to leave harness-research alone. Where it would put in '
@@ -258,6 +259,8 @@ const view = {
   // The brand skill's repository as it is typed in Settings, while it is saved, and why
   // saving it was refused.
   brandForm: null, savingBrand: false, brandRefused: '',
+  // Set-up is to start from the team repository every studio now shares.
+  joining: false,
   // The versions Home last told of, when set-up was last read, and the restart in hand.
   versionsTold: undefined, setupAt: 0, restarting: false, comingBack: null,
   notifying: false, unnotified: '', downloading: false,
@@ -1530,6 +1533,7 @@ function drawStatus(fresh) {
     ['teammates', [view.status, teamSpace(), view.looked, view.found], teammatesCard],
     ['versions', [upkeepOf(), view.restarting], versionsCard],
     ['skills', [upkeepOf()], skillsCard],
+    ['studios', studiosMark(), studiosCard],
     ['computer', [view.computer, upkeepOf()], computerCard]], fresh);
   // Every run and who runs what is asked for as the screen opens.
   if (fresh) {
@@ -1586,7 +1590,8 @@ function defaultsCard() {
 
 function drawSettings(fresh) {
   placeParts({ title: 'Settings', mark: ['Settings'] }, [
-    ['workspace', around(), workspaceCard], ['defaults', [view.setup], defaultsCard],
+    ['workspace', around(), workspaceCard], ['studios', studiosMark(), studiosCard],
+    ['defaults', [view.setup], defaultsCard],
     ['alerts', [alerts()], alertsCard], ['notify', around(), notifyCard],
     ['look', [view.setup && view.setup.updates, view.lookRefused], lookCard],
     ['brand-source', [view.setup && view.setup.brand && [view.setup.brand.repository,
@@ -1741,6 +1746,48 @@ function workspaceCard() {
   return node;
 }
 
+// The file every studio shares, said where there is something to say: that it could not be
+// read, so the built-in defaults are used; that it names another team repository than the one
+// this computer works in, with the way to join it; and what moving to it left as it was.
+// Nothing waits on any of them.
+function studiosCard() {
+  const held = view.setup;
+  if (!held) return null;
+  const parts = [];
+  if (held.shared_problem) parts.push(make('p', 'problem', held.shared_problem));
+  const moved = held.team_moved;
+  if (moved && moved.says) {
+    parts.push(make('p', '', moved.says), add(make('div', 'bar'),
+      capsule('Join it', '', joinShared, 'join-shared')));
+  }
+  if (held.shared_notice) {
+    parts.push(make('p', '', held.shared_notice), add(make('div', 'bar'),
+      capsule('Got it', 'quiet', sharedSeen, 'shared-seen')));
+  }
+  return parts.length ? add(card('Your other studios'), ...parts) : null;
+}
+
+function studiosMark() {
+  const held = view.setup || {};
+  return [held.shared_problem, (held.team_moved || {}).says, held.shared_notice];
+}
+
+// Set-up, filled in with the team repository every studio now shares.
+function joinShared() {
+  view.joining = true;
+  show('setup');
+}
+
+async function sharedSeen() {
+  try {
+    tookSetup(await send('shared', { seen: true }));
+  } catch (failure) {
+    toast(failure.message);
+    return;
+  }
+  draw(false);
+}
+
 // How previews are made, as it can be on this computer now: the way that was chosen, or
 // else the first way there is, or nothing where there is none. Drive is not asked about
 // while LibreOffice makes them, and a way not asked about is still offered.
@@ -1767,15 +1814,19 @@ function previewsSays(found) {
 
 function setupForm() {
   const held = view.setup;
-  const space = held.workspace || {};
+  // Joining the team repository every studio now shares starts from it, not from the
+  // workspace this computer has.
+  const joining = view.joining ? held.team_moved : null;
+  view.joining = false;
+  const space = (!joining && held.workspace) || {};
   // Where nothing is set up, the team repository the studios share is offered.
-  const offered = held.configured ? null : held.suggested;
+  const offered = joining || (held.configured ? null : held.suggested);
   const limits = held.limits || {};
   const agent = held.agent || {};
-  const local = Boolean(held.workspace) && !space.repository;
+  const local = !joining && Boolean(held.workspace) && !space.repository;
   const seconds = Number(limits.step_seconds) || 0;
   const brand = (held.brand && held.brand.default) || {};
-  const shared = (offered && offered.share_when) || space.share_when;
+  const shared = (offered && offered.share_when) || (held.workspace || {}).share_when;
   return settleBrand({
     where: local ? 1 : 0,
     repository: space.repository || (offered && offered.repository) || '',
@@ -2274,8 +2325,7 @@ function defaultsSetupCard(form) {
   return add(card('Defaults'),
     make('p', '', 'What every new deck starts with. You can change any of it for one deck as '
       + 'you start it.'),
-    held.shared_problem ? make('p', 'fix', 'What your other studios share could not be read: '
-      + held.shared_problem + ' It is left out, and nothing else is held up.') : null,
+    held.shared_problem ? make('p', 'fix', held.shared_problem) : null,
     field('setup-person', 'Your name', form, 'person',
       { hint: 'How your teammates see who runs a deck and who decided what.' }),
     brandFields(form, 'setup'),
@@ -2283,8 +2333,9 @@ function defaultsSetupCard(form) {
       (index) => {
         form.output = index;
       }, 'setup-output'),
-    make('p', 'quiet', 'Your team’s repository, your name, the agent, the brand and the '
-      + 'output are shared by every studio on this computer.'));
+    make('p', 'quiet', 'Your team’s repository, when to share, your name, the agent, the '
+      + 'brand and the output are shared by every studio on this computer, so saving them '
+      + 'here changes them for all of them.'));
 }
 
 // Which brand skill decks are made with. It is a choice only where more than one was found.

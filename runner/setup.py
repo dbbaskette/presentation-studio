@@ -49,25 +49,39 @@ What a caller needs to know
   releases. It is sent as `look_for_updates`, true or false. `upkeep` is what the runner
   found when it last looked at Presentation Studio and its companions on this computer, or
   None where it does not look (see `upkeep.Upkeep.report`).
-- `shared` is what the studios config every *-studio reads holds that Presentation Studio
-  can use, in the file's own shape: `team` {repository, branch}, `person` {name},
-  `assistant` {agent, model, effort}, `brand` {brand, variant}, `output` and `share`. A
-  value that would be refused here is left out. `shared_problem` is a sentence when the
-  file could not be read, which is then as if there were none: it never stops set-up.
-- Set-up is pre-filled from `shared`: until this computer has saved settings of its own,
-  the defaults are the shared values in place of the built-in ones (`base`), and while no
-  workspace is set up, `suggested` is the team repository, its branch and when to share,
-  for the page to offer. Once saved, this computer's own settings win.
-- `"for_all_studios": true`, sent with the set-up, also writes into that file the shared
-  values this save changed: the team repository and its branch, when to share, the agent,
-  its model and its level, the person's name, the brand and its variant, and the output.
-  A value is written only when it differs from what this computer had before and from
-  what the file says; a model or level left to the agent is written as null. The set-up is
-  saved first, and the answer gains `for_all_studios`, {"written": [the keys written, such
-  as "team.repository"], "problem": a sentence or null}, so a file that cannot be written
-  never undoes the set-up. See `studios_config`.
+- The values every studio shares are kept only in the studios config (`studios_config`),
+  and saving one here writes it there: the agent, its model and its level, the person's
+  name, the brand and its variant, the output and the brand skill's repository and release
+  (see `settings`), when to share for a team workspace, and the team repository when
+  set-up joins another one, with its branch where the file names no branch for that
+  repository. A folder on this computer writes no `team` and no `share`. While the file
+  cannot be read, a save that would change one of them is refused before anything changes
+  (409 for set-up, 400 for the brand skill's repository), and one that changes none goes
+  through. There is no "for all studios" choice: saving a shared value is the shared write.
+- `shared` is what the file holds that Presentation Studio can use, in the file's own shape:
+  `team` {repository, branch}, `person` {name}, `assistant` {agent, model, effort},
+  `brand` {repository, release, brand, variant}, `output` and `share`. A value that would
+  be refused here is left out. `shared_problem` is a sentence when the file could not be
+  read, which is then as if there were none: the built-in defaults are used, and it never
+  stops set-up. While no workspace is set up, `suggested` is the team repository, its
+  branch and when to share, for the page to offer.
+- `team_moved` is {"repository", "branch", "says"} when the file names a team repository
+  that is not the one this computer's workspace is a copy of, which happens when it is
+  changed in another studio, and None otherwise. The workspace is never moved by itself:
+  `says` is one sentence for the page, which offers to join the new one through set-up. A
+  folder on this computer is never compared, and only the repository is: a Presentation
+  Studio folder in a repository keeps the branch its hub.json names.
+- `migrate()`, when the runner starts, moves the shared values this computer kept as its
+  own before they were shared (agent, model, level, name, brand, variant, output, the brand
+  skill's repository and release in runner.json; when to share, and the team repository
+  and branch it joined, from the workspace record) into the file where it has none, and
+  takes them out of runner.json and the record. The record keeps its repository and
+  branch, which say what the clone is. A value the file holds already stays as it is.
+  Where one differed, `shared_notice` is a sentence that says so, until `seen()` (`POST
+  /api/shared` {"seen": true}). While the file cannot be read nothing is moved.
 - Ported from Training Studio's runner/setup.py. Its Word copies are gone; the brand
-  skill's repository follows its PR #66 and the studios config part its issue #67.
+  skill's repository follows its PR #66 and the studios config part its issues #67 and
+  #70 (shared values kept only in the studios config).
 """
 from __future__ import annotations
 
@@ -79,6 +93,7 @@ from dataclasses import replace
 from pathlib import Path
 
 import runner  # noqa: F401  puts the core on the import path
+import home
 import hub
 import studios_config
 import workspace
@@ -93,7 +108,6 @@ NOBODY = ('-c', 'user.name=Presentation Studio', '-c', 'user.email=check@example
 PLACE = 2000    # characters in an address or a path
 BRANCH = re.compile(r'^[A-Za-z0-9][A-Za-z0-9._/-]{0,199}$')   # a branch a file may name
 LIMITS = ('step_seconds', 'deck_dollars', 'parallel')
-MISSING = object()
 
 
 def working(engine) -> bool:
@@ -103,7 +117,7 @@ def working(engine) -> bool:
 
 def describe(engine) -> dict:
     """What is set up on this computer, in the shape the page reads."""
-    space, chosen = engine.workspace, base()
+    space, chosen = engine.workspace, settings.load()
     found = None if space is None else {
         'name': space.name, 'repository': space.address, 'path': str(space.repo),
         'folder': space.folder, 'branch': space.branch, 'share_when': WHEN[space.share],
@@ -115,6 +129,7 @@ def describe(engine) -> dict:
     return {'configured': space is not None, 'workspace': found,
             'suggested': None if space is not None else suggested(values),
             'shared': values, 'shared_problem': unread,
+            'team_moved': moved(space, values), 'shared_notice': notice(),
             'notify': {'on': chosen.notify, 'can': can, 'problem': problem},
             'updates': {'look': chosen.look_for_updates},
             'upkeep': keeping.report() if keeping is not None else None,
@@ -145,6 +160,7 @@ def save_brand(engine, sent: dict) -> dict:
     if repository is None:
         settings.save(replace(kept, brand_repository=None, brand_release=None))
         return describe(engine)
+    studios_config.writable()   # before git is asked anything
     found = brand_source.check(repository, release, _anywhere())
     settings.save(replace(kept, brand_repository=found['repository'],
                           brand_release=found['release']))
@@ -155,28 +171,11 @@ def save_brand(engine, sent: dict) -> dict:
     return describe(engine)
 
 
-def suggested(values: dict) -> dict | None:
-    """The workspace the studios config names, for a computer with none set up yet."""
-    team = values.get('team') or {}
-    if not team.get('repository'):
-        return None
-    return {'repository': team['repository'], 'branch': team.get('branch'),
-            'share_when': WHEN.get(values.get('share'))}
-
-
 # --- the studios config ------------------------------------------------------------------
 
 def _group(found: dict, name: str) -> dict:
-    value = found.get(name)
+    value = found.get(name) if name else None
     return value if isinstance(value, dict) else {}
-
-
-def _passes(check, *args):
-    """What a check of Settings makes of a value, or None where it refuses it."""
-    try:
-        return check(*args)
-    except WorkspaceError:
-        return None
 
 
 def _address(value) -> str | None:
@@ -203,23 +202,17 @@ def shared() -> tuple[dict, str | None]:
     shape, and a sentence when the file could not be read. A value that would be refused
     here is left out."""
     found, problem = studios_config.read()
-    team, person, assistant, brand = (_group(found, name)
-                                      for name in ('team', 'person', 'assistant', 'brand'))
-    named = assistant.get('agent')
-    agent = None if named is None else _passes(settings.check_agent, named)
-    # A model or a level named for an agent Presentation Studio does not have is not for it.
-    usable = named is None or agent is not None
-    model = _passes(settings.check_model, assistant.get('model')) if usable else None
-    effort = _passes(settings.check_effort, assistant.get('effort'),
-                     agent or settings.Settings().agent, model) if usable else None
+    team = _group(found, 'team')
+    usable = settings.from_shared(found)
     values = {
         'team': {'repository': _address(team.get('repository')),
                  'branch': _branch(team.get('branch'))},
-        'person': {'name': _passes(settings.check_name, person.get('name'))},
-        'assistant': {'agent': agent, 'model': model, 'effort': effort},
-        'brand': {'brand': _passes(settings.check_word, brand.get('brand'), 'brand'),
-                  'variant': _passes(settings.check_word, brand.get('variant'), 'variant')},
-        'output': found.get('output') if found.get('output') in settings.OUTPUTS else None,
+        'person': {'name': usable['name']},
+        'assistant': {name: usable[name] for name in ('agent', 'model', 'effort')},
+        'brand': {'repository': usable['brand_repository'],
+                  'release': usable['brand_release'],
+                  'brand': usable['brand'], 'variant': usable['variant']},
+        'output': usable['output'],
         'share': found.get('share') if found.get('share') in gitstate.SHARE else None}
     kept = {}
     for key, value in values.items():
@@ -230,74 +223,112 @@ def shared() -> tuple[dict, str | None]:
     return kept, problem
 
 
-def base() -> settings.Settings:
-    """This computer's settings. Until it has saved any, the built-in defaults with what the
-    studios config shares in their place."""
-    if settings.path().is_file():
-        return settings.load()
-    values, _ = shared()
-    assistant, brand = values.get('assistant') or {}, values.get('brand') or {}
-    wanted = {name: assistant[name] for name in ('agent', 'model', 'effort')
-              if name in assistant}
-    wanted.update({name: brand[name] for name in ('brand', 'variant') if name in brand})
-    if 'name' in (values.get('person') or {}):
-        wanted['name'] = values['person']['name']
-    if 'output' in values:
-        wanted['output'] = values['output']
-    try:
-        return settings.check(replace(settings.Settings(), **wanted))
-    except WorkspaceError:
-        return settings.Settings()
-
-
-def _values(space, chosen: settings.Settings | None) -> dict:
-    """What this computer's set-up says of the values every studio may share."""
-    said = {}
-    if space is not None and space.address:
-        said['team'] = {'repository': space.address, 'branch': space.branch}
-        said['share'] = space.share
-    if chosen is not None:
-        said['assistant'] = {'agent': chosen.agent, 'model': chosen.model,
-                             'effort': chosen.effort}
-        if chosen.name is not None:
-            said['person'] = {'name': chosen.name}
-        if chosen.brand is not None:
-            said['brand'] = {'brand': chosen.brand, 'variant': chosen.variant}
-        said['output'] = chosen.output
-    return said
+def suggested(values: dict) -> dict | None:
+    """The workspace the studios config names, for a computer with none set up yet."""
+    team = values.get('team') or {}
+    if not team.get('repository'):
+        return None
+    return {'repository': team['repository'], 'branch': team.get('branch'),
+            'share_when': WHEN.get(values.get('share'))}
 
 
 def _same(one, other) -> bool:
     return type(one) is type(other) and one == other
 
 
-def share_all(before: dict, after: dict) -> dict:
-    """Write into the studios config each shared value this save changed, where the file
-    says otherwise. Answers {"written": [keys], "problem": a sentence or None}."""
+def same_address(one: str | None, other: str | None) -> bool:
+    """Whether two addresses name one repository, as a person would write it either way."""
+    def plain(address: str) -> str:
+        return address.strip().rstrip('/').removesuffix('.git')
+    return bool(one and other) and plain(one) == plain(other)
+
+
+def moved(space, values: dict) -> dict | None:
+    """The team repository every studio shares, when this computer's workspace is a copy of
+    another one, with a sentence that says so. None when they are one, and for a folder."""
+    team = values.get('team') or {}
+    wanted = team.get('repository')
+    if space is None or space.address is None or not wanted \
+            or same_address(wanted, space.address):
+        return None
+    return {'repository': wanted, 'branch': team.get('branch'),
+            'says': f'The team repository your studios share is now {wanted}, and '
+                    f'Presentation Studio still works in its copy of {space.address} until '
+                    'you join the new one.'}
+
+
+# What the person is told of a value the file held already, when this computer had another.
+LABELS = {'agent': 'the agent', 'model': 'the model', 'effort': 'the reasoning level',
+          'name': 'your name', 'brand': 'the brand', 'variant': 'the variant',
+          'output': 'the output', 'brand_repository': "the brand skill's repository",
+          'brand_release': "the brand skill's release", 'share': 'when to share'}
+
+
+def notice_path() -> Path:
+    return home.data_root() / 'studios-notice.json'
+
+
+def notice() -> str | None:
+    """What the person is told, once, of what moving to the studios config left alone."""
+    kept = home.read_json(notice_path(), None)
+    says = kept.get('says') if isinstance(kept, dict) else None
+    return says if isinstance(says, str) and says else None
+
+
+def seen() -> None:
+    """The person has read the notice: it is not shown again."""
+    notice_path().unlink(missing_ok=True)
+
+
+def _words(labels: list[str]) -> str:
+    return labels[0] if len(labels) == 1 else ', '.join(labels[:-1]) + ' and ' + labels[-1]
+
+
+def migrate() -> list[str]:
+    """Move the shared values this computer kept as its own into the studios config, where it
+    has none of them, and take them out of this computer's files. A value the file holds
+    already is left as it is, and the notice says so. Answers what was written, as the keys
+    of the file, such as "assistant.agent". Nothing moves while the file cannot be read or
+    written: this computer's own copies then wait for the next start."""
     found, problem = studios_config.read()
     if problem:
-        return {'written': [], 'problem': problem}
-    changes, written = {}, []
-    for key, value in after.items():
-        was, held = before.get(key, MISSING), found.get(key)
-        if not isinstance(value, dict):
-            if not _same(value, was) and not _same(value, held):
-                changes[key] = value
-                written.append(key)
-            continue
-        was = was if isinstance(was, dict) else {}
-        held = held if isinstance(held, dict) else {}
-        for name, inner in value.items():
-            if _same(inner, was.get(name, MISSING)) or _same(inner, held.get(name)):
-                continue
-            changes.setdefault(key, {})[name] = inner
-            written.append(f'{key}.{name}')
+        return []
+    mine = [(*settings.SHARED[name], name, value) for name, value in settings.own().items()]
+    record = gitstate.current()
+    if record is not None and record.address:
+        share = gitstate.own_share()
+        if share:
+            mine.append((None, 'share', 'share', share))
+        team = _group(found, 'team')
+        mine.append(('team', 'repository', None, record.address))
+        if team.get('repository') is None or same_address(team['repository'], record.address):
+            mine.append(('team', 'branch', None, record.branch))
+    changes, differed = {}, []
+    for group, key, name, value in mine:
+        if group is not None and found.get(group) is not None \
+                and not isinstance(found[group], dict):
+            continue    # a value of the file's own that is not an object is not replaced
+        held = _group(found, group).get(key) if group else found.get(key)
+        if held is None:
+            (changes.setdefault(group, {}) if group else changes)[key] = value
+        elif not _same(held, value) and name is not None:
+            differed.append(LABELS[name])
     if changes:
         try:
             studios_config.update(changes)
-        except WorkspaceError as refusal:
-            return {'written': [], 'problem': str(refusal)}
-    return {'written': written, 'problem': None}
+        except WorkspaceError:
+            return []
+    settings.forget_own()
+    gitstate.forget_own_share()
+    if differed:
+        home.write_json(notice_path(), {'says': (
+            f'Presentation Studio now keeps the values every studio shares only in '
+            f'{studios_config.shown(studios_config.path())}, which already named '
+            f'{_words(differed)}, so those are used now in place of what this computer had '
+            'chosen.')})
+    return [f'{key}.{name}' if isinstance(value, dict) else key
+            for key, value in changes.items()
+            for name in (value if isinstance(value, dict) else [None])]
 
 
 # --- what was sent -----------------------------------------------------------------------
@@ -500,8 +531,8 @@ def check(sent: dict) -> dict:
 # --- setting it up -----------------------------------------------------------------------
 
 def chosen(sent: dict) -> settings.Settings:
-    """This computer's settings, with what was sent in place of what was saved."""
-    kept = base()
+    """The settings, with what was sent in place of what was saved."""
+    kept = settings.load()
     limits = sent.get('limits')
     if limits is not None and not isinstance(limits, dict):
         raise WorkspaceError('Give the limits as step_seconds, deck_dollars and parallel.')
@@ -535,20 +566,28 @@ def read(sent: dict) -> dict:
         gitstate.check_name(name, 'A workspace name')
     if when is not None and when not in SHARE:
         raise WorkspaceError('Sharing is one of: ' + ', '.join(SHARE) + '.')
-    every = sent.get('for_all_studios', False)
-    if not isinstance(every, bool):
-        raise WorkspaceError('Say whether this is for all your studios as true or false.')
     return {'repository': repository, 'path': whole(path) if path else None,
-            'for_all_studios': every, 'brand_skill': sent.get('brand_skill'),
+            'brand_skill': sent.get('brand_skill'),
             'folder': folder, 'branch': branch, 'name': name,
             'share': SHARE[when] if when else None, 'settings': chosen(sent)}
 
 
+def _team(joined: gitstate.Workspace) -> None:
+    """Make the team repository just joined the one every studio shares, with its branch
+    where the file names no branch for that repository."""
+    held = _group(studios_config.read()[0], 'team')
+    team = {'repository': joined.address}
+    if held.get('branch') is None or not same_address(held.get('repository'), joined.address):
+        team['branch'] = joined.branch
+    studios_config.update({'team': team})
+
+
 def apply(engine, wanted: dict) -> dict:
-    """Set the workspace up, save this computer's settings, and describe both.
+    """Set the workspace up, save the settings, and describe both.
 
     Without a repository or a folder, the workspace stays as it is and only the settings
-    and when to share change.
+    and when to share change. A save that changes a value every studio shares is refused
+    before anything changes while the studios config cannot be read.
     """
     repository, path, share = wanted['repository'], wanted['path'], wanted['share']
     named = wanted.get('brand_skill')
@@ -558,7 +597,14 @@ def apply(engine, wanted: dict) -> dict:
     if wanted['settings'].notify and not can:
         raise WorkspaceError(problem)
     before = engine.workspace
-    was = _values(before, settings.load() if settings.path().is_file() else None)
+    team = bool(repository) and (before is None or not same_address(before.address,
+                                                                     repository))
+    # When to share belongs to a team workspace: a folder on this computer never sets it.
+    if not (repository or (not path and before is not None and before.address)) \
+            or share == gitstate.shared_share():
+        share = None
+    if team or share or settings.changes(settings.load(), wanted['settings']):
+        studios_config.writable()
     if not repository and not path:
         if share:
             gitstate.share_when(share)
@@ -574,12 +620,10 @@ def apply(engine, wanted: dict) -> dict:
                 gitstate.join(repository, wanted['folder'], wanted['branch'],
                               wanted['name'], share)
             else:
-                gitstate.local(path, wanted['folder'], wanted['branch'], wanted['name'],
-                               share)
-    saved = settings.save(wanted['settings'])
+                gitstate.local(path, wanted['folder'], wanted['branch'], wanted['name'])
+            if team:
+                _team(gitstate.current())
+    settings.save(wanted['settings'])
     engine.saved()
     engine.resume()
-    if not wanted.get('for_all_studios'):
-        return describe(engine)
-    report = share_all(was, _values(gitstate.current(), saved))
-    return {**describe(engine), 'for_all_studios': report}
+    return describe(engine)

@@ -1,5 +1,6 @@
-"""The studios config: one file every *-studio reads for shared defaults, written only with
-consent. Every test points STUDIOS_CONFIG at a file in a temporary folder of its own."""
+"""The studios config: the one file of the values every *-studio shares, written when a
+shared value is saved. Every test points STUDIOS_CONFIG at a file in a temporary folder of
+its own."""
 import json
 import os
 import stat
@@ -213,6 +214,68 @@ class UpdateTests(StudiosConfigCase):
         studios_config.update({'share': 'asked'})
         self.assertTrue(self.file.is_symlink())
         self.assertEqual(json.loads(real.read_text())['share'], 'asked')
+
+
+class BrandSourceTests(StudiosConfigCase):
+    """The brand skill's repository and release are shared values too."""
+
+    def test_the_brand_skills_repository_and_release_are_written_and_kept(self):
+        self.write(THEIRS)
+        studios_config.update({'brand': {'repository': 'https://github.com/acme/brand.git',
+                                          'release': 'v1.4.0'}})
+        found, problem = studios_config.read()
+        self.assertIsNone(problem)
+        self.assertEqual(found['brand'], {'brand': 'acme', 'variant': 'light',
+                                          'repository': 'https://github.com/acme/brand.git',
+                                          'release': 'v1.4.0'})
+        text = self.file.read_text(encoding='utf-8')
+        self.assertTrue(text.startswith(THEIRS.split('"brand": {')[0]))
+        self.assertIn('"blog": {"tone": "plain", "drafts": 3', text)
+        studios_config.update({'brand': {'variant': 'dark'}})
+        self.assertEqual(studios_config.read()[0]['brand']['release'], 'v1.4.0',
+                         'a later write keeps them')
+
+    def test_they_are_checked_as_settings_checks_them(self):
+        self.write(THEIRS)
+        for brand, says in (
+                ({'repository': 'https://pat:secret@github.com/acme/brand.git'},
+                 'password or token'),
+                ({'repository': '-oProxyCommand=touch'}, 'as one address'),
+                ({'repository': 'https://github.com/acme/my brand'}, 'as one address'),
+                ({'repository': 'https://github.com/acme/brand.git', 'release': '-v1'},
+                 'as its tag'),
+                ({'repository': 'https://github.com/acme/brand.git', 'release': 'v1..2'},
+                 'as its tag'),
+                ({'release': 'v1.4.0'}, 'give the repository too')):
+            with self.subTest(brand=brand), self.assertRaisesRegex(WorkspaceError, says):
+                studios_config.update({'brand': brand})
+        self.assertEqual(self.file.read_text(encoding='utf-8'), THEIRS)
+
+    def test_a_release_is_checked_against_the_repository_the_file_holds(self):
+        self.write(THEIRS.replace('"brand": { "brand": "acme"',
+                                  '"brand": { "repository": "https://github.com/acme/b.git", '
+                                  '"brand": "acme"'))
+        studios_config.update({'brand': {'release': 'v2.0.0'}})
+        self.assertEqual(studios_config.read()[0]['brand']['release'], 'v2.0.0')
+        studios_config.update({'brand': {'repository': None, 'release': None}})
+        self.assertEqual(studios_config.read()[0]['brand']['repository'], None)
+
+
+class WritableTests(StudiosConfigCase):
+    def test_an_unreadable_file_says_built_in_defaults_are_used(self):
+        self.write('{"schema": 1, "team": ')
+        problem = studios_config.read()[1]
+        self.assertIn('could not be read (it is not valid JSON)', problem)
+        self.assertIn('built-in defaults', problem)
+        with self.assertRaisesRegex(WorkspaceError, 'no value every studio shares can be '
+                                    'saved until it can'):
+            studios_config.writable()
+        self.assertEqual(self.file.read_text(), '{"schema": 1, "team": ')
+
+    def test_a_readable_file_or_none_can_be_written(self):
+        studios_config.writable()
+        self.write(THEIRS)
+        studios_config.writable()
 
 
 if __name__ == '__main__':

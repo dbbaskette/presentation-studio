@@ -23,6 +23,7 @@ import helpers
 from runner_support import FORM, StudioCase, fails
 
 import server
+import studios_config
 from runner import engine as engines
 from runner import gitstate, page, settings, studio, upkeep
 
@@ -109,6 +110,16 @@ class ServeTests(StudioCase):
         printed = out.getvalue()
         self.assertEqual(printed.count('\n'), 1, 'one line, so a script can read it')
         return json.loads(printed)
+
+    def test_starting_moves_the_shared_values_kept_here_into_the_studios_config(self):
+        own = json.loads(settings.path().read_text())
+        settings.path().write_text(json.dumps({**own, 'agent': 'codex', 'name': 'Alex'}))
+        self.serve(True)
+        found = studios_config.read()[0]
+        self.assertEqual((found['assistant'], found['person']),
+                         ({'agent': 'codex'}, {'name': 'Alex'}))
+        self.assertNotIn('agent', json.loads(settings.path().read_text()))
+        self.assertEqual(settings.load().agent, 'codex')
 
     def test_to_a_terminal_it_prints_the_link_whole_and_opens_nothing(self):
         printed = self.serve(True)
@@ -345,8 +356,9 @@ class StatusTests(StudioCase):
         found = self.status()
         self.assertEqual(sorted(found), ['agent', 'brand', 'configured', 'decks', 'limits',
                                          'notify', 'output', 'person', 'previews', 'shared',
-                                         'shared_problem', 'suggested', 'updates', 'upkeep',
-                                         'version', 'workspace'])
+                                         'shared_notice', 'shared_problem', 'suggested',
+                                         'team_moved', 'updates', 'upkeep', 'version',
+                                         'workspace'])
         # What was found of the skills, looked at as they are: nothing is put back, and
         # nothing is asked online.
         self.assertEqual((found['upkeep'], found['updates']),
@@ -363,6 +375,10 @@ class StatusTests(StudioCase):
             {'path': str(failing), 'id': 'rolling-restarts', 'state': 'failed',
              'sentence': self.view(failing)['sentence']}])
         self.assertEqual(len(self.workers.jobs), 4, 'asking starts nothing')
+
+    def test_status_says_in_one_sentence_when_the_studios_config_cannot_be_read(self):
+        Path(os.environ['STUDIOS_CONFIG']).write_text('{"schema": ')
+        self.assertIn('built-in defaults', self.status()['shared_problem'])
 
     def test_status_before_anything_is_set_up(self):
         gitstate.settings_path().unlink()

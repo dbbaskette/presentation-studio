@@ -17,6 +17,7 @@ import helpers
 import runner_support  # noqa: F401
 
 import hub
+import studios_config
 from runner import gitstate
 from workspace import WorkspaceError
 
@@ -87,6 +88,7 @@ class WorkspaceCase(unittest.TestCase):
                 f'[user]\n\tname = {person.title()}\n\temail = {person}@example.com\n'
                 f"[init]\n\tdefaultBranch = main\n\ttemplateDir = {self.base / 'no-templates'}\n")
         os.environ.update({'PRESENTATION_STUDIO_DATA': str(folder / 'data'),
+                           'STUDIOS_CONFIG': str(folder / 'studios-config.json'),
                            'GIT_CONFIG_GLOBAL': str(folder / 'gitconfig'),
                            'GIT_CONFIG_NOSYSTEM': '1'})
 
@@ -174,7 +176,9 @@ class SetUpTests(WorkspaceCase):
         kept = json.loads(gitstate.settings_path().read_text())
         self.assertEqual(kept, {'schema': 1, 'name': 'team-repo', 'repo': str(workspace.repo),
                                 'folder': 'presentations', 'branch': 'main',
-                                'address': str(self.remote), 'share': 'asked'})
+                                'address': str(self.remote)})
+        # When to share is one of the values every studio shares, kept only in their file.
+        self.assertEqual(studios_config.read()[0]['share'], 'asked')
         self.assertEqual(gitstate.settings_path().parent, Path(os.environ['PRESENTATION_STUDIO_DATA']))
         self.assertEqual(gitstate.current(), workspace)
         marker = json.loads((workspace.root / 'hub.json').read_text())
@@ -191,6 +195,23 @@ class SetUpTests(WorkspaceCase):
             gitstate.share_when('hourly')
         with self.assertRaisesRegex(WorkspaceError, 'Sharing is one of: decision, asked'):
             self.join(share='hourly')
+
+    def test_when_to_share_is_read_from_the_studios_config_each_time(self):
+        workspace = self.join()
+        Path(os.environ['STUDIOS_CONFIG']).write_text('{"schema": 1, "share": "asked"}')
+        self.assertEqual(gitstate.current().share, 'asked', 'set in another studio')
+        Path(os.environ['STUDIOS_CONFIG']).write_text('{"schema": 1, "share": ')
+        self.assertEqual(gitstate.current().share, 'decision',
+                         'a file that cannot be read is the default')
+        with self.assertRaisesRegex(WorkspaceError, 'could not be read'):
+            gitstate.share_when('asked')
+        self.assertEqual(Path(os.environ['STUDIOS_CONFIG']).read_text(),
+                         '{"schema": 1, "share": ')
+        self.assertEqual(gitstate.current().repo, workspace.repo)
+
+    def test_a_folder_with_no_remote_never_writes_when_to_share(self):
+        gitstate.local(self.base / 'mine')
+        self.assertFalse(Path(os.environ['STUDIOS_CONFIG']).exists())
 
     def test_there_is_no_workspace_until_one_is_set_up(self):
         self.assertIsNone(gitstate.current())

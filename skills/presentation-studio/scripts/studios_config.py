@@ -1,38 +1,45 @@
-"""The studios config: one file of defaults that every *-studio on this computer shares.
+"""The studios config: the one file of the values every *-studio on this computer shares.
 
 What a caller needs to know
 ---------------------------
     found, problem = studios_config.read()       # ({}, None) when there is no file
-    studios_config.update({'share': 'asked'})     # only with the person's consent
+    studios_config.update({'share': 'asked'})     # when the person saves a shared value
+    studios_config.writable()                     # refuses while the file cannot be read
 
 - The file is `~/.config/studios-config.json`, or the one `STUDIOS_CONFIG` names, which is
   how tests keep away from a real one. Presentation Studio, Training Studio and Blog Studio
   read the same file, in this shape, where every key is optional:
 
       {"schema": 1, "team": {"repository", "branch"}, "person": {"name"},
-       "assistant": {"agent", "model", "effort"}, "brand": {"brand", "variant"},
-       "output", "share"}
+       "assistant": {"agent", "model", "effort"},
+       "brand": {"repository", "release", "brand", "variant"}, "output", "share"}
 
-  A studio ignores the keys it does not use and those it does not know. `null` is the same
-  as leaving a key out.
-- `read` never refuses. A file that cannot be read, is not JSON, is not an object or is of
-  another schema is read as empty, with a sentence that says so for the page to show. What
-  each value means to Presentation Studio, and whether it can be used, is `setup`'s to say.
-- `update` is called only when the person said a value is for all their studios. It
-  changes only the members it is given, by editing them in the file's own text, so every
-  other key keeps its bytes, its order and its layout, and a key it does not know is never
-  removed. A value that is the same already is not written, and nothing changed is no
-  write at all. The file is written whole or not at all, keeps its permissions, and a
-  link to it is written through. It refuses a team repository whose address carries a
-  password or a token, a value that is not plain, and a file it could not read.
+  It is the only place these values are kept: no studio keeps a copy of its own. A studio
+  ignores the keys it does not use and those it does not know. `null` is the same as
+  leaving a key out.
+- `read` never refuses, and reads the file afresh each time. A file that cannot be read, is
+  not JSON, is not an object or is of another schema is read as empty, with a sentence that
+  says so for the page to show. What each value means to Presentation Studio, and whether
+  it can be used, is `settings`' and `setup`'s to say.
+- `update` changes only the members it is given, by editing them in the file's own text, so
+  every other key keeps its bytes, its order and its layout, and a key it does not know is
+  never removed. A value that is the same already is not written, and nothing changed is no
+  write at all. The file is written whole or not at all, keeps its permissions, and a link
+  to it is written through. It refuses a repository address that carries a password or a
+  token, a value that is not plain, and a file it could not read, which it leaves as it is.
+  `brand.repository` and `brand.release` are checked as `check_repository` and
+  `check_release` check them: one address git takes, and a release tag, which needs a
+  repository, given or already in the file. `runner/settings.py` uses the same two checks.
 - Nothing secret belongs in the file: tokens and sign-ins stay with gcloud, gh and git.
-- Only the runner uses this file, through `runner/setup.py`. It sits in the core beside
-  `hub`, whose check of an address it shares.
+- Only the runner uses this file, through `runner/settings.py`, `runner/setup.py` and
+  `runner/gitstate.py`. It sits in the core beside `hub`, whose check of an address it
+  shares.
 """
 from __future__ import annotations
 
 import json
 import os
+import re
 import secrets
 from json import decoder
 from pathlib import Path
@@ -46,6 +53,12 @@ GROUPS = ('team', 'person', 'assistant', 'brand')   # keys whose value is an obj
 WORDS = ('output', 'share')                         # keys whose value is a word
 SECRET = ('That address carries a password or token. Give the address without it; git '
           'signs in with your own credentials.')
+ADDRESS = 2000                                  # characters in a repository's address
+RELEASE = re.compile(r'^[\w][\w.+-]{0,99}$')     # a release tag's name, as git takes it
+USING = (', so Presentation Studio uses its built-in defaults for the values every studio '
+         'shares, and saves none of them, until it can be read.')
+REFUSED = (', so no value every studio shares can be saved until it can, and the file was '
+           'left as it is.')
 SPACE = decoder.WHITESPACE
 DECODE = json.JSONDecoder()
 
@@ -67,8 +80,34 @@ def shown(where: Path) -> str:
 
 
 def _unreadable(where: Path, why: str) -> str:
-    return (f'{shown(where)} could not be read ({why}), so Presentation Studio is using '
-            'its own settings.')
+    return f'{shown(where)} could not be read ({why}){USING}'
+
+
+def check_repository(address) -> str | None:
+    """The brand skill's repository as an address git takes, or None for none."""
+    if address is None or address == '':
+        return None
+    if not isinstance(address, str) or not address.strip() or len(address) > ADDRESS \
+            or any(mark.isspace() or ord(mark) < 32 for mark in address.strip()) \
+            or address.strip().startswith('-'):
+        raise WorkspaceError("Give the brand skill's repository as one address, such as "
+                             'https://github.com/your-org/your-brand.git.')
+    if hub.ADDRESS_WITH_SECRET.match(address.strip()):
+        raise WorkspaceError(SECRET)
+    return address.strip()
+
+
+def check_release(release, repository: str | None = None) -> str | None:
+    """A release tag's name, or None for the newest. A release needs a repository."""
+    if release is None or release == '':
+        return None
+    if not isinstance(release, str) or not RELEASE.match(release) or '..' in release:
+        raise WorkspaceError('Give the release as its tag, such as v1.4.0, or nothing for '
+                             'the newest.')
+    if repository is None:
+        raise WorkspaceError("A release is chosen from the brand skill's repository: give "
+                             'the repository too.')
+    return release
 
 
 def _parsed(where: Path, text: str) -> tuple[dict, str | None]:
@@ -112,8 +151,9 @@ def _plain(value) -> bool:
     return value is None or isinstance(value, (str, bool, int, float))
 
 
-def _check(changes) -> None:
-    """Refuse what is not for this file: a value that is not plain, or a secret."""
+def _check(changes, found: dict) -> None:
+    """Refuse what is not for this file: a value that is not plain, a secret, or a brand
+    skill's repository or release that `check_repository` or `check_release` refuses."""
     if not isinstance(changes, dict) or 'schema' in changes:
         raise WorkspaceError('Give the shared values as the studios config names them.')
     for key, value in changes.items():
@@ -126,6 +166,14 @@ def _check(changes) -> None:
     address = (changes.get('team') or {}).get('repository')
     if isinstance(address, str) and hub.ADDRESS_WITH_SECRET.match(address.strip()):
         raise WorkspaceError(SECRET)
+    brand = changes.get('brand')
+    if isinstance(brand, dict) and ('repository' in brand or 'release' in brand):
+        held = found.get('brand') if isinstance(found.get('brand'), dict) else {}
+        repository = brand['repository'] if 'repository' in brand else held.get('repository')
+        if 'repository' in brand:
+            check_repository(repository)
+        if 'release' in brand:
+            check_release(brand['release'], repository or None)
 
 
 def _object(text: str, at: int) -> tuple[list, int]:
@@ -182,10 +230,16 @@ def _edits(text: str, at: int, changes: dict, current: dict) -> list:
     return edits
 
 
+def writable() -> None:
+    """Refuse, with a sentence, while the file cannot be read: nothing may be written then."""
+    problem = read()[1]
+    if problem:
+        raise WorkspaceError(problem.removesuffix(USING) + REFUSED)
+
+
 def update(changes: dict) -> dict:
     """Write these values into the file, merged with what it holds, and return what it then
     holds. `changes` is shaped as the file is: {"share": ..., "team": {"branch": ...}}."""
-    _check(changes)
     where = path()
     target = where.resolve() if where.is_symlink() else where
     text, problem = _text(target)
@@ -193,8 +247,8 @@ def update(changes: dict) -> dict:
     if text is not None:
         found, problem = _parsed(where, text)
     if problem:
-        raise WorkspaceError(problem.removesuffix(', so Presentation Studio is using its own '
-                                                  'settings.') + ', so it was left as it is.')
+        raise WorkspaceError(problem.removesuffix(USING) + REFUSED)
+    _check(changes, found)
     if text is None:
         written = json.dumps({'schema': SCHEMA, **changes}, indent=2, ensure_ascii=False) + '\n'
     else:
