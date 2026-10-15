@@ -8,7 +8,8 @@ What a caller needs to know
     shown = look.preview_options(root, run, slides, renderer)   # [{'name', 'why', 'image'}]
     shown = look.draw_options(root, run, slides, renderer)      # the same in two: work/ only,
     look.show_options(root, run, shown)                          #   then look.md and the gate
-    look.choose(root, run, name, note=None)              # look.json, outline.json, gate approved
+    look.choose(root, run, name, note=None)              # look.json, outline.json, gate approved;
+                                                         #   name, "Option <n>" or <n>
 
 - The options are handed back as `look`, a kind checked by `check_look` and registered
   here: {"options": [{"name", "direction": {"focal", "neutral", "meanings"?, "motif"?},
@@ -29,6 +30,7 @@ What a caller needs to know
 from __future__ import annotations
 
 import json
+import re
 import secrets
 import shutil
 from pathlib import Path
@@ -310,12 +312,20 @@ def choose(root, run: dict, name: str, note: str | None = None) -> None:
     approval in outline.json. The gate is approved."""
     root = Path(root)
     options = _options(root)
-    wanted = str(name or '').strip().lower()
-    option = next((one for one in options
-                   if str(one.get('name') or '').strip().lower() == wanted), None)
-    if option is None:
+    # The page calls a look with no name "Option <n>", so that, or the number alone, is the
+    # look at that place.
+    called = [str(one.get('name') or '').strip() or f'Option {number}'
+              for number, one in enumerate(options, start=1)]
+    wanted = ' '.join(str(name or '').split()).lower()
+    numbered = re.fullmatch(r'(?:option )?(\d+)', wanted)
+    place = next((number for number, said in enumerate(called) if said.lower() == wanted),
+                 None)
+    if place is None and numbered and 1 <= int(numbered[1]) <= len(options):
+        place = int(numbered[1]) - 1
+    if place is None:
         raise WorkspaceError('Choose one of the looks shown: '
-                             + ', '.join(f'"{one.get("name")}"' for one in options) + '.')
+                             + ', '.join(f'"{said}"' for said in called) + '.')
+    option = {**options[place], 'name': called[place]}
     at = home.now()
     note = (note or '').strip() or None
     write_atomic(root / LOOK_JSON, json.dumps(

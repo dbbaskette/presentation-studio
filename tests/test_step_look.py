@@ -157,6 +157,26 @@ class ChooseTests(Case):
         self.assertIn('"Calm grid"', str(caught.exception))
         self.assertFalse((self.root / 'look.json').exists())
 
+    def test_a_look_with_no_name_is_chosen_by_what_the_page_calls_it(self):
+        """The page names a look that has none "Option <n>"; that, or the number alone, is
+        the look at that place."""
+        kept = options(3)
+        kept['options'][1]['name'] = ''
+        (self.root / look.KEPT).parent.mkdir(parents=True, exist_ok=True)
+        (self.root / look.KEPT).write_text(json.dumps(kept), encoding='utf-8')
+        for said in ('Option 2', '2'):
+            with self.subTest(said=said):
+                look.choose(self.root, self.run_, said)
+                chosen = json.loads((self.root / 'look.json').read_text())
+                self.assertEqual((chosen['chosen'], chosen['direction']),
+                                 ('Option 2', DIRECTIONS[1]))
+                self.assertEqual(decks.read_run(self.root)['look'], 'Option 2')
+        for said in ('Option 4', '0', 'Option'):
+            with self.subTest(said=said):
+                with self.assertRaises(WorkspaceError) as caught:
+                    look.choose(self.root, self.run_, said)
+                self.assertIn('"Option 2"', str(caught.exception))
+
     def test_the_chosen_direction_reaches_the_build(self):
         look.keep_look(self.root, self.run_, json.dumps(options(3)))
         look.choose(self.root, self.run_, 'Quiet ink')

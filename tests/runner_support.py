@@ -728,10 +728,13 @@ class Workers:
         tools.submit_review('Two questions.')
 
     def question(self, tools, job):
-        tools.save_source(URL)
+        # The page is saved under the next free ID: s1, unless the person's own documents
+        # were saved first.
+        said = tools.save_source(URL)[1]
+        saved = said.split(' as ', 1)[1].split(':', 1)[0]
         ident = tools.job['finding']
         self._ok(tools.submit_finding(ident, 'supported', f'What the page says about {ident}.',
-                                      evidence=[{'source_id': 's1', 'quote': QUOTE}]))
+                                      evidence=[{'source_id': saved, 'quote': QUOTE}]))
 
     def outline(self, tools, job):
         said = json.dumps(self.outline_said)

@@ -3349,7 +3349,7 @@ function outlineEdited(gate) {
 // A name for a slide that is added, unlike every other slide's.
 function newSlideId(title, slides) {
   const base = 'added-' + (String(title).toLowerCase().replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '').slice(0, 40) || 'slide');
+    .replace(/^-+|-+$/g, '').slice(0, 28).replace(/-+$/, '') || 'slide');
   let ident = base;
   for (let number = 2; slides.some((one) => one.id === ident); number += 1) {
     ident = base + '-' + number;
@@ -3452,7 +3452,10 @@ function outlinePanel(gate, readonly) {
         return;
       }
       const work = outlineWork(gate);
-      work.push({ id: newSlideId(title, work), kind: 'content', title });
+      // A content slide as the outline contract has it: the person's request is what it
+      // rests on, and its points are left for the build to fill.
+      work.push({ id: newSlideId(title, work), kind: 'content', title, understand: title,
+        relation: 'none', points: [], sources: ['request'] });
       held.adding = '';
       byId('outline-add').value = '';
       outlineEdited(gate);

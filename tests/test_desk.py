@@ -380,6 +380,31 @@ class ScreenTests(ScriptedPage, PageCase):
         self.assertIn('/api/download?path=', ' '.join(
             request['address'] for request in result['requests']))
 
+    def test_a_slide_added_and_moved_on_the_page_is_an_outline_the_slides_tool_takes(self):
+        path = self.started()
+        drafted = self.run_of(path)['gate']['slides']
+        title = 'Watch each batch of the restart closely'
+        result = self.deck_screen(path, [
+            {'fill': 'A new slide’s title', 'value': title}, {'click': 'Add the slide'},
+            {'click': f'Move “{title}” up'}, {'click': 'Approve'}, {'click': 'Approve'}],
+            **{'POST /api/decide': [ok(self.run_of(path))]})
+        approval = [body for address, body in self.posts(result)
+                    if address == '/api/decide'][-1]
+        edited = approval['extra']['edited']
+        added = edited[-2]
+        self.assertEqual([one['id'] for one in edited[:-2]],
+                         [one['id'] for one in drafted[:-1]])
+        self.assertEqual(edited[-1]['id'], drafted[-1]['id'])
+        self.assertEqual((added['kind'], added['title']), ('content', title))
+        self.assertRegex(added['id'], r'^[a-zA-Z_][a-zA-Z0-9_-]{4,40}$')
+        # The scripted workers draw the outline they are given, as it now stands.
+        self.workers.outline_said = {**self.workers.outline_said, 'slides': edited}
+        # What the page sent is checked by the slides tool and kept, for real.
+        self.post('decide', approval)
+        self.assertEqual(self.run_of(path)['gate']['name'], 'gate:look')
+        kept = json.loads((Path(path) / 'outline.json').read_text())
+        self.assertEqual([one['id'] for one in kept['slides']], [one['id'] for one in edited])
+
     def test_an_existing_deck_shows_its_slides_at_classify(self):
         path = self.started(route='existing', level='polish',
                             source={'kind': 'upload', 'name': 'old.pptx'},
