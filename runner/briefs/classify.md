@@ -15,7 +15,7 @@ A document that has a few slide-like headings but is mostly prose is material. W
 
 ## Hand back
 
-Call `submit_artifact` with the name your task gives and this JSON as its text, with nothing before or after it:
+Call `submit_artifact` under the name `classification`, with this JSON as its text, with nothing before or after it:
 
 ```json
 {"kind": "spec", "reason": "Each section is headed Slide 1, Slide 2 and so on, with its words.", "slides": 12}

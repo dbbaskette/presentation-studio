@@ -21,9 +21,9 @@ Each option is a different idea of the deck, not a different colouring of one id
 
 Offer two or three options. They must differ in how they use space, scale and emphasis, not only in the colour they choose. Use only the brand's colour and type names.
 
-## See them
+## Seeing them
 
-If you are given `check_section` and `preview_section`, wrap each option's composition as a section of that one slide: check it with `check_section` until it compiles, then render it with `preview_section` and look at the picture. You have only a few previews, so look at the strongest version of each option. Drop an option you cannot make work rather than hand in a broken one.
+You are not given a way to render a drawing. The options you hand back are each drawn by the runner afterwards and shown to the person, so make each composition one that compiles cleanly in the contract's format, with only the brand's colour and type names.
 
 ## Hand back
 
@@ -33,4 +33,4 @@ Call `submit_artifact` under the name `look`, with this JSON as its text and not
 {"options": [{"name": "...", "direction": {"focal": "...", "neutral": "..."}, "why": "...", "composition": {}}]}
 ```
 
-If it comes back with problems, fix them and hand it back again. Then stop. Your last message can be one line. Nobody can answer questions in this job: choose, and say in "why" what you chose.
+Hand back all the options in one go. If it comes back with problems, fix them and hand it back again. Then stop. Your last message can be one line. Nobody can answer questions in this job: choose, and say in "why" what you chose.
