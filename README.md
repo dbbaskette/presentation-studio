@@ -1,3 +1,5 @@
+> **Presentation Studio has moved.** Development, installation, issues, and new releases are now in [Marketing Studio](https://github.com/dbbaskette/marketing-studio/tree/main/studios/presentation). Use the [new installers](https://github.com/dbbaskette/marketing-studio/releases/latest). This repository is archived; historical source and release downloads remain available.
+
 # Presentation Studio
 
 Presentation Studio makes slide decks in your brand. You give it an idea, a document or a deck you already have, and it builds the deck with you one step at a time. Nothing moves forward until you approve it, and at each stop you see the real slides, not a description of them.
